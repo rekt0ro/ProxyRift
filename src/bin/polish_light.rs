@@ -3,10 +3,10 @@ use base64::Engine;
 use proxyrift::intelligence::IntelligenceModel;
 use proxyrift::light_training::{persist as persist_light_training, DatasetStats, TrainingRow};
 use proxyrift::singbox::{
+    validate_candidates_with_consumer_targets as validate_singbox_consumer_targets,
     validate_candidates_with_target_once as validate_singbox_target_once,
     validate_candidates_with_targets_once_with_minimum_body as validate_singbox_targets_once_with_minimum_body,
     validate_candidates_with_targets_once_with_sustained_stream as validate_singbox_targets_once_with_sustained_stream,
-    validate_candidates_with_consumer_targets as validate_singbox_consumer_targets,
 };
 use proxyrift::validator::{
     endpoint, is_light_consumer_compatible, rate_limit_events, read_lines,
