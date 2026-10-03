@@ -77,6 +77,9 @@ const PREVIOUS_COHORT_MIN_PERCENT: usize = 20;
 const OLDER_COHORT_MIN_PERCENT: usize = 10;
 const MIN_COHORT_RETENTION_COUNT: usize = 4;
 
+// The stream gate can reject a small number of transfer-qualified candidates. Keep a
+// bounded reserve so we can still fill the public selection target without weakening
+// any validation criteria.
 fn transfer_validation_target(selection_limit: usize) -> usize {
     if selection_limit == 0 {
         return 0;
@@ -1696,7 +1699,7 @@ async fn fill_transfer_gate(
                 selection_additional_potential_count(
                     &selected,
                     std::slice::from_ref(config),
-                    selection_limit,
+                    transfer_target,
                     max_per_endpoint,
                     max_per_family,
                 ) > 0
@@ -1710,11 +1713,11 @@ async fn fill_transfer_gate(
         let eligible_remaining = selection_additional_potential_count(
             &selected,
             &eligible_untested,
-            selection_limit,
+            transfer_target,
             max_per_endpoint,
             max_per_family,
         );
-        if selected.len().saturating_add(eligible_remaining) < selection_limit {
+        if selected.len().saturating_add(eligible_remaining) < transfer_target {
             println!(
                 "[INFO] ⏭️ [10 MiB] TARGET UNREACHABLE WITH CURRENT STRICT POOL | SELECTABLE: {} | UNTESTED ELIGIBLE: {} | TARGET/MAX: {} | CONTINUING BEST-EFFORT GATE",
                 selected.len(),
@@ -1723,7 +1726,7 @@ async fn fill_transfer_gate(
             );
         }
 
-        let remaining = selection_limit.saturating_sub(selected.len());
+        let remaining = transfer_target.saturating_sub(selected.len());
         let completion_grace = if remaining <= FINAL_TRANSFER_COMPLETION_GRACE_REMAINING {
             FINAL_TRANSFER_COMPLETION_GRACE_SECS
         } else {
@@ -1733,9 +1736,11 @@ async fn fill_transfer_gate(
             >= FINAL_TRANSFER_MAX_ELAPSED_SECS.saturating_add(completion_grace)
         {
             println!(
-                "[WARN] ⏱️ [10 MiB] TIME BUDGET REACHED | TESTED: {} | SELECTABLE: {} | STOPPING BEST-EFFORT GATE",
+                "[WARN] ⏱️ [10 MiB] TIME BUDGET REACHED | TESTED: {} | SELECTABLE: {} | VALIDATION TARGET: {} | PUBLISH TARGET: {} | STOPPING BEST-EFFORT GATE",
                 transfer_tested.len(),
-                selected.len()
+                selected.len(),
+                transfer_target,
+                selection_limit
             );
             return Ok(selected.len());
         }
@@ -1750,9 +1755,10 @@ async fn fill_transfer_gate(
 
         if transfer_tested.len() >= dynamic_test_limit {
             println!(
-                "[INFO] 🎯 [10 MiB] ADAPTIVE TEST BUDGET REACHED | TESTED: {} | SELECTABLE: {} | TARGET/MAX: {}",
+                "[INFO] 🎯 [10 MiB] ADAPTIVE TEST BUDGET REACHED | TESTED: {} | SELECTABLE: {} | VALIDATION TARGET: {} | PUBLISH TARGET: {}",
                 transfer_tested.len(),
                 selected.len(),
+                transfer_target,
                 selection_limit
             );
             return Ok(selected.len());
@@ -1781,7 +1787,7 @@ async fn fill_transfer_gate(
         target_tested_candidates[target_index].extend(batch.iter().cloned());
 
         println!(
-            "[INFO] 📥 [10 MiB] {} SLOTS REMAINING | TESTING {} CANDIDATES | ADAPTIVE MAX TESTS: {} | TARGET: {} | SCORE: {:.3} | QUARANTINED: {}",
+            "[INFO] 📥 [10 MiB] {} VALIDATION SLOTS REMAINING | TESTING {} CANDIDATES | ADAPTIVE MAX TESTS: {} | TARGET: {} | SCORE: {:.3} | QUARANTINED: {}",
             remaining,
             batch.len(),
             dynamic_test_limit,
@@ -1882,12 +1888,12 @@ async fn fill_transfer_gate(
         }
 
         println!(
-            "[INFO] ✅ [10 MiB] {}/{} PASSED IN {}s | TOTAL PASSED: {} | SLOTS REMAINING: {}",
+            "[INFO] ✅ [10 MiB] {}/{} PASSED IN {}s | TOTAL PASSED: {} | VALIDATION SLOTS REMAINING: {}",
             batch_passed,
             batch.len(),
             batch_elapsed,
             transfer_verified.len(),
-            selection_limit.saturating_sub(
+            transfer_target.saturating_sub(
                 select_verified_configs(
                     &transfer_verified.keys().cloned().collect::<Vec<_>>(),
                     transfer_target,
@@ -3434,7 +3440,8 @@ mod tests {
         select_transfer_target, select_verified_configs, select_verified_configs_with_cohort_floor,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, transfer_reserve_target,
-        update_transfer_target_state, LightBackend, ProxyMetrics, TransferTargetState,
+        transfer_validation_target, update_transfer_target_state, LightBackend, ProxyMetrics,
+        TransferTargetState,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
