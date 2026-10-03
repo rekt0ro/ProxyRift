@@ -1425,7 +1425,8 @@ async fn check_batch_targets(
             match client_for_port(
                 local_ports[index],
                 request_timeout,
-                policy.stability_attempts >= STRICT_STABILITY_ATTEMPTS,
+                policy.fresh_connections_each_request
+                    || policy.stability_attempts >= STRICT_STABILITY_ATTEMPTS,
             ) {
                 Ok(client) => clients.push(client),
                 Err(error) => {
@@ -1448,6 +1449,22 @@ async fn check_batch_targets(
         for attempt in 0..policy.stability_attempts {
             if active.is_empty() {
                 break;
+            }
+
+            if policy.fresh_connections_each_request {
+                for &entry_index in &active {
+                    let client =
+                        match client_for_port(local_ports[entry_index], request_timeout, true) {
+                            Ok(client) => client,
+                            Err(error) => {
+                                let _ = child.kill();
+                                let _ = child.wait();
+                                let _ = fs::remove_dir_all(&work);
+                                return Err(error);
+                            }
+                        };
+                    clients[entry_index] = client;
+                }
             }
 
             if policy.stability_attempts >= STRICT_STABILITY_ATTEMPTS
@@ -1553,10 +1570,10 @@ async fn check_batch_targets(
                 let mut secondary_attempts = vec![0usize; count];
                 let mut secondary_successes = vec![0usize; count];
 
-                for attempt in 0..STRICT_SECONDARY_ATTEMPTS {
+                for attempt in 0..policy.secondary_attempts {
                     let eligible = (0..count)
                         .filter(|&entry_index| {
-                            secondary_attempts[entry_index] < STRICT_SECONDARY_ATTEMPTS
+                            secondary_attempts[entry_index] < policy.secondary_attempts
                                 && successes[entry_index] >= policy.min_successful_attempts
                                 && (policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
                                     || late_streak[entry_index] >= STRICT_LATE_SUCCESS_STREAK)
@@ -1565,6 +1582,25 @@ async fn check_batch_targets(
 
                     if eligible.is_empty() {
                         break;
+                    }
+
+                    if policy.fresh_connections_each_request {
+                        for &entry_index in &eligible {
+                            let client = match client_for_port(
+                                local_ports[entry_index],
+                                request_timeout,
+                                true,
+                            ) {
+                                Ok(client) => client,
+                                Err(error) => {
+                                    let _ = child.kill();
+                                    let _ = child.wait();
+                                    let _ = fs::remove_dir_all(&work);
+                                    return Err(error);
+                                }
+                            };
+                            clients[entry_index] = client;
+                        }
                     }
 
                     let results = stream::iter(eligible)
@@ -1596,13 +1632,16 @@ async fn check_batch_targets(
                         }
                     }
 
-                    if attempt + 1 < STRICT_SECONDARY_ATTEMPTS {
+                    if attempt + 1 < policy.secondary_attempts
+                        && policy.stability_attempts >= STRICT_STABILITY_ATTEMPTS
+                    {
                         tokio::time::sleep(STRICT_INTER_ATTEMPT_DELAY).await;
                     }
                 }
 
                 for entry_index in 0..count {
-                    if secondary_successes[entry_index] >= STRICT_SECONDARY_MIN_SUCCESSFUL_ATTEMPTS
+                    if secondary_successes[entry_index]
+                        >= policy.secondary_min_successful_attempts
                     {
                         secondary_success[entry_index] = true;
                     }
@@ -1983,6 +2022,26 @@ pub async fn validate_candidates_with_targets_strict(
             STRICT_MIN_SUCCESSFUL_ATTEMPTS,
             STRICT_MIN_SUCCESSFUL_TARGETS,
         ),
+    )
+    .await
+}
+
+pub async fn validate_candidates_with_consumer_targets(
+    binary: &str,
+    candidates: &[String],
+    targets: &[&str],
+    workers: usize,
+    request_timeout: Duration,
+    max_latency_ms: f64,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    let _ = max_latency_ms;
+    validate_candidates_with_targets_policy(
+        binary,
+        candidates,
+        targets,
+        workers,
+        request_timeout,
+        ValidationPolicy::consumer(),
     )
     .await
 }
