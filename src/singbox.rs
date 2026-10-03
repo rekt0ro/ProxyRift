@@ -1450,22 +1450,6 @@ async fn check_batch_targets(
                 break;
             }
 
-            if policy.fresh_connections_each_request {
-                for &entry_index in &active {
-                    let client =
-                        match client_for_port(local_ports[entry_index], request_timeout, true) {
-                            Ok(client) => client,
-                            Err(error) => {
-                                let _ = child.kill();
-                                let _ = child.wait();
-                                let _ = fs::remove_dir_all(&work);
-                                return Err(error);
-                            }
-                        };
-                    clients[entry_index] = client;
-                }
-            }
-
             if policy.stability_attempts >= STRICT_STABILITY_ATTEMPTS
                 && STRICT_RECONNECT_AFTER_ATTEMPTS.contains(&(attempt + 1))
             {
@@ -1581,25 +1565,6 @@ async fn check_batch_targets(
 
                     if eligible.is_empty() {
                         break;
-                    }
-
-                    if policy.fresh_connections_each_request {
-                        for &entry_index in &eligible {
-                            let client = match client_for_port(
-                                local_ports[entry_index],
-                                request_timeout,
-                                true,
-                            ) {
-                                Ok(client) => client,
-                                Err(error) => {
-                                    let _ = child.kill();
-                                    let _ = child.wait();
-                                    let _ = fs::remove_dir_all(&work);
-                                    return Err(error);
-                                }
-                            };
-                            clients[entry_index] = client;
-                        }
                     }
 
                     let results = stream::iter(eligible)
