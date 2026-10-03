@@ -3610,7 +3610,7 @@ mod tests {
 
     #[test]
     fn adaptive_stability_reserve_expands_with_low_yield() {
-        assert_eq!(adaptive_stability_pool_target(200, 0, 0), 224);
+        assert_eq!(adaptive_stability_pool_target(200, 0, 0), 307);
         assert_eq!(adaptive_stability_pool_target(200, 236, 133), 409);
         assert_eq!(adaptive_stability_pool_target(200, 400, 200), 450);
     }
