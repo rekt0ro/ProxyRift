@@ -47,6 +47,11 @@ const STABILITY_TRANSFER_BATCH_SIZE: usize = 32;
 const STABILITY_TRANSFER_WORKERS: usize = 8;
 const STABILITY_TRANSFER_MAX_LATENCY_MS: f64 = 15000.0;
 const STABILITY_TRANSFER_MAX_ELAPSED_SECS: u64 = 5 * 60;
+const STABILITY_TARGET_SAFETY_FACTOR: f64 = 1.15;
+const STABILITY_TARGET_MIN_RESERVE: usize = 24;
+const STABILITY_COMPLETION_GRACE_REMAINING: usize = 24;
+const STABILITY_COMPLETION_GRACE_SECS: u64 = 90;
+const STABILITY_COMPLETION_BATCH_SIZE: usize = 8;
 const FINAL_TRANSFER_MAX_ELAPSED_SECS: u64 = 8 * 60;
 const FINAL_TRANSFER_COMPLETION_GRACE_SECS: u64 = 3 * 60;
 const FINAL_TRANSFER_COMPLETION_GRACE_REMAINING: usize = 32;
@@ -1132,6 +1137,118 @@ async fn validate_light_stream_continuity_batch(
 
 const FINAL_TRANSFER_RATE_LIMIT_TOLERANCE_PERCENT: u64 = 25;
 const FINAL_TRANSFER_RATE_LIMIT_SEVERE_PERCENT: u64 = 50;
+const FINAL_TRANSFER_TARGET_MIN_TESTS: usize = 8;
+const FINAL_TRANSFER_TARGET_RATE_LIMIT_PENALTY_PERCENT: u64 = 75;
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TransferTargetState {
+    tested: usize,
+    passed: usize,
+    rate_limits: u64,
+    elapsed_secs: u64,
+    batches: usize,
+    quarantined: bool,
+}
+
+fn transfer_target_pass_rate(state: &TransferTargetState) -> f64 {
+    if state.tested == 0 {
+        0.0
+    } else {
+        state.passed as f64 / state.tested as f64
+    }
+}
+
+fn transfer_target_score(state: &TransferTargetState) -> f64 {
+    if state.batches == 0 {
+        return 10.0;
+    }
+
+    let pass_rate = ((state.passed as f64 + 2.0) / (state.tested as f64 + 4.0)).clamp(0.05, 0.95);
+    let rate_limit_rate = if state.tested == 0 {
+        0.0
+    } else {
+        (state.rate_limits as f64 / state.tested as f64).clamp(0.0, 1.0)
+    };
+    let average_batch_secs = (state.elapsed_secs as f64 / state.batches.max(1) as f64).max(1.0);
+    let speed_factor = 30.0 / (30.0 + average_batch_secs);
+
+    pass_rate * speed_factor * (1.0 - rate_limit_rate.min(0.90))
+}
+
+fn should_quarantine_transfer_target(state: &TransferTargetState) -> bool {
+    if state.tested < FINAL_TRANSFER_TARGET_MIN_TESTS || state.batches == 0 {
+        return false;
+    }
+
+    let pass_rate = transfer_target_pass_rate(state);
+    let rate_limit_percent = state
+        .rate_limits
+        .saturating_mul(100)
+        .div_ceil(state.tested as u64);
+
+    if pass_rate == 0.0 {
+        return true;
+    }
+
+    if state.batches >= 2 && pass_rate < 0.15 {
+        return true;
+    }
+
+    rate_limit_percent >= FINAL_TRANSFER_TARGET_RATE_LIMIT_PENALTY_PERCENT && pass_rate < 0.25
+}
+
+fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
+    if states.is_empty() {
+        return None;
+    }
+
+    if let Some((index, _)) = states
+        .iter()
+        .enumerate()
+        .find(|(_, state)| !state.quarantined && state.batches == 0)
+    {
+        return Some(index);
+    }
+
+    let healthy = states
+        .iter()
+        .enumerate()
+        .filter(|(_, state)| !state.quarantined)
+        .max_by(|(_, left), (_, right)| {
+            transfer_target_score(left)
+                .partial_cmp(&transfer_target_score(right))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+    if let Some((index, _)) = healthy {
+        return Some(index);
+    }
+
+    states
+        .iter()
+        .enumerate()
+        .max_by(|(_, left), (_, right)| {
+            transfer_target_score(left)
+                .partial_cmp(&transfer_target_score(right))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(index, _)| index)
+}
+
+fn update_transfer_target_state(
+    state: &mut TransferTargetState,
+    tested: usize,
+    passed: usize,
+    rate_limits: u64,
+    elapsed_secs: u64,
+) {
+    state.tested = state.tested.saturating_add(tested);
+    state.passed = state.passed.saturating_add(passed.min(tested));
+    state.rate_limits = state.rate_limits.saturating_add(rate_limits);
+    state.elapsed_secs = state.elapsed_secs.saturating_add(elapsed_secs.max(1));
+    state.batches = state.batches.saturating_add(1);
+    state.quarantined = state.quarantined || should_quarantine_transfer_target(state);
+}
 
 fn adjust_transfer_workers(
     current: usize,
@@ -1156,6 +1273,36 @@ fn adjust_transfer_workers(
     }
 }
 
+fn adaptive_stability_target(
+    selection_limit: usize,
+    stability_tested: usize,
+    stability_passed: usize,
+    available_candidates: usize,
+) -> usize {
+    let base_target = selection_limit.min(STABILITY_TRANSFER_TEST_LIMIT);
+    if base_target == 0 || available_candidates == 0 {
+        return 0;
+    }
+
+    let available = available_candidates.min(STABILITY_TRANSFER_TEST_LIMIT);
+    if available <= base_target {
+        return available;
+    }
+
+    let observed_rate = if stability_tested < 32 {
+        0.75
+    } else {
+        ((stability_passed as f64 + 2.0) / (stability_tested as f64 + 4.0)).clamp(0.50, 0.95)
+    };
+
+    let estimated =
+        ((base_target as f64 / observed_rate) * STABILITY_TARGET_SAFETY_FACTOR).ceil() as usize;
+
+    estimated
+        .max(base_target.saturating_add(STABILITY_TARGET_MIN_RESERVE))
+        .min(available)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn fill_transfer_stability_gate(
     xray: &str,
@@ -1171,20 +1318,14 @@ async fn fill_transfer_stability_gate(
     max_per_family: usize,
 ) -> Result<usize, String> {
     let stability_started = Instant::now();
-    let stability_target = selection_limit
-        .saturating_mul(2)
-        .min(STABILITY_TRANSFER_TEST_LIMIT);
 
     loop {
-        if stability_started.elapsed().as_secs() >= STABILITY_TRANSFER_MAX_ELAPSED_SECS {
-            println!(
-                "[INFO] ⏱️ [1 MiB] STABILITY TIME BUDGET REACHED | STABLE: {} | TARGET: {} | TESTED: {}",
-                stability_verified.len(),
-                stability_target,
-                stability_tested.len()
-            );
-            return Ok(stability_verified.len());
-        }
+        let stability_target = adaptive_stability_target(
+            selection_limit,
+            stability_tested.len(),
+            stability_verified.len(),
+            final_verified.len(),
+        );
 
         if stability_verified.len() >= stability_target
             || stability_tested.len() >= STABILITY_TRANSFER_TEST_LIMIT
@@ -1204,8 +1345,35 @@ async fn fill_transfer_stability_gate(
             return Ok(stability_verified.len());
         }
 
+        let completion_mode = stability_verified.len() < selection_limit
+            && stability_verified
+                .len()
+                .saturating_add(STABILITY_COMPLETION_GRACE_REMAINING)
+                >= selection_limit;
+        let completion_grace = if completion_mode {
+            STABILITY_COMPLETION_GRACE_SECS
+        } else {
+            0
+        };
+        let elapsed_limit = STABILITY_TRANSFER_MAX_ELAPSED_SECS.saturating_add(completion_grace);
+
+        if stability_started.elapsed().as_secs() >= elapsed_limit {
+            println!(
+                "[INFO] ⏱️ [1 MiB] STABILITY TIME BUDGET REACHED | STABLE: {} | TARGET: {} | TESTED: {} | GRACE: {}s",
+                stability_verified.len(),
+                stability_target,
+                stability_tested.len(),
+                completion_grace
+            );
+            return Ok(stability_verified.len());
+        }
+
         let remaining_budget = STABILITY_TRANSFER_TEST_LIMIT.saturating_sub(stability_tested.len());
-        let batch_limit = remaining_budget.clamp(1, STABILITY_TRANSFER_BATCH_SIZE);
+        let batch_limit = if completion_mode {
+            remaining_budget.clamp(1, STABILITY_COMPLETION_BATCH_SIZE)
+        } else {
+            remaining_budget.clamp(1, STABILITY_TRANSFER_BATCH_SIZE)
+        };
         let batch =
             select_verified_configs(&untested, batch_limit, max_per_endpoint, max_per_family);
 
@@ -1215,14 +1383,24 @@ async fn fill_transfer_stability_gate(
 
         stability_tested.extend(batch.iter().cloned());
 
-        println!(
-            "[INFO] 📥 [1 MiB] STABLE POOL: {}/{} | TESTING {} CANDIDATES | TESTED: {}/{}",
-            stability_verified.len(),
-            stability_target,
-            batch.len(),
-            stability_tested.len(),
-            STABILITY_TRANSFER_TEST_LIMIT
-        );
+        if completion_mode {
+            println!(
+                "[INFO] 🎯 [1 MiB] COMPLETION MODE | STABLE: {} | NEED: {} | PRIORITIZING {} HIGHEST-RANKED UNTESTED CANDIDATES | GRACE: {}s",
+                stability_verified.len(),
+                selection_limit.saturating_sub(stability_verified.len()),
+                batch.len(),
+                completion_grace
+            );
+        } else {
+            println!(
+                "[INFO] 📥 [1 MiB] STABLE POOL: {}/{} | TESTING {} CANDIDATES | TESTED: {}/{}",
+                stability_verified.len(),
+                stability_target,
+                batch.len(),
+                stability_tested.len(),
+                STABILITY_TRANSFER_TEST_LIMIT
+            );
+        }
 
         let metadata = validate_light_transfer_stability_batch(
             xray,
@@ -1389,7 +1567,10 @@ async fn fill_transfer_gate(
 
     let mut transfer_workers = FINAL_TRANSFER_INITIAL_WORKERS;
     let mut clean_batches = 0usize;
-    let mut transfer_batch_index = 0usize;
+    let mut target_states =
+        vec![TransferTargetState::default(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
+    let mut target_tested_candidates =
+        vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     loop {
         let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
@@ -1504,17 +1685,20 @@ async fn fill_transfer_gate(
 
         transfer_tested.extend(batch.iter().cloned());
 
-        let target_count = proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len();
-        let target =
-            proxyrift::validator::STRICT_THROUGHPUT_TARGETS[transfer_batch_index % target_count];
-        transfer_batch_index = transfer_batch_index.wrapping_add(1);
+        let target_index = select_transfer_target(&target_states)
+            .ok_or_else(|| "no Light transfer validation targets configured".to_string())?;
+        let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
+        let target_state_before = target_states[target_index];
+        target_tested_candidates[target_index].extend(batch.iter().cloned());
 
         println!(
-            "[INFO] 📥 [10 MiB] {} SLOTS REMAINING | TESTING {} CANDIDATES | ADAPTIVE MAX TESTS: {} | DESTINATION: {}",
+            "[INFO] 📥 [10 MiB] {} SLOTS REMAINING | TESTING {} CANDIDATES | ADAPTIVE MAX TESTS: {} | TARGET: {} | SCORE: {:.3} | QUARANTINED: {}",
             remaining,
             batch.len(),
             dynamic_test_limit,
-            target
+            target,
+            transfer_target_score(&target_state_before),
+            target_state_before.quarantined
         );
 
         let rate_limits_before = rate_limit_events();
@@ -1527,6 +1711,51 @@ async fn fill_transfer_gate(
 
         let rate_limits_after = rate_limit_events();
         let rate_limits = rate_limits_after.saturating_sub(rate_limits_before);
+
+        let target_state_before = target_states[target_index];
+        update_transfer_target_state(
+            &mut target_states[target_index],
+            batch.len(),
+            batch_passed,
+            rate_limits,
+            batch_elapsed,
+        );
+        if target_states[target_index].quarantined && !target_state_before.quarantined {
+            let alternative_target_available = target_states
+                .iter()
+                .enumerate()
+                .any(|(index, state)| index != target_index && !state.quarantined);
+
+            println!(
+                "[WARN] ⚠️ [10 MiB] QUARANTINING TARGET FOR THIS RUN | TARGET: {} | TESTED: {} | PASSED: {} | PASS RATE: {:.1}% | RATE LIMITS: {}",
+                target,
+                target_states[target_index].tested,
+                target_states[target_index].passed,
+                transfer_target_pass_rate(&target_states[target_index]) * 100.0,
+                target_states[target_index].rate_limits
+            );
+
+            if alternative_target_available {
+                let mut requeued = 0usize;
+                for config in &target_tested_candidates[target_index] {
+                    if !transfer_verified.contains_key(config) && transfer_tested.remove(config) {
+                        requeued += 1;
+                    }
+                }
+
+                if requeued > 0 {
+                    println!(
+                        "[INFO] ↪️ [10 MiB] REQUEUED {} FAILED CANDIDATES AFTER TARGET QUARANTINE | TARGET: {}",
+                        requeued, target
+                    );
+                }
+            } else {
+                println!(
+                    "[WARN] ⚠️ [10 MiB] ALL TRANSFER TARGETS ARE QUARANTINED | KEEPING FAILED CANDIDATES CLOSED TO AVOID RETRY LOOP"
+                );
+            }
+        }
+
         let previous_workers = transfer_workers;
         let previous_clean_batches = clean_batches;
         (transfer_workers, clean_batches) =
@@ -2926,12 +3155,14 @@ async fn main() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_recheck_limit, adaptive_transfer_test_limit, adjust_transfer_workers,
-        has_disabled_tls_verification, history_fingerprint, light_backend, light_training_features,
-        merge_light_metadata, normalize_light_config, recheck_exploration_limit,
-        select_recheck_candidates, select_verified_configs, selection_additional_potential_count,
-        selection_eligible_count, selection_potential_count, selection_rejection_counts,
-        transfer_reserve_target, LightBackend, ProxyMetrics,
+        adaptive_recheck_limit, adaptive_stability_target, adaptive_transfer_test_limit,
+        adjust_transfer_workers, has_disabled_tls_verification, history_fingerprint, light_backend,
+        light_training_features, merge_light_metadata, normalize_light_config,
+        recheck_exploration_limit, select_recheck_candidates, select_transfer_target,
+        select_verified_configs, selection_additional_potential_count, selection_eligible_count,
+        selection_potential_count, selection_rejection_counts, should_quarantine_transfer_target,
+        transfer_reserve_target, update_transfer_target_state, LightBackend, ProxyMetrics,
+        TransferTargetState,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -3088,6 +3319,68 @@ mod tests {
     #[test]
     fn adaptive_transfer_budget_stops_when_target_is_already_met() {
         assert_eq!(adaptive_transfer_test_limit(200, 200, 320, 280, 20), 320);
+    }
+
+    #[test]
+    fn adaptive_stability_target_tracks_available_pool_and_yield() {
+        assert_eq!(adaptive_stability_target(200, 0, 0, 261), 261);
+        assert_eq!(adaptive_stability_target(200, 0, 0, 180), 180);
+        let low_yield = adaptive_stability_target(200, 256, 150, 500);
+        let high_yield = adaptive_stability_target(200, 256, 220, 500);
+        assert!(low_yield > high_yield);
+        assert!(high_yield >= 224);
+    }
+
+    #[test]
+    fn transfer_target_quarantine_requires_real_target_evidence() {
+        let zero_pass = TransferTargetState {
+            tested: 12,
+            passed: 0,
+            batches: 1,
+            ..TransferTargetState::default()
+        };
+        let healthy = TransferTargetState {
+            tested: 12,
+            passed: 9,
+            batches: 1,
+            ..TransferTargetState::default()
+        };
+
+        assert!(should_quarantine_transfer_target(&zero_pass));
+        assert!(!should_quarantine_transfer_target(&healthy));
+    }
+
+    #[test]
+    fn transfer_target_selector_probes_then_exploits_best_target() {
+        let mut states = vec![TransferTargetState::default(); 4];
+        assert_eq!(select_transfer_target(&states), Some(0));
+
+        states[0].tested = 12;
+        states[0].passed = 11;
+        states[0].batches = 1;
+        assert_eq!(select_transfer_target(&states), Some(1));
+
+        states[0].passed = 4;
+        states[1].tested = 12;
+        states[1].passed = 0;
+        states[1].batches = 1;
+        states[1].quarantined = true;
+        states[2].tested = 12;
+        states[2].passed = 12;
+        states[2].batches = 1;
+        states[3].tested = 12;
+        states[3].passed = 3;
+        states[3].batches = 1;
+        assert_eq!(select_transfer_target(&states), Some(2));
+    }
+
+    #[test]
+    fn transfer_target_state_accumulates_and_quarantines_after_bad_probe() {
+        let mut state = TransferTargetState::default();
+        update_transfer_target_state(&mut state, 12, 0, 0, 10);
+        assert_eq!(state.tested, 12);
+        assert_eq!(state.passed, 0);
+        assert!(state.quarantined);
     }
 
     #[test]
