@@ -13,7 +13,8 @@ use proxyrift::validator::{
     validate_candidates_with_consumer_targets, validate_candidates_with_target_once,
     validate_candidates_with_targets_once, validate_candidates_with_targets_once_with_minimum_body,
     validate_candidates_with_targets_once_with_sustained_stream, write_lines, ProxyMetrics,
-    LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES, LIGHT_TRANSFER_STABILITY_TARGETS, PRIMARY_TARGET,
+    LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES, LIGHT_TRANSFER_STABILITY_TARGETS,
+    PRIMARY_TARGET,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
