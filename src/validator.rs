@@ -26,6 +26,11 @@ pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
     "https://cdn.truefilesize.com/test/test-10mb.bin",
 ];
+pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
+    PRIMARY_TARGET,
+    "https://example.com/",
+    "https://www.cloudflare.com/robots.txt",
+];
 pub const COMPATIBILITY_TARGET: &str = PRIMARY_TARGET;
 pub const STRICT_THROUGHPUT_BYTES: usize = 10_485_760;
 pub const LIGHT_TRANSFER_STABILITY_BYTES: usize = 1_048_576;
@@ -80,6 +85,9 @@ pub(crate) struct ValidationPolicy {
     pub(crate) minimum_body_bytes: Option<usize>,
     pub(crate) sustained_stream_segments: Option<usize>,
     pub(crate) sustained_stream_max_idle: Option<Duration>,
+    pub(crate) secondary_attempts: usize,
+    pub(crate) secondary_min_successful_attempts: usize,
+    pub(crate) fresh_connections_each_request: bool,
 }
 
 impl ValidationPolicy {
@@ -97,6 +105,24 @@ impl ValidationPolicy {
             minimum_body_bytes: None,
             sustained_stream_segments: None,
             sustained_stream_max_idle: None,
+            secondary_attempts: STRICT_SECONDARY_ATTEMPTS,
+            secondary_min_successful_attempts: STRICT_SECONDARY_MIN_SUCCESSFUL_ATTEMPTS,
+            fresh_connections_each_request: false,
+        }
+    }
+
+    pub(crate) const fn consumer() -> Self {
+        Self {
+            max_latency_ms: MAX_LATENCY_MS,
+            stability_attempts: 4,
+            min_successful_attempts: 3,
+            min_successful_targets: 2,
+            minimum_body_bytes: None,
+            sustained_stream_segments: None,
+            sustained_stream_max_idle: None,
+            secondary_attempts: 1,
+            secondary_min_successful_attempts: 1,
+            fresh_connections_each_request: true,
         }
     }
 
@@ -3188,6 +3214,26 @@ pub async fn validate_candidates_with_targets_strict(
     .await
 }
 
+pub async fn validate_candidates_with_consumer_targets(
+    binary: &str,
+    candidates: &[String],
+    targets: &[&str],
+    workers: usize,
+    batch_size: usize,
+    timeout_seconds: f64,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    validate_candidates_targets_inner(
+        binary,
+        candidates,
+        targets,
+        workers,
+        batch_size,
+        timeout_seconds,
+        ValidationPolicy::consumer(),
+    )
+    .await
+}
+
 pub async fn validate_candidates(
     binary: &str,
     candidates: &[String],
@@ -3468,6 +3514,22 @@ async fn check_batch_targets(
                 break;
             }
 
+            if policy.fresh_connections_each_request {
+                for &entry_index in &active {
+                    let client =
+                        match client_for_port(local_ports[entry_index], timeout_seconds, true) {
+                            Ok(client) => client,
+                            Err(error) => {
+                                let _ = child.kill();
+                                let _ = child.wait();
+                                let _ = fs::remove_dir_all(&work);
+                                return Err(error);
+                            }
+                        };
+                    clients[entry_index] = client;
+                }
+            }
+
             if policy.stability_attempts >= STRICT_STABILITY_ATTEMPTS
                 && STRICT_RECONNECT_AFTER_ATTEMPTS.contains(&(attempt + 1))
             {
@@ -3543,10 +3605,10 @@ async fn check_batch_targets(
                 let mut secondary_attempts = vec![0usize; count];
                 let mut secondary_successes = vec![0usize; count];
 
-                for attempt in 0..STRICT_SECONDARY_ATTEMPTS {
+                for attempt in 0..policy.secondary_attempts {
                     let eligible = (0..count)
                         .filter(|&entry_index| {
-                            secondary_attempts[entry_index] < STRICT_SECONDARY_ATTEMPTS
+                            secondary_attempts[entry_index] < policy.secondary_attempts
                                 && successes[entry_index] >= policy.min_successful_attempts
                                 && (policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
                                     || late_streak[entry_index] >= STRICT_LATE_SUCCESS_STREAK)
@@ -3555,6 +3617,25 @@ async fn check_batch_targets(
 
                     if eligible.is_empty() {
                         break;
+                    }
+
+                    if policy.fresh_connections_each_request {
+                        for &entry_index in &eligible {
+                            let client = match client_for_port(
+                                local_ports[entry_index],
+                                timeout_seconds,
+                                true,
+                            ) {
+                                Ok(client) => client,
+                                Err(error) => {
+                                    let _ = child.kill();
+                                    let _ = child.wait();
+                                    let _ = fs::remove_dir_all(&work);
+                                    return Err(error);
+                                }
+                            };
+                            clients[entry_index] = client;
+                        }
                     }
 
                     let results = stream::iter(eligible)
@@ -3586,13 +3667,16 @@ async fn check_batch_targets(
                         }
                     }
 
-                    if attempt + 1 < STRICT_SECONDARY_ATTEMPTS {
+                    if attempt + 1 < policy.secondary_attempts
+                        && policy.stability_attempts >= STRICT_STABILITY_ATTEMPTS
+                    {
                         sleep(STRICT_INTER_ATTEMPT_DELAY).await;
                     }
                 }
 
                 for entry_index in 0..count {
-                    if secondary_successes[entry_index] >= STRICT_SECONDARY_MIN_SUCCESSFUL_ATTEMPTS
+                    if secondary_successes[entry_index]
+                        >= policy.secondary_min_successful_attempts
                     {
                         secondary_success[entry_index] = true;
                     }
