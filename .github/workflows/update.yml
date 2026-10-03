@@ -33,6 +33,10 @@ jobs:
     steps:
       - name: "Checkout source"
         uses: actions/checkout@v7
+        with:
+          # Light cohort retention reads the previous committed subscriptions/light.txt
+          # versions, so the update runner must retain repository history.
+          fetch-depth: 0
 
       - name: "🦀 Resolve stable Rust toolchain"
         id: rust-toolchain
