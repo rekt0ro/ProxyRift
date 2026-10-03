@@ -1640,8 +1640,7 @@ async fn check_batch_targets(
                 }
 
                 for entry_index in 0..count {
-                    if secondary_successes[entry_index]
-                        >= policy.secondary_min_successful_attempts
+                    if secondary_successes[entry_index] >= policy.secondary_min_successful_attempts
                     {
                         secondary_success[entry_index] = true;
                     }
