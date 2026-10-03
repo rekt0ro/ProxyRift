@@ -1575,6 +1575,10 @@ async fn fill_transfer_gate(
         TransferTargetState::default();
         proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()
     ];
+    let mut target_tested_candidates = vec![
+        HashSet::<String>::new();
+        proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()
+    ];
     loop {
         let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
@@ -1693,6 +1697,7 @@ async fn fill_transfer_gate(
             .ok_or_else(|| "no Light transfer validation targets configured".to_string())?;
         let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
         let target_state_before = target_states[target_index];
+        target_tested_candidates[target_index].extend(batch.iter().cloned());
 
         println!(
             "[INFO] 📥 [10 MiB] {} SLOTS REMAINING | TESTING {} CANDIDATES | ADAPTIVE MAX TESTS: {} | TARGET: {} | SCORE: {:.3} | QUARANTINED: {}",
@@ -1724,6 +1729,11 @@ async fn fill_transfer_gate(
             batch_elapsed,
         );
         if target_states[target_index].quarantined && !target_state_before.quarantined {
+            let alternative_target_available = target_states
+                .iter()
+                .enumerate()
+                .any(|(index, state)| index != target_index && !state.quarantined);
+
             println!(
                 "[WARN] ⚠️ [10 MiB] QUARANTINING TARGET FOR THIS RUN | TARGET: {} | TESTED: {} | PASSED: {} | PASS RATE: {:.1}% | RATE LIMITS: {}",
                 target,
@@ -1732,6 +1742,28 @@ async fn fill_transfer_gate(
                 transfer_target_pass_rate(&target_states[target_index]) * 100.0,
                 target_states[target_index].rate_limits
             );
+
+            if alternative_target_available {
+                let mut requeued = 0usize;
+                for config in &target_tested_candidates[target_index] {
+                    if !transfer_verified.contains_key(config)
+                        && transfer_tested.remove(config)
+                    {
+                        requeued += 1;
+                    }
+                }
+
+                if requeued > 0 {
+                    println!(
+                        "[INFO] ↪️ [10 MiB] REQUEUED {} FAILED CANDIDATES AFTER TARGET QUARANTINE | TARGET: {}",
+                        requeued, target
+                    );
+                }
+            } else {
+                println!(
+                    "[WARN] ⚠️ [10 MiB] ALL TRANSFER TARGETS ARE QUARANTINED | KEEPING FAILED CANDIDATES CLOSED TO AVOID RETRY LOOP"
+                );
+            }
         }
 
         let previous_workers = transfer_workers;
