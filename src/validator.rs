@@ -2480,7 +2480,11 @@ pub(crate) fn extend_rate_limit(_wait: Duration) {
 pub fn rate_limit_events() -> u64 {
     RATE_LIMIT_EVENTS.load(Ordering::Acquire)
 }
-
+                                                       
+pub(crate) async fn wait_for_rate_limit() {
+    
+}
+                                                       
 pub(crate) fn timeout_duration(seconds: f64) -> Result<Duration, String> {
     if !seconds.is_finite() || seconds <= 0.0 {
         return Err("timeout must be a positive finite number".to_string());
