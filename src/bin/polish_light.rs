@@ -1338,20 +1338,14 @@ fn adjust_transfer_workers(
     }
 }
 
-fn adaptive_stability_target(
+fn adaptive_stability_pool_target(
     selection_limit: usize,
     stability_tested: usize,
     stability_passed: usize,
-    available_candidates: usize,
 ) -> usize {
     let base_target = selection_limit.min(STABILITY_TRANSFER_TEST_LIMIT);
-    if base_target == 0 || available_candidates == 0 {
+    if base_target == 0 {
         return 0;
-    }
-
-    let available = available_candidates.min(STABILITY_TRANSFER_TEST_LIMIT);
-    if available <= base_target {
-        return available;
     }
 
     let observed_rate = if stability_tested < 32 {
@@ -1365,7 +1359,21 @@ fn adaptive_stability_target(
 
     estimated
         .max(base_target.saturating_add(STABILITY_TARGET_MIN_RESERVE))
-        .min(available)
+        .min(STABILITY_TRANSFER_TEST_LIMIT)
+}
+
+fn adaptive_stability_target(
+    selection_limit: usize,
+    stability_tested: usize,
+    stability_passed: usize,
+    available_candidates: usize,
+) -> usize {
+    if available_candidates == 0 {
+        return 0;
+    }
+
+    adaptive_stability_pool_target(selection_limit, stability_tested, stability_passed)
+        .min(available_candidates.min(STABILITY_TRANSFER_TEST_LIMIT))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3051,12 +3059,29 @@ async fn main() -> Result<(), String> {
                 max_per_family,
             );
 
-            if potential_selected >= selection_limit {
+            let stability_pool_target = adaptive_stability_pool_target(
+                selection_limit,
+                stability_tested.len(),
+                stability_verified.len(),
+            );
+            let stability_reserve_ready = final_verified.len() >= stability_pool_target;
+
+            if potential_selected >= selection_limit && stability_reserve_ready {
                 println!(
-                    "[INFO] 🎯 [LIGHT] TRANSFER-FIRST | CURRENT STRICT POOL CAN STILL REACH {} | SKIPPING MORE DISCOVERY",
-                    selection_limit
+                    "[INFO] 🎯 [LIGHT] TRANSFER-FIRST | CURRENT STRICT POOL CAN REACH {} AND SUSTAINS 1 MiB RESERVE {} | SKIPPING MORE DISCOVERY",
+                    selection_limit, stability_pool_target
                 );
                 break;
+            }
+
+            if potential_selected >= selection_limit {
+                println!(
+                    "[INFO] 🔁 [LIGHT] EXPANDING STRICT RESERVE FOR 1 MiB | CURRENT STRICT POOL: {} | STABILITY RESERVE TARGET: {} | STABILITY TESTED: {} | STABILITY PASSED: {} | CONTINUING DISCOVERY",
+                    final_verified.len(),
+                    stability_pool_target,
+                    stability_tested.len(),
+                    stability_verified.len()
+                );
             }
         }
 
@@ -3386,7 +3411,8 @@ async fn main() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_recheck_limit, adaptive_stability_target, adaptive_transfer_test_limit,
+        adaptive_recheck_limit, adaptive_stability_pool_target, adaptive_stability_target,
+        adaptive_transfer_test_limit,
         adjust_transfer_workers, has_disabled_tls_verification, history_fingerprint, light_backend,
         light_training_features, merge_light_metadata, normalize_light_config,
         recheck_exploration_limit, select_recheck_candidates, select_transfer_target,
@@ -3581,6 +3607,13 @@ mod tests {
     #[test]
     fn adaptive_transfer_budget_stops_when_target_is_already_met() {
         assert_eq!(adaptive_transfer_test_limit(200, 200, 320, 280, 20), 320);
+    }
+
+    #[test]
+    fn adaptive_stability_reserve_expands_with_low_yield() {
+        assert_eq!(adaptive_stability_pool_target(200, 0, 0), 224);
+        assert_eq!(adaptive_stability_pool_target(200, 236, 133), 409);
+        assert_eq!(adaptive_stability_pool_target(200, 400, 200), 450);
     }
 
     #[test]
