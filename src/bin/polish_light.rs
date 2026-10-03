@@ -6,15 +6,16 @@ use proxyrift::singbox::{
     validate_candidates_with_target_once as validate_singbox_target_once,
     validate_candidates_with_targets_once_with_minimum_body as validate_singbox_targets_once_with_minimum_body,
     validate_candidates_with_targets_once_with_sustained_stream as validate_singbox_targets_once_with_sustained_stream,
-    validate_candidates_with_targets_strict as validate_singbox_targets_strict,
+    validate_candidates_with_consumer_targets as validate_singbox_consumer_targets,
 };
 use proxyrift::validator::{
     endpoint, is_light_consumer_compatible, rate_limit_events, read_lines,
     validate_candidates_with_target_once, validate_candidates_with_targets_once,
     validate_candidates_with_targets_once_with_minimum_body,
     validate_candidates_with_targets_once_with_sustained_stream,
-    validate_candidates_with_targets_strict, write_lines, ProxyMetrics,
-    LIGHT_TRANSFER_STABILITY_BYTES, LIGHT_TRANSFER_STABILITY_TARGETS, PRIMARY_TARGET,
+    validate_candidates_with_consumer_targets, write_lines, ProxyMetrics,
+    LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES, LIGHT_TRANSFER_STABILITY_TARGETS,
+    PRIMARY_TARGET,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -2185,7 +2186,7 @@ async fn validate_light_batch(
         if singbox_validation_candidates.is_empty() {
             Ok(HashMap::new())
         } else if settings.strict {
-            validate_singbox_targets_strict(
+            validate_singbox_consumer_targets(
                 singbox,
                 &singbox_validation_candidates,
                 targets,
@@ -2211,7 +2212,7 @@ async fn validate_light_batch(
         if xray_validation_candidates.is_empty() {
             Ok(HashMap::new())
         } else if settings.strict {
-            validate_candidates_with_targets_strict(
+            validate_candidates_with_consumer_targets(
                 xray,
                 &xray_validation_candidates,
                 targets,
@@ -2249,13 +2250,14 @@ async fn validate_light_batch(
             fallback_retry.len()
         );
         let fallback_xray = if settings.strict {
-            validate_candidates_with_targets_strict(
+            validate_candidates_with_consumer_targets(
                 xray,
                 &fallback_retry,
                 targets,
                 settings.workers.max(1),
                 settings.batch_size,
                 settings.timeout_seconds,
+                settings.timeout_seconds * 1000.0,
             )
             .await?
         } else {
@@ -2276,7 +2278,7 @@ async fn validate_light_batch(
     let verified = merge_light_metadata(xray_metadata, singbox_metadata);
 
     let stage = if settings.strict {
-        "VALIDATION"
+        "CONSUMER"
     } else {
         "PREFILTER"
     };
@@ -2338,10 +2340,14 @@ async fn main() -> Result<(), String> {
         .parse::<usize>()
         .map_err(|_| "invalid --selected-batch-size".to_string())?;
     let primary_target = value(&args, "--primary-target", PRIMARY_TARGET);
-    // Prefilter is a broad single-request liveness gate. Strict validation still
-    // checks the primary target plus this compatibility target with full stability.
+    // Prefilter is a broad single-request liveness gate. Consumer validation then
+    // exercises multiple HTTPS destinations with independent proxy connections.
     let early_targets = [LIGHT_PREFILTER_TARGET];
-    let strict_targets = [primary_target.as_str(), LIGHT_PREFILTER_TARGET];
+    let consumer_targets = {
+        let mut targets = LIGHT_CONSUMER_TARGETS.to_vec();
+        targets[0] = primary_target.as_str();
+        targets
+    };
     let xray = value(&args, "--xray", "xray");
     let selection_limit = value(
         &args,
@@ -2659,7 +2665,7 @@ async fn main() -> Result<(), String> {
             &xray,
             &singbox,
             &final_candidates,
-            &strict_targets,
+            &consumer_targets,
             ValidationSettings {
                 workers: final_workers,
                 batch_size: final_batch_size,
