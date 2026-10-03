@@ -3412,11 +3412,10 @@ async fn main() -> Result<(), String> {
 mod tests {
     use super::{
         adaptive_recheck_limit, adaptive_stability_pool_target, adaptive_stability_target,
-        adaptive_transfer_test_limit,
-        adjust_transfer_workers, has_disabled_tls_verification, history_fingerprint, light_backend,
-        light_training_features, merge_light_metadata, normalize_light_config,
-        recheck_exploration_limit, select_recheck_candidates, select_transfer_target,
-        select_verified_configs, select_verified_configs_with_cohort_floor,
+        adaptive_transfer_test_limit, adjust_transfer_workers, has_disabled_tls_verification,
+        history_fingerprint, light_backend, light_training_features, merge_light_metadata,
+        normalize_light_config, recheck_exploration_limit, select_recheck_candidates,
+        select_transfer_target, select_verified_configs, select_verified_configs_with_cohort_floor,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, transfer_reserve_target,
         update_transfer_target_state, LightBackend, ProxyMetrics, TransferTargetState,
