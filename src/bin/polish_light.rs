@@ -1370,7 +1370,7 @@ async fn fill_transfer_stability_gate(
 
         let remaining_budget = STABILITY_TRANSFER_TEST_LIMIT.saturating_sub(stability_tested.len());
         let batch_limit = if completion_mode {
-            remaining_budget.min(STABILITY_COMPLETION_BATCH_SIZE).max(1)
+            remaining_budget.clamp(1, STABILITY_COMPLETION_BATCH_SIZE)
         } else {
             remaining_budget.clamp(1, STABILITY_TRANSFER_BATCH_SIZE)
         };
