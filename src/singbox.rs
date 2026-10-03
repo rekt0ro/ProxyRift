@@ -5,8 +5,7 @@ use crate::validator::{
     wait_for_rate_limit, ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
     MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS,
     STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS,
-    STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_SECONDARY_ATTEMPTS,
-    STRICT_SECONDARY_MIN_SUCCESSFUL_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
+    STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
     SUSTAINED_THROUGHPUT_TIMEOUT,
 };
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
@@ -1425,7 +1424,8 @@ async fn check_batch_targets(
             match client_for_port(
                 local_ports[index],
                 request_timeout,
-                policy.stability_attempts >= STRICT_STABILITY_ATTEMPTS,
+                policy.fresh_connections_each_request
+                    || policy.stability_attempts >= STRICT_STABILITY_ATTEMPTS,
             ) {
                 Ok(client) => clients.push(client),
                 Err(error) => {
@@ -1553,10 +1553,10 @@ async fn check_batch_targets(
                 let mut secondary_attempts = vec![0usize; count];
                 let mut secondary_successes = vec![0usize; count];
 
-                for attempt in 0..STRICT_SECONDARY_ATTEMPTS {
+                for attempt in 0..policy.secondary_attempts {
                     let eligible = (0..count)
                         .filter(|&entry_index| {
-                            secondary_attempts[entry_index] < STRICT_SECONDARY_ATTEMPTS
+                            secondary_attempts[entry_index] < policy.secondary_attempts
                                 && successes[entry_index] >= policy.min_successful_attempts
                                 && (policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
                                     || late_streak[entry_index] >= STRICT_LATE_SUCCESS_STREAK)
@@ -1596,13 +1596,15 @@ async fn check_batch_targets(
                         }
                     }
 
-                    if attempt + 1 < STRICT_SECONDARY_ATTEMPTS {
+                    if attempt + 1 < policy.secondary_attempts
+                        && policy.stability_attempts >= STRICT_STABILITY_ATTEMPTS
+                    {
                         tokio::time::sleep(STRICT_INTER_ATTEMPT_DELAY).await;
                     }
                 }
 
                 for entry_index in 0..count {
-                    if secondary_successes[entry_index] >= STRICT_SECONDARY_MIN_SUCCESSFUL_ATTEMPTS
+                    if secondary_successes[entry_index] >= policy.secondary_min_successful_attempts
                     {
                         secondary_success[entry_index] = true;
                     }
@@ -1983,6 +1985,25 @@ pub async fn validate_candidates_with_targets_strict(
             STRICT_MIN_SUCCESSFUL_ATTEMPTS,
             STRICT_MIN_SUCCESSFUL_TARGETS,
         ),
+    )
+    .await
+}
+
+pub async fn validate_candidates_with_consumer_targets(
+    binary: &str,
+    candidates: &[String],
+    targets: &[&str],
+    workers: usize,
+    request_timeout: Duration,
+    max_latency_ms: f64,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    validate_candidates_with_targets_policy(
+        binary,
+        candidates,
+        targets,
+        workers,
+        request_timeout,
+        ValidationPolicy::consumer(max_latency_ms),
     )
     .await
 }
