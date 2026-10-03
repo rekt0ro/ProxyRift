@@ -1163,15 +1163,13 @@ fn transfer_target_score(state: &TransferTargetState) -> f64 {
         return 10.0;
     }
 
-    let pass_rate =
-        ((state.passed as f64 + 2.0) / (state.tested as f64 + 4.0)).clamp(0.05, 0.95);
+    let pass_rate = ((state.passed as f64 + 2.0) / (state.tested as f64 + 4.0)).clamp(0.05, 0.95);
     let rate_limit_rate = if state.tested == 0 {
         0.0
     } else {
         (state.rate_limits as f64 / state.tested as f64).clamp(0.0, 1.0)
     };
-    let average_batch_secs =
-        (state.elapsed_secs as f64 / state.batches.max(1) as f64).max(1.0);
+    let average_batch_secs = (state.elapsed_secs as f64 / state.batches.max(1) as f64).max(1.0);
     let speed_factor = 30.0 / (30.0 + average_batch_secs);
 
     pass_rate * speed_factor * (1.0 - rate_limit_rate.min(0.90))
@@ -1196,8 +1194,7 @@ fn should_quarantine_transfer_target(state: &TransferTargetState) -> bool {
         return true;
     }
 
-    rate_limit_percent >= FINAL_TRANSFER_TARGET_RATE_LIMIT_PENALTY_PERCENT
-        && pass_rate < 0.25
+    rate_limit_percent >= FINAL_TRANSFER_TARGET_RATE_LIMIT_PENALTY_PERCENT && pass_rate < 0.25
 }
 
 fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
@@ -1298,8 +1295,8 @@ fn adaptive_stability_target(
         ((stability_passed as f64 + 2.0) / (stability_tested as f64 + 4.0)).clamp(0.50, 0.95)
     };
 
-    let estimated = ((base_target as f64 / observed_rate) * STABILITY_TARGET_SAFETY_FACTOR)
-        .ceil() as usize;
+    let estimated =
+        ((base_target as f64 / observed_rate) * STABILITY_TARGET_SAFETY_FACTOR).ceil() as usize;
 
     estimated
         .max(base_target.saturating_add(STABILITY_TARGET_MIN_RESERVE))
@@ -1349,15 +1346,16 @@ async fn fill_transfer_stability_gate(
         }
 
         let completion_mode = stability_verified.len() < selection_limit
-            && stability_verified.len().saturating_add(STABILITY_COMPLETION_GRACE_REMAINING)
+            && stability_verified
+                .len()
+                .saturating_add(STABILITY_COMPLETION_GRACE_REMAINING)
                 >= selection_limit;
         let completion_grace = if completion_mode {
             STABILITY_COMPLETION_GRACE_SECS
         } else {
             0
         };
-        let elapsed_limit =
-            STABILITY_TRANSFER_MAX_ELAPSED_SECS.saturating_add(completion_grace);
+        let elapsed_limit = STABILITY_TRANSFER_MAX_ELAPSED_SECS.saturating_add(completion_grace);
 
         if stability_started.elapsed().as_secs() >= elapsed_limit {
             println!(
@@ -1372,9 +1370,7 @@ async fn fill_transfer_stability_gate(
 
         let remaining_budget = STABILITY_TRANSFER_TEST_LIMIT.saturating_sub(stability_tested.len());
         let batch_limit = if completion_mode {
-            remaining_budget
-                .min(STABILITY_COMPLETION_BATCH_SIZE)
-                .max(1)
+            remaining_budget.min(STABILITY_COMPLETION_BATCH_SIZE).max(1)
         } else {
             remaining_budget.clamp(1, STABILITY_TRANSFER_BATCH_SIZE)
         };
@@ -1571,14 +1567,10 @@ async fn fill_transfer_gate(
 
     let mut transfer_workers = FINAL_TRANSFER_INITIAL_WORKERS;
     let mut clean_batches = 0usize;
-    let mut target_states = vec![
-        TransferTargetState::default();
-        proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()
-    ];
-    let mut target_tested_candidates = vec![
-        HashSet::<String>::new();
-        proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()
-    ];
+    let mut target_states =
+        vec![TransferTargetState::default(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
+    let mut target_tested_candidates =
+        vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     loop {
         let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
@@ -1746,9 +1738,7 @@ async fn fill_transfer_gate(
             if alternative_target_available {
                 let mut requeued = 0usize;
                 for config in &target_tested_candidates[target_index] {
-                    if !transfer_verified.contains_key(config)
-                        && transfer_tested.remove(config)
-                    {
+                    if !transfer_verified.contains_key(config) && transfer_tested.remove(config) {
                         requeued += 1;
                     }
                 }
@@ -3166,13 +3156,13 @@ async fn main() -> Result<(), String> {
 mod tests {
     use super::{
         adaptive_recheck_limit, adaptive_stability_target, adaptive_transfer_test_limit,
-        adjust_transfer_workers, select_transfer_target, should_quarantine_transfer_target,
-        update_transfer_target_state, TransferTargetState,
-        has_disabled_tls_verification, history_fingerprint, light_backend, light_training_features,
-        merge_light_metadata, normalize_light_config, recheck_exploration_limit,
-        select_recheck_candidates, select_verified_configs, selection_additional_potential_count,
-        selection_eligible_count, selection_potential_count, selection_rejection_counts,
-        transfer_reserve_target, LightBackend, ProxyMetrics,
+        adjust_transfer_workers, has_disabled_tls_verification, history_fingerprint, light_backend,
+        light_training_features, merge_light_metadata, normalize_light_config,
+        recheck_exploration_limit, select_recheck_candidates, select_transfer_target,
+        select_verified_configs, selection_additional_potential_count, selection_eligible_count,
+        selection_potential_count, selection_rejection_counts, should_quarantine_transfer_target,
+        transfer_reserve_target, update_transfer_target_state, LightBackend, ProxyMetrics,
+        TransferTargetState,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
