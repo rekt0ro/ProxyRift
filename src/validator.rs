@@ -445,14 +445,10 @@ pub fn is_public_ip(ip: &std::net::IpAddr) -> bool {
 
             let segments = v6.segments();
 
-            // Only 2000::/3 is currently assigned as IPv6 global-unicast space.
             if (segments[0] & 0xe000) != 0x2000 {
                 return false;
             }
 
-            // Exclude IPv6 special-purpose ranges inside 2000::/3 that are not
-            // globally reachable: Teredo, benchmarking, deprecated ORCHID,
-            // and documentation.
             !(v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_multicast()
@@ -2913,8 +2909,6 @@ async fn check_batch(
                 .collect::<Vec<_>>()
                 .await;
 
-            // A core crash is a backend failure, not a proxy-quality verdict. Split the
-            // batch and retry the pieces so one bad config cannot poison unrelated candidates.
             if child
                 .try_wait()
                 .map_err(|error| error.to_string())?
