@@ -1876,6 +1876,7 @@ async fn fill_transfer_gate(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_add_verified_config(
     config: &String,
     selected: &mut Vec<String>,
