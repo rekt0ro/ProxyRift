@@ -1719,9 +1719,10 @@ async fn fill_transfer_gate(
         );
         if selected.len().saturating_add(eligible_remaining) < transfer_target {
             println!(
-                "[INFO] ⏭️ [10 MiB] TARGET UNREACHABLE WITH CURRENT STRICT POOL | SELECTABLE: {} | UNTESTED ELIGIBLE: {} | TARGET/MAX: {} | CONTINUING BEST-EFFORT GATE",
+                "[INFO] ⏭️ [10 MiB] TARGET UNREACHABLE WITH CURRENT STRICT POOL | SELECTABLE: {} | UNTESTED ELIGIBLE: {} | VALIDATION TARGET: {} | PUBLISH TARGET: {} | CONTINUING BEST-EFFORT GATE",
                 selected.len(),
                 eligible_remaining,
+                transfer_target,
                 selection_limit
             );
         }
