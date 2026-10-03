@@ -2218,6 +2218,7 @@ async fn validate_light_batch(
                 settings.workers.max(1),
                 settings.batch_size,
                 settings.timeout_seconds,
+                settings.timeout_seconds * 1000.0,
             )
             .await
         } else {
