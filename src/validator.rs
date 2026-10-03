@@ -111,9 +111,9 @@ impl ValidationPolicy {
         }
     }
 
-    pub(crate) const fn consumer() -> Self {
+    pub(crate) const fn consumer(max_latency_ms: f64) -> Self {
         Self {
-            max_latency_ms: MAX_LATENCY_MS,
+            max_latency_ms,
             stability_attempts: 4,
             min_successful_attempts: 3,
             min_successful_targets: 2,
@@ -3221,6 +3221,7 @@ pub async fn validate_candidates_with_consumer_targets(
     workers: usize,
     batch_size: usize,
     timeout_seconds: f64,
+    max_latency_ms: f64,
 ) -> Result<HashMap<String, ProxyMetrics>, String> {
     validate_candidates_targets_inner(
         binary,
@@ -3229,7 +3230,7 @@ pub async fn validate_candidates_with_consumer_targets(
         workers,
         batch_size,
         timeout_seconds,
-        ValidationPolicy::consumer(),
+        ValidationPolicy::consumer(max_latency_ms),
     )
     .await
 }
