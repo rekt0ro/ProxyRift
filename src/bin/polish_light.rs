@@ -581,9 +581,7 @@ fn load_light_cohorts(path: &str) -> Result<Vec<Vec<String>>, String> {
     Ok(cohorts)
 }
 
-fn build_light_cohort_generations(
-    cohorts: &[Vec<String>],
-) -> HashMap<String, usize> {
+fn build_light_cohort_generations(cohorts: &[Vec<String>]) -> HashMap<String, usize> {
     let mut generations = HashMap::new();
     for (generation, cohort) in cohorts.iter().enumerate() {
         for config in cohort {
