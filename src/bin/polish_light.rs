@@ -19,6 +19,7 @@ use proxyrift::validator::{
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
+use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use url::Url;
 
@@ -67,7 +68,12 @@ const FINAL_TRANSFER_LATENCY_LIMIT_MS: f64 = 15000.0;
 const HISTORY_MAX_ENTRIES: usize = 10000;
 const HISTORY_RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
 const LIGHT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
+const LIGHT_SUBSCRIPTION_PATH: &str = "subscriptions/light.txt";
 const LIGHT_PREFILTER_TARGET: &str = "https://example.com/";
+const HISTORICAL_LIGHT_COHORTS: usize = 2;
+const PREVIOUS_COHORT_MIN_PERCENT: usize = 20;
+const OLDER_COHORT_MIN_PERCENT: usize = 10;
+const MIN_COHORT_RETENTION_COUNT: usize = 4;
 
 fn adaptive_recheck_limit(
     remaining: usize,
@@ -524,6 +530,67 @@ fn history_fingerprint(config: &str) -> String {
     let first = fnv64(identity.as_bytes(), 0xcbf29ce484222325);
     let second = fnv64(identity.as_bytes(), 0x9e3779b97f4a7c15);
     format!("{first:016x}{second:016x}")
+}
+
+fn load_light_cohorts(path: &str) -> Result<Vec<Vec<String>>, String> {
+    let current = read_lines(path)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|line| !line.starts_with('#'))
+        .collect::<Vec<_>>();
+
+    let mut cohorts = vec![current];
+    let history_commits = Command::new("git")
+        .args(["log", "--format=%H", "--", path])
+        .output();
+
+    let Ok(history_commits) = history_commits else {
+        return Ok(cohorts);
+    };
+    if !history_commits.status.success() {
+        return Ok(cohorts);
+    }
+
+    for commit in String::from_utf8_lossy(&history_commits.stdout)
+        .lines()
+        .skip(1)
+        .take(HISTORICAL_LIGHT_COHORTS)
+    {
+        let output = Command::new("git")
+            .args(["show", &format!("{commit}:{path}")])
+            .output();
+
+        let Ok(output) = output else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+
+        let values = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        if !values.is_empty() {
+            cohorts.push(values);
+        }
+    }
+
+    Ok(cohorts)
+}
+
+fn build_light_cohort_generations(
+    cohorts: &[Vec<String>],
+) -> HashMap<String, usize> {
+    let mut generations = HashMap::new();
+    for (generation, cohort) in cohorts.iter().enumerate() {
+        for config in cohort {
+            generations.entry(config.clone()).or_insert(generation);
+        }
+    }
+    generations
 }
 
 fn load_history(path: &str) -> Result<HashMap<String, HistoryEntry>, String> {
@@ -1811,6 +1878,84 @@ async fn fill_transfer_gate(
     }
 }
 
+fn select_verified_configs_with_cohort_floor(
+    configs: &[String],
+    generations: &HashMap<String, usize>,
+    limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+) -> (Vec<String>, usize, usize) {
+    if limit == 0 || configs.is_empty() {
+        return (Vec::new(), 0, 0);
+    }
+
+    let expected = configs.len().min(limit);
+    let previous_target = ((expected * PREVIOUS_COHORT_MIN_PERCENT).div_ceil(100))
+        .max(MIN_COHORT_RETENTION_COUNT)
+        .min(expected);
+    let older_target = ((expected * OLDER_COHORT_MIN_PERCENT).div_ceil(100))
+        .max(MIN_COHORT_RETENTION_COUNT)
+        .min(expected.saturating_sub(previous_target));
+
+    let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
+    let mut family_counts = HashMap::<String, usize>::new();
+    let mut selected = Vec::with_capacity(expected);
+    let mut selected_set = HashSet::new();
+    let mut previous_selected = 0usize;
+    let mut older_selected = 0usize;
+
+    let mut try_add = |config: &String| -> bool {
+        if selected.len() >= limit || !selected_set.insert(config.clone()) {
+            return false;
+        }
+
+        let family = family_key(config);
+        if family_counts.get(&family).copied().unwrap_or(0) >= max_per_family {
+            selected_set.remove(config);
+            return false;
+        }
+
+        if let Some(ep) = endpoint(config) {
+            if endpoint_counts.get(&ep).copied().unwrap_or(0) >= max_per_endpoint {
+                selected_set.remove(config);
+                return false;
+            }
+            *endpoint_counts.entry(ep).or_default() += 1;
+        }
+
+        *family_counts.entry(family).or_default() += 1;
+        selected.push(config.clone());
+        true
+    };
+
+    for config in configs {
+        if previous_selected >= previous_target {
+            break;
+        }
+        if generations.get(config).copied() == Some(1) && try_add(config) {
+            previous_selected += 1;
+        }
+    }
+
+    for config in configs {
+        if older_selected >= older_target {
+            break;
+        }
+        if generations.get(config).copied().unwrap_or(0) >= 2 && try_add(config) {
+            older_selected += 1;
+        }
+    }
+
+    for config in configs {
+        if selected.len() >= limit {
+            break;
+        }
+        let _ = try_add(config);
+    }
+
+    (selected, previous_selected, older_selected)
+}
+
 fn select_verified_configs(
     configs: &[String],
     limit: usize,
@@ -2606,19 +2751,19 @@ async fn main() -> Result<(), String> {
 
     let raw_candidates = read_lines(&candidates_path)?;
     let input_candidate_count = raw_candidates.len().min(max_candidates);
-    let candidates = raw_candidates
+    let current_candidates = raw_candidates
         .into_iter()
         .take(max_candidates)
         .filter(|config| !has_disabled_tls_verification(config))
         .collect::<Vec<_>>();
-    let security_rejected = input_candidate_count.saturating_sub(candidates.len());
+    let security_rejected = input_candidate_count.saturating_sub(current_candidates.len());
 
-    let before_consumer_compatibility = candidates.len();
-    let candidates = candidates
+    let before_consumer_compatibility = current_candidates.len();
+    let current_candidates = current_candidates
         .into_iter()
         .filter(|config| is_light_consumer_compatible(config))
         .collect::<Vec<_>>();
-    let consumer_rejected = before_consumer_compatibility.saturating_sub(candidates.len());
+    let consumer_rejected = before_consumer_compatibility.saturating_sub(current_candidates.len());
 
     if consumer_rejected > 0 {
         println!(
@@ -2629,6 +2774,40 @@ async fn main() -> Result<(), String> {
 
     let history_path = "subscriptions/light-history.json";
     let history = load_history(history_path)?;
+    let light_cohorts = load_light_cohorts(LIGHT_SUBSCRIPTION_PATH)?;
+    let cohort_generations = build_light_cohort_generations(&light_cohorts);
+
+    let mut seen_candidates = HashSet::new();
+    let mut candidates = Vec::with_capacity(
+        current_candidates.len()
+            + light_cohorts.iter().map(Vec::len).sum::<usize>(),
+    );
+    let mut cohort_configs_loaded = 0usize;
+
+    for cohort in &light_cohorts {
+        for config in cohort {
+            if !seen_candidates.insert(config.clone()) {
+                continue;
+            }
+            if !has_disabled_tls_verification(config) && is_light_consumer_compatible(config) {
+                candidates.push(config.clone());
+                cohort_configs_loaded += 1;
+            }
+        }
+    }
+
+    for config in current_candidates {
+        if seen_candidates.insert(config.clone()) {
+            candidates.push(config);
+        }
+    }
+
+    println!(
+        "[INFO] 🛡️ [LIGHT RETENTION] COHORTS LOADED: {} | COHORT CONFIGS: {}",
+        light_cohorts.len(),
+        cohort_configs_loaded
+    );
+
     let intelligence_path = "subscriptions/light-ai.json";
     let intelligence = IntelligenceModel::load(intelligence_path);
 
@@ -3045,11 +3224,26 @@ async fn main() -> Result<(), String> {
         &global_positions,
         &history,
     );
-    let selected = select_verified_configs(
-        &stream_ranked,
-        selection_limit,
-        max_per_endpoint,
-        max_per_family,
+    let (selected, previous_selected, older_selected) =
+        select_verified_configs_with_cohort_floor(
+            &stream_ranked,
+            &cohort_generations,
+            selection_limit,
+            max_per_endpoint,
+            max_per_family,
+        );
+    println!(
+        "[INFO] 🛡️ [LIGHT RETENTION] FINAL COHORT | PREVIOUS: {} | OLDER: {} | CURRENT/NEW: {}",
+        previous_selected,
+        older_selected,
+        selected
+            .iter()
+            .filter(|config| cohort_generations
+                .get(*config)
+                .copied()
+                .unwrap_or(usize::MAX)
+                == 0)
+            .count()
     );
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(
         &stream_ranked,
@@ -3159,14 +3353,45 @@ mod tests {
         adjust_transfer_workers, has_disabled_tls_verification, history_fingerprint, light_backend,
         light_training_features, merge_light_metadata, normalize_light_config,
         recheck_exploration_limit, select_recheck_candidates, select_transfer_target,
-        select_verified_configs, selection_additional_potential_count, selection_eligible_count,
-        selection_potential_count, selection_rejection_counts, should_quarantine_transfer_target,
-        transfer_reserve_target, update_transfer_target_state, LightBackend, ProxyMetrics,
-        TransferTargetState,
+        select_verified_configs, select_verified_configs_with_cohort_floor,
+        selection_additional_potential_count, selection_eligible_count, selection_potential_count,
+        selection_rejection_counts, should_quarantine_transfer_target, transfer_reserve_target,
+        update_transfer_target_state, LightBackend, ProxyMetrics, TransferTargetState,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::HashMap;
+
+    #[test]
+    fn cohort_floor_retains_previous_and_older_candidates() {
+        let configs = vec![
+            "vless://fresh@example.com:443".to_string(),
+            "vless://previous1@example.net:443".to_string(),
+            "trojan://previous2@example.org:8443".to_string(),
+            "vmess://previous3@example.dev:9443".to_string(),
+            "ss://older1@example.io:8388".to_string(),
+            "hysteria2://older2@example.xyz:443".to_string(),
+            "vless://fresh2@example.cloud:443".to_string(),
+            "trojan://fresh3@example.pro:8443".to_string(),
+        ];
+        let generations = HashMap::from([
+            (configs[0].clone(), 0usize),
+            (configs[1].clone(), 1usize),
+            (configs[2].clone(), 1usize),
+            (configs[3].clone(), 1usize),
+            (configs[4].clone(), 2usize),
+            (configs[5].clone(), 2usize),
+            (configs[6].clone(), 0usize),
+            (configs[7].clone(), 0usize),
+        ]);
+
+        let (selected, previous, older) =
+            select_verified_configs_with_cohort_floor(&configs, &generations, 8, 1, 3);
+
+        assert_eq!(selected.len(), 8);
+        assert_eq!(previous, 3);
+        assert_eq!(older, 2);
+    }
 
     #[test]
     fn selection_rejection_counts_explain_endpoint_and_family_caps() {
