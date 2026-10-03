@@ -3360,12 +3360,13 @@ mod tests {
         states[0].batches = 1;
         assert_eq!(select_transfer_target(&states), Some(1));
 
+        states[0].passed = 4;
         states[1].tested = 12;
         states[1].passed = 0;
         states[1].batches = 1;
         states[1].quarantined = true;
         states[2].tested = 12;
-        states[2].passed = 10;
+        states[2].passed = 12;
         states[2].batches = 1;
         states[3].tested = 12;
         states[3].passed = 3;
