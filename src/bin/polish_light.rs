@@ -2777,8 +2777,7 @@ async fn main() -> Result<(), String> {
 
     let mut seen_candidates = HashSet::new();
     let mut candidates = Vec::with_capacity(
-        current_candidates.len()
-            + light_cohorts.iter().map(Vec::len).sum::<usize>(),
+        current_candidates.len() + light_cohorts.iter().map(Vec::len).sum::<usize>(),
     );
     let mut cohort_configs_loaded = 0usize;
 
@@ -3222,14 +3221,13 @@ async fn main() -> Result<(), String> {
         &global_positions,
         &history,
     );
-    let (selected, previous_selected, older_selected) =
-        select_verified_configs_with_cohort_floor(
-            &stream_ranked,
-            &cohort_generations,
-            selection_limit,
-            max_per_endpoint,
-            max_per_family,
-        );
+    let (selected, previous_selected, older_selected) = select_verified_configs_with_cohort_floor(
+        &stream_ranked,
+        &cohort_generations,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
+    );
     println!(
         "[INFO] 🛡️ [LIGHT RETENTION] FINAL COHORT | PREVIOUS: {} | OLDER: {} | CURRENT/NEW: {}",
         previous_selected,
