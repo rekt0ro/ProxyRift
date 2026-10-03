@@ -2034,14 +2034,13 @@ pub async fn validate_candidates_with_consumer_targets(
     request_timeout: Duration,
     max_latency_ms: f64,
 ) -> Result<HashMap<String, ProxyMetrics>, String> {
-    let _ = max_latency_ms;
     validate_candidates_with_targets_policy(
         binary,
         candidates,
         targets,
         workers,
         request_timeout,
-        ValidationPolicy::consumer(),
+        ValidationPolicy::consumer(max_latency_ms),
     )
     .await
 }
