@@ -2482,8 +2482,7 @@ pub fn rate_limit_events() -> u64 {
 }
 
 pub(crate) async fn wait_for_rate_limit() {
-    // Rate limits are handled per request. A 429 must not freeze every
-    // concurrent validator in the process behind one global cooldown.
+
 }
 
 pub(crate) fn timeout_duration(seconds: f64) -> Result<Duration, String> {
