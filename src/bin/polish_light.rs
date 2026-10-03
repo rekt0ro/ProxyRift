@@ -1876,6 +1876,39 @@ async fn fill_transfer_gate(
     }
 }
 
+fn try_add_verified_config(
+    config: &String,
+    selected: &mut Vec<String>,
+    selected_set: &mut HashSet<String>,
+    endpoint_counts: &mut HashMap<(String, u16), usize>,
+    family_counts: &mut HashMap<String, usize>,
+    limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+) -> bool {
+    if selected.len() >= limit || !selected_set.insert(config.clone()) {
+        return false;
+    }
+
+    let family = family_key(config);
+    if family_counts.get(&family).copied().unwrap_or(0) >= max_per_family {
+        selected_set.remove(config);
+        return false;
+    }
+
+    if let Some(ep) = endpoint(config) {
+        if endpoint_counts.get(&ep).copied().unwrap_or(0) >= max_per_endpoint {
+            selected_set.remove(config);
+            return false;
+        }
+        *endpoint_counts.entry(ep).or_default() += 1;
+    }
+
+    *family_counts.entry(family).or_default() += 1;
+    selected.push(config.clone());
+    true
+}
+
 fn select_verified_configs_with_cohort_floor(
     configs: &[String],
     generations: &HashMap<String, usize>,
@@ -1902,35 +1935,22 @@ fn select_verified_configs_with_cohort_floor(
     let mut previous_selected = 0usize;
     let mut older_selected = 0usize;
 
-    let mut try_add = |config: &String| -> bool {
-        if selected.len() >= limit || !selected_set.insert(config.clone()) {
-            return false;
-        }
-
-        let family = family_key(config);
-        if family_counts.get(&family).copied().unwrap_or(0) >= max_per_family {
-            selected_set.remove(config);
-            return false;
-        }
-
-        if let Some(ep) = endpoint(config) {
-            if endpoint_counts.get(&ep).copied().unwrap_or(0) >= max_per_endpoint {
-                selected_set.remove(config);
-                return false;
-            }
-            *endpoint_counts.entry(ep).or_default() += 1;
-        }
-
-        *family_counts.entry(family).or_default() += 1;
-        selected.push(config.clone());
-        true
-    };
-
     for config in configs {
         if previous_selected >= previous_target {
             break;
         }
-        if generations.get(config).copied() == Some(1) && try_add(config) {
+        if generations.get(config).copied() == Some(1)
+            && try_add_verified_config(
+                config,
+                &mut selected,
+                &mut selected_set,
+                &mut endpoint_counts,
+                &mut family_counts,
+                limit,
+                max_per_endpoint,
+                max_per_family,
+            )
+        {
             previous_selected += 1;
         }
     }
@@ -1939,7 +1959,18 @@ fn select_verified_configs_with_cohort_floor(
         if older_selected >= older_target {
             break;
         }
-        if generations.get(config).copied().unwrap_or(0) >= 2 && try_add(config) {
+        if generations.get(config).copied().unwrap_or(0) >= 2
+            && try_add_verified_config(
+                config,
+                &mut selected,
+                &mut selected_set,
+                &mut endpoint_counts,
+                &mut family_counts,
+                limit,
+                max_per_endpoint,
+                max_per_family,
+            )
+        {
             older_selected += 1;
         }
     }
@@ -1948,7 +1979,16 @@ fn select_verified_configs_with_cohort_floor(
         if selected.len() >= limit {
             break;
         }
-        let _ = try_add(config);
+        let _ = try_add_verified_config(
+            config,
+            &mut selected,
+            &mut selected_set,
+            &mut endpoint_counts,
+            &mut family_counts,
+            limit,
+            max_per_endpoint,
+            max_per_family,
+        );
     }
 
     (selected, previous_selected, older_selected)
