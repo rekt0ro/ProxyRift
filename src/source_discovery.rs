@@ -48,6 +48,20 @@ const MAX_NEW_ACTIVE_SOURCES_PER_REPO: usize = 8;
 
 const SEARCH_SORTS: [&str; 2] = ["updated", "stars"];
 
+fn search_sort_for_run(run_number: Option<u64>, now: u64) -> &'static str {
+    let index = run_number
+        .map(|number| number % SEARCH_SORTS.len() as u64)
+        .unwrap_or((now / 3_600) % SEARCH_SORTS.len() as u64) as usize;
+    SEARCH_SORTS[index]
+}
+
+fn current_search_sort() -> &'static str {
+    let run_number = env::var("GITHUB_RUN_NUMBER")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok());
+    search_sort_for_run(run_number, unix_now())
+}
+
 const DEFAULT_QUERIES: [&str; 24] = [
     "v2ray subscription",
     "vless subscription",
@@ -1501,16 +1515,22 @@ async fn search_repositories(
     token: Option<&str>,
 ) -> Result<Vec<Repository>, Box<dyn std::error::Error + Send + Sync>> {
     let mut repos = Vec::new();
+    let sort = current_search_sort();
+
+    println!(
+        "[INFO] 🔭 [DISCOVERY] repository search strategy | sort {} | queries {} | max search requests {}",
+        sort,
+        DEFAULT_QUERIES.len(),
+        DEFAULT_QUERIES.len()
+    );
 
     for query in DEFAULT_QUERIES {
         let search_query = format!("{query} archived:false fork:false is:public");
-
-        for sort in SEARCH_SORTS {
-            let url = format!(
-                "https://api.github.com/search/repositories?q={}&sort={sort}&order=desc&per_page={}",
-                percent_encode(&search_query),
-                SEARCH_PER_PAGE
-            );
+        let url = format!(
+            "https://api.github.com/search/repositories?q={}&sort={sort}&order=desc&per_page={}",
+            percent_encode(&search_query),
+            SEARCH_PER_PAGE
+        );
 
             let response = match github_get(client, &url, token).await {
                 Ok(response) => response,
@@ -1576,7 +1596,6 @@ async fn search_repositories(
                         pushed_at: pushed_at.to_string(),
                     });
                 }
-            }
         }
     }
 
@@ -2285,6 +2304,27 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn discovery_search_alternates_sort_by_run_number() {
+        assert_eq!(search_sort_for_run(Some(100), 0), "updated");
+        assert_eq!(search_sort_for_run(Some(101), 0), "stars");
+        assert_eq!(search_sort_for_run(Some(102), 0), "updated");
+    }
+
+    #[test]
+    fn discovery_search_fallback_alternates_by_hour() {
+        assert_eq!(search_sort_for_run(None, 0), "updated");
+        assert_eq!(search_sort_for_run(None, 3_600), "stars");
+        assert_eq!(search_sort_for_run(None, 7_200), "updated");
+    }
+
+    #[test]
+    fn discovery_search_stays_within_github_search_budget() {
+        assert!(DEFAULT_QUERIES.len() < 30);
+        assert_eq!(DEFAULT_QUERIES.len() * 1, DEFAULT_QUERIES.len());
+    }
+
+
     use super::{
         extract_source_urls, is_source_path, likely_source_url, normalize_github_source,
         percent_encode_path, select_new_active_urls, source_path_family, Candidate,
