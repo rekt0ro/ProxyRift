@@ -445,14 +445,10 @@ pub fn is_public_ip(ip: &std::net::IpAddr) -> bool {
 
             let segments = v6.segments();
 
-            // Only 2000::/3 is currently assigned as IPv6 global-unicast space.
             if (segments[0] & 0xe000) != 0x2000 {
                 return false;
             }
 
-            // Exclude IPv6 special-purpose ranges inside 2000::/3 that are not
-            // globally reachable: Teredo, benchmarking, deprecated ORCHID,
-            // and documentation.
             !(v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_multicast()
@@ -2485,11 +2481,6 @@ pub fn rate_limit_events() -> u64 {
     RATE_LIMIT_EVENTS.load(Ordering::Acquire)
 }
 
-pub(crate) async fn wait_for_rate_limit() {
-    // Rate limits are handled per request. A 429 must not freeze every
-    // concurrent validator in the process behind one global cooldown.
-}
-
 pub(crate) fn timeout_duration(seconds: f64) -> Result<Duration, String> {
     if !seconds.is_finite() || seconds <= 0.0 {
         return Err("timeout must be a positive finite number".to_string());
@@ -2633,7 +2624,6 @@ async fn probe_request_with_minimum(
     url: Url,
     minimum_body_bytes: Option<usize>,
 ) -> Result<ProbeSample, ProbeError> {
-    wait_for_rate_limit().await;
     let started = Instant::now();
     let response_limit =
         minimum_body_bytes.unwrap_or_else(|| response_limit_for_target(url.as_str()));
@@ -2706,7 +2696,6 @@ async fn probe_request_sustained(
     let started = Instant::now();
     let required_bytes = segments.max(1).saturating_mul(minimum_body_bytes);
 
-    wait_for_rate_limit().await;
     let mut request = client.get(url.as_str());
     request = request.timeout(SUSTAINED_THROUGHPUT_TIMEOUT);
     let response = request.send().await.map_err(|_| ProbeError::Failed)?;
@@ -2913,8 +2902,6 @@ async fn check_batch(
                 .collect::<Vec<_>>()
                 .await;
 
-            // A core crash is a backend failure, not a proxy-quality verdict. Split the
-            // batch and retry the pieces so one bad config cannot poison unrelated candidates.
             if child
                 .try_wait()
                 .map_err(|error| error.to_string())?

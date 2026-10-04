@@ -34,8 +34,6 @@ jobs:
       - name: "Checkout source"
         uses: actions/checkout@v7
         with:
-          # Light cohort retention reads the previous committed subscriptions/light.txt
-          # versions, so the update runner must retain repository history.
           fetch-depth: 0
 
       - name: "🦀 Resolve stable Rust toolchain"
@@ -398,7 +396,6 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # Reapply the freshly generated subscription artifacts after syncing with main.
             for f in $files; do
               cp -- "$publish_snapshot/subscriptions/${f}" "subscriptions/${f}"
             done

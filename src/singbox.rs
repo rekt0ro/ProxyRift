@@ -1,12 +1,11 @@
 use crate::validator::{
     adaptive_batch_size, config_label, extend_rate_limit, healthy_targets, is_throughput_target,
     rate_limit_wait, read_response_body_at_least, read_response_body_at_least_with_max_idle,
-    read_response_body_limited_to, response_limit_for_target, uses_udp_transport,
-    wait_for_rate_limit, ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
-    MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS,
-    STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS,
-    STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
-    SUSTAINED_THROUGHPUT_TIMEOUT,
+    read_response_body_limited_to, response_limit_for_target, uses_udp_transport, ProxyMetrics,
+    ValidationPolicy, MIN_RESPONSE_BYTES, MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS,
+    PRIMARY_TARGET, STABILITY_ATTEMPTS, STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK,
+    STRICT_MIN_SUCCESSFUL_ATTEMPTS, STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS,
+    STRICT_STABILITY_ATTEMPTS, SUSTAINED_THROUGHPUT_TIMEOUT,
 };
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
@@ -1163,7 +1162,6 @@ async fn request_url(
     url: &str,
     minimum_body_bytes: Option<usize>,
 ) -> Result<crate::validator::ProbeSample, String> {
-    wait_for_rate_limit().await;
     let started = std::time::Instant::now();
     let response_limit = minimum_body_bytes.unwrap_or_else(|| response_limit_for_target(url));
     let mut request = client.get(url);
@@ -1234,7 +1232,6 @@ async fn request_url_sustained(
     let started = std::time::Instant::now();
     let required_bytes = segments.max(1).saturating_mul(minimum_body_bytes);
 
-    wait_for_rate_limit().await;
     let mut request = client.get(url);
     request = request.timeout(SUSTAINED_THROUGHPUT_TIMEOUT);
     let response = request.send().await.map_err(|error| error.to_string())?;
