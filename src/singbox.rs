@@ -2,7 +2,7 @@ use crate::validator::{
     adaptive_batch_size, config_label, extend_rate_limit, healthy_targets, is_throughput_target,
     rate_limit_wait, read_response_body_at_least, read_response_body_at_least_with_max_idle,
     read_response_body_limited_to, response_limit_for_target, uses_udp_transport,
-ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
+    ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
     MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS,
     STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS,
     STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
