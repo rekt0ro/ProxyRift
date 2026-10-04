@@ -1868,9 +1868,9 @@ fn select_new_active_urls(candidates: &[Candidate], limit: usize) -> Vec<String>
                     + repo_bonus
                     + family_bonus
                     - diversity_penalty,
-                -candidate.repo_rank as i32,
-                -family_count as i32,
-                -repo_count as i32,
+                -(candidate.repo_rank as i32),
+                -(family_count as i32),
+                -(repo_count as i32),
                 -(candidate.url.len() as i32),
                 candidate.url.clone(),
             );
