@@ -1543,9 +1543,7 @@ async fn search_repositories(
         let response = match github_get(client, &url, token).await {
             Ok(response) => response,
             Err(error) => {
-                println!(
-                    "[WARN] 🔭 [DISCOVERY] GitHub search query failed after retries: {error}"
-                );
+                println!("[WARN] 🔭 [DISCOVERY] GitHub search query failed after retries: {error}");
                 continue;
             }
         };
