@@ -45,8 +45,23 @@ const MAX_README_CANDIDATES: usize = 150;
 const MAX_README_URLS_SCANNED: usize = 750;
 const MAX_DISCOVERED_CANDIDATES: usize = 12_000;
 const MAX_NEW_ACTIVE_SOURCES_PER_REPO: usize = 8;
+const MAX_GITHUB_SEARCH_REQUESTS_PER_RUN: usize = 24;
 
 const SEARCH_SORTS: [&str; 2] = ["updated", "stars"];
+
+fn search_sort_for_run(run_number: Option<u64>, now: u64) -> &'static str {
+    let index = run_number
+        .map(|number| number % SEARCH_SORTS.len() as u64)
+        .unwrap_or((now / 3_600) % SEARCH_SORTS.len() as u64) as usize;
+    SEARCH_SORTS[index]
+}
+
+fn current_search_sort() -> &'static str {
+    let run_number = env::var("GITHUB_RUN_NUMBER")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok());
+    search_sort_for_run(run_number, unix_now())
+}
 
 const DEFAULT_QUERIES: [&str; 24] = [
     "v2ray subscription",
@@ -1501,81 +1516,91 @@ async fn search_repositories(
     token: Option<&str>,
 ) -> Result<Vec<Repository>, Box<dyn std::error::Error + Send + Sync>> {
     let mut repos = Vec::new();
+    let sort = current_search_sort();
+    let search_query_count = DEFAULT_QUERIES
+        .len()
+        .min(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
 
-    for query in DEFAULT_QUERIES {
+    println!(
+        "[INFO] 🔭 [DISCOVERY] repository search strategy | sort {} | queries {} | max search requests {}",
+        sort,
+        search_query_count,
+        MAX_GITHUB_SEARCH_REQUESTS_PER_RUN
+    );
+
+    for query in DEFAULT_QUERIES
+        .iter()
+        .copied()
+        .take(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN)
+    {
         let search_query = format!("{query} archived:false fork:false is:public");
+        let url = format!(
+            "https://api.github.com/search/repositories?q={}&sort={sort}&order=desc&per_page={}",
+            percent_encode(&search_query),
+            SEARCH_PER_PAGE
+        );
 
-        for sort in SEARCH_SORTS {
-            let url = format!(
-                "https://api.github.com/search/repositories?q={}&sort={sort}&order=desc&per_page={}",
-                percent_encode(&search_query),
-                SEARCH_PER_PAGE
+        let response = match github_get(client, &url, token).await {
+            Ok(response) => response,
+            Err(error) => {
+                println!("[WARN] 🔭 [DISCOVERY] GitHub search query failed after retries: {error}");
+                continue;
+            }
+        };
+
+        if !response.status().is_success() {
+            println!(
+                "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}",
+                response.status()
             );
+            continue;
+        }
 
-            let response = match github_get(client, &url, token).await {
-                Ok(response) => response,
-                Err(error) => {
-                    println!(
-                        "[WARN] 🔭 [DISCOVERY] GitHub search query failed after retries: {error}"
-                    );
-                    continue;
-                }
-            };
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_SEARCH_RESPONSE_BYTES as u64)
+        {
+            println!("[WARN] 🔭 [DISCOVERY] GitHub search response exceeds size limit");
+            continue;
+        }
 
-            if !response.status().is_success() {
-                println!(
-                    "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}",
-                    response.status()
-                );
+        let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
+            Ok(body) => body,
+            Err(error) => {
+                println!("[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}");
                 continue;
             }
+        };
 
-            if response
-                .content_length()
-                .is_some_and(|length| length > MAX_SEARCH_RESPONSE_BYTES as u64)
-            {
-                println!("[WARN] 🔭 [DISCOVERY] GitHub search response exceeds size limit");
+        let payload: Value = match serde_json::from_slice(&body) {
+            Ok(payload) => payload,
+            Err(error) => {
+                println!("[WARN] 🔭 [DISCOVERY] GitHub search response parse failed: {error}");
                 continue;
             }
+        };
 
-            let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
-                Ok(body) => body,
-                Err(error) => {
-                    println!("[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}");
+        if let Some(items) = payload.get("items").and_then(Value::as_array) {
+            for item in items {
+                let Some(name) = item.get("full_name").and_then(Value::as_str) else {
                     continue;
-                }
-            };
+                };
 
-            let payload: Value = match serde_json::from_slice(&body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    println!("[WARN] 🔭 [DISCOVERY] GitHub search response parse failed: {error}");
-                    continue;
-                }
-            };
+                let branch = item
+                    .get("default_branch")
+                    .and_then(Value::as_str)
+                    .unwrap_or("main");
 
-            if let Some(items) = payload.get("items").and_then(Value::as_array) {
-                for item in items {
-                    let Some(name) = item.get("full_name").and_then(Value::as_str) else {
-                        continue;
-                    };
+                let pushed_at = item
+                    .get("pushed_at")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
 
-                    let branch = item
-                        .get("default_branch")
-                        .and_then(Value::as_str)
-                        .unwrap_or("main");
-
-                    let pushed_at = item
-                        .get("pushed_at")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default();
-
-                    repos.push(Repository {
-                        name: name.to_string(),
-                        branch: branch.to_string(),
-                        pushed_at: pushed_at.to_string(),
-                    });
-                }
+                repos.push(Repository {
+                    name: name.to_string(),
+                    branch: branch.to_string(),
+                    pushed_at: pushed_at.to_string(),
+                });
             }
         }
     }
@@ -2285,10 +2310,24 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn discovery_search_alternates_sort_by_run_number() {
+        assert_eq!(search_sort_for_run(Some(100), 0), "updated");
+        assert_eq!(search_sort_for_run(Some(101), 0), "stars");
+        assert_eq!(search_sort_for_run(Some(102), 0), "updated");
+    }
+
+    #[test]
+    fn discovery_search_fallback_alternates_by_hour() {
+        assert_eq!(search_sort_for_run(None, 0), "updated");
+        assert_eq!(search_sort_for_run(None, 3_600), "stars");
+        assert_eq!(search_sort_for_run(None, 7_200), "updated");
+    }
+
     use super::{
         extract_source_urls, is_source_path, likely_source_url, normalize_github_source,
-        percent_encode_path, select_new_active_urls, source_path_family, Candidate,
-        CollectionOutcome, Registry, Repository, Value, MAX_ACTIVE_SOURCES,
+        percent_encode_path, search_sort_for_run, select_new_active_urls, source_path_family,
+        Candidate, CollectionOutcome, Registry, Repository, Value, MAX_ACTIVE_SOURCES,
         MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK, MAX_KNOWN_REFRESH_SOURCES,
         MAX_SOURCE_URL_LENGTH, RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
     };
