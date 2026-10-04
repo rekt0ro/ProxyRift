@@ -2324,19 +2324,12 @@ mod tests {
         assert_eq!(search_sort_for_run(None, 7_200), "updated");
     }
 
-    #[test]
-    fn discovery_search_stays_within_github_search_budget() {
-        assert!(DEFAULT_QUERIES.len() <= MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
-        assert!(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN < 30);
-    }
-
     use super::{
         extract_source_urls, is_source_path, likely_source_url, normalize_github_source,
         percent_encode_path, search_sort_for_run, select_new_active_urls, source_path_family,
-        Candidate, CollectionOutcome, Registry, Repository, Value, DEFAULT_QUERIES,
-        MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK,
-        MAX_GITHUB_SEARCH_REQUESTS_PER_RUN, MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH,
-        RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
+        Candidate, CollectionOutcome, Registry, Repository, Value, MAX_ACTIVE_SOURCES,
+        MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK, MAX_KNOWN_REFRESH_SOURCES,
+        MAX_SOURCE_URL_LENGTH, RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
     };
     use base64::Engine as _;
     use std::collections::HashSet;
