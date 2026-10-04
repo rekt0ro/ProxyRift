@@ -2330,7 +2330,6 @@ mod tests {
         assert!(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN < 30);
     }
 
-
     use super::{
         extract_source_urls, is_source_path, likely_source_url, normalize_github_source,
         percent_encode_path, select_new_active_urls, source_path_family, Candidate,
