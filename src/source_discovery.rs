@@ -72,7 +72,8 @@ const DEFAULT_QUERIES: [&str; 24] = [
     "proxy collector",
     "subscription collector",
     "subscription aggregator",
-    "subconverter"
+    "subconverter",
+];
 
 const PATH_HINTS: [&str; 24] = [
     "sub",
@@ -1507,74 +1508,79 @@ async fn search_repositories(
 
     for query in DEFAULT_QUERIES {
         let search_query = format!("{query} archived:false fork:false is:public");
-        let url = format!(
-            "https://api.github.com/search/repositories?q={}&sort=updated&order=desc&per_page={}",
-            percent_encode(&search_query),
-            SEARCH_PER_PAGE
-        );
 
-        let response = match github_get(client, &url, token).await {
-            Ok(response) => response,
-            Err(error) => {
-                println!("[WARN] 🔭 [DISCOVERY] GitHub search query failed after retries: {error}");
-                continue;
-            }
-        };
-        if !response.status().is_success() {
-            println!(
-                "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}",
-                response.status()
+        for sort in SEARCH_SORTS {
+            let url = format!(
+                "https://api.github.com/search/repositories?q={}&sort={sort}&order=desc&per_page={}",
+                percent_encode(&search_query),
+                SEARCH_PER_PAGE
             );
-            continue;
-        }
 
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_SEARCH_RESPONSE_BYTES as u64)
-        {
-            println!("[WARN] 🔭 [DISCOVERY] GitHub search response exceeds size limit");
-            continue;
-        }
-
-        let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
-            Ok(body) => body,
-            Err(error) => {
-                println!("[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}");
-                continue;
-            }
-        };
-
-        let text = String::from_utf8_lossy(&body);
-
-        let payload: Value = match serde_json::from_str(&text) {
-            Ok(payload) => payload,
-            Err(error) => {
-                println!("[WARN] 🔭 [DISCOVERY] GitHub search response parse failed: {error}");
-                continue;
-            }
-        };
-
-        if let Some(items) = payload.get("items").and_then(Value::as_array) {
-            for item in items {
-                let Some(name) = item.get("full_name").and_then(Value::as_str) else {
+            let response = match github_get(client, &url, token).await {
+                Ok(response) => response,
+                Err(error) => {
+                    println!(
+                        "[WARN] 🔭 [DISCOVERY] GitHub search query failed after retries: {error}"
+                    );
                     continue;
-                };
+                }
+            };
 
-                let branch = item
-                    .get("default_branch")
-                    .and_then(Value::as_str)
-                    .unwrap_or("main");
+            if !response.status().is_success() {
+                println!(
+                    "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}",
+                    response.status()
+                );
+                continue;
+            }
 
-                let pushed_at = item
-                    .get("pushed_at")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
+            if response
+                .content_length()
+                .is_some_and(|length| length > MAX_SEARCH_RESPONSE_BYTES as u64)
+            {
+                println!("[WARN] 🔭 [DISCOVERY] GitHub search response exceeds size limit");
+                continue;
+            }
 
-                repos.push(Repository {
-                    name: name.to_string(),
-                    branch: branch.to_string(),
-                    pushed_at: pushed_at.to_string(),
-                });
+            let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
+                Ok(body) => body,
+                Err(error) => {
+                    println!(
+                        "[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}"
+                    );
+                    continue;
+                }
+            };
+
+            let payload: Value = match serde_json::from_slice(&body) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    println!("[WARN] 🔭 [DISCOVERY] GitHub search response parse failed: {error}");
+                    continue;
+                }
+            };
+
+            if let Some(items) = payload.get("items").and_then(Value::as_array) {
+                for item in items {
+                    let Some(name) = item.get("full_name").and_then(Value::as_str) else {
+                        continue;
+                    };
+
+                    let branch = item
+                        .get("default_branch")
+                        .and_then(Value::as_str)
+                        .unwrap_or("main");
+
+                    let pushed_at = item
+                        .get("pushed_at")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+
+                    repos.push(Repository {
+                        name: name.to_string(),
+                        branch: branch.to_string(),
+                        pushed_at: pushed_at.to_string(),
+                    });
                 }
             }
         }
