@@ -1517,8 +1517,10 @@ async fn search_repositories(
 ) -> Result<Vec<Repository>, Box<dyn std::error::Error + Send + Sync>> {
     let mut repos = Vec::new();
     let sort = current_search_sort();
+    let search_query_count = DEFAULT_QUERIES
+        .len()
+        .min(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
 
-    let search_query_count = DEFAULT_QUERIES.len().min(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
     println!(
         "[INFO] 🔭 [DISCOVERY] repository search strategy | sort {} | queries {} | max search requests {}",
         sort,
@@ -1539,69 +1541,69 @@ async fn search_repositories(
         );
 
         let response = match github_get(client, &url, token).await {
-                Ok(response) => response,
-                Err(error) => {
-                    println!(
-                        "[WARN] 🔭 [DISCOVERY] GitHub search query failed after retries: {error}"
-                    );
-                    continue;
-                }
-            };
-
-        if !response.status().is_success() {
+            Ok(response) => response,
+            Err(error) => {
                 println!(
-                    "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}",
-                    response.status()
+                    "[WARN] 🔭 [DISCOVERY] GitHub search query failed after retries: {error}"
                 );
                 continue;
             }
+        };
+
+        if !response.status().is_success() {
+            println!(
+                "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}",
+                response.status()
+            );
+            continue;
+        }
 
         if response
             .content_length()
-                .is_some_and(|length| length > MAX_SEARCH_RESPONSE_BYTES as u64)
-            {
-                println!("[WARN] 🔭 [DISCOVERY] GitHub search response exceeds size limit");
-                continue;
-            }
+            .is_some_and(|length| length > MAX_SEARCH_RESPONSE_BYTES as u64)
+        {
+            println!("[WARN] 🔭 [DISCOVERY] GitHub search response exceeds size limit");
+            continue;
+        }
 
         let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
-                Ok(body) => body,
-                Err(error) => {
-                    println!("[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}");
-                    continue;
-                }
-            };
+            Ok(body) => body,
+            Err(error) => {
+                println!("[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}");
+                continue;
+            }
+        };
 
         let payload: Value = match serde_json::from_slice(&body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    println!("[WARN] 🔭 [DISCOVERY] GitHub search response parse failed: {error}");
-                    continue;
-                }
-            };
+            Ok(payload) => payload,
+            Err(error) => {
+                println!("[WARN] 🔭 [DISCOVERY] GitHub search response parse failed: {error}");
+                continue;
+            }
+        };
 
         if let Some(items) = payload.get("items").and_then(Value::as_array) {
             for item in items {
                 let Some(name) = item.get("full_name").and_then(Value::as_str) else {
-                        continue;
-                    };
+                    continue;
+                };
 
                 let branch = item
-                        .get("default_branch")
-                        .and_then(Value::as_str)
-                        .unwrap_or("main");
+                    .get("default_branch")
+                    .and_then(Value::as_str)
+                    .unwrap_or("main");
 
                 let pushed_at = item
-                        .get("pushed_at")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default();
+                    .get("pushed_at")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
 
                 repos.push(Repository {
                     name: name.to_string(),
                     branch: branch.to_string(),
                     pushed_at: pushed_at.to_string(),
-                    });
-                }
+                });
+            }
         }
     }
 
