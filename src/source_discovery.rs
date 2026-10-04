@@ -45,6 +45,7 @@ const MAX_README_CANDIDATES: usize = 150;
 const MAX_README_URLS_SCANNED: usize = 750;
 const MAX_DISCOVERED_CANDIDATES: usize = 12_000;
 const MAX_NEW_ACTIVE_SOURCES_PER_REPO: usize = 8;
+const MAX_GITHUB_SEARCH_REQUESTS_PER_RUN: usize = 24;
 
 const SEARCH_SORTS: [&str; 2] = ["updated", "stars"];
 
@@ -1517,14 +1518,19 @@ async fn search_repositories(
     let mut repos = Vec::new();
     let sort = current_search_sort();
 
+    let search_query_count = DEFAULT_QUERIES.len().min(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
     println!(
         "[INFO] 🔭 [DISCOVERY] repository search strategy | sort {} | queries {} | max search requests {}",
         sort,
-        DEFAULT_QUERIES.len(),
-        DEFAULT_QUERIES.len()
+        search_query_count,
+        MAX_GITHUB_SEARCH_REQUESTS_PER_RUN
     );
 
-    for query in DEFAULT_QUERIES {
+    for query in DEFAULT_QUERIES
+        .iter()
+        .copied()
+        .take(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN)
+    {
         let search_query = format!("{query} archived:false fork:false is:public");
         let url = format!(
             "https://api.github.com/search/repositories?q={}&sort={sort}&order=desc&per_page={}",
@@ -1532,7 +1538,7 @@ async fn search_repositories(
             SEARCH_PER_PAGE
         );
 
-            let response = match github_get(client, &url, token).await {
+        let response = match github_get(client, &url, token).await {
                 Ok(response) => response,
                 Err(error) => {
                     println!(
@@ -1542,7 +1548,7 @@ async fn search_repositories(
                 }
             };
 
-            if !response.status().is_success() {
+        if !response.status().is_success() {
                 println!(
                     "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}",
                     response.status()
@@ -1550,15 +1556,15 @@ async fn search_repositories(
                 continue;
             }
 
-            if response
-                .content_length()
+        if response
+            .content_length()
                 .is_some_and(|length| length > MAX_SEARCH_RESPONSE_BYTES as u64)
             {
                 println!("[WARN] 🔭 [DISCOVERY] GitHub search response exceeds size limit");
                 continue;
             }
 
-            let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
+        let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
                 Ok(body) => body,
                 Err(error) => {
                     println!("[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}");
@@ -1566,7 +1572,7 @@ async fn search_repositories(
                 }
             };
 
-            let payload: Value = match serde_json::from_slice(&body) {
+        let payload: Value = match serde_json::from_slice(&body) {
                 Ok(payload) => payload,
                 Err(error) => {
                     println!("[WARN] 🔭 [DISCOVERY] GitHub search response parse failed: {error}");
@@ -1574,26 +1580,26 @@ async fn search_repositories(
                 }
             };
 
-            if let Some(items) = payload.get("items").and_then(Value::as_array) {
-                for item in items {
-                    let Some(name) = item.get("full_name").and_then(Value::as_str) else {
+        if let Some(items) = payload.get("items").and_then(Value::as_array) {
+            for item in items {
+                let Some(name) = item.get("full_name").and_then(Value::as_str) else {
                         continue;
                     };
 
-                    let branch = item
+                let branch = item
                         .get("default_branch")
                         .and_then(Value::as_str)
                         .unwrap_or("main");
 
-                    let pushed_at = item
+                let pushed_at = item
                         .get("pushed_at")
                         .and_then(Value::as_str)
                         .unwrap_or_default();
 
-                    repos.push(Repository {
-                        name: name.to_string(),
-                        branch: branch.to_string(),
-                        pushed_at: pushed_at.to_string(),
+                repos.push(Repository {
+                    name: name.to_string(),
+                    branch: branch.to_string(),
+                    pushed_at: pushed_at.to_string(),
                     });
                 }
         }
@@ -2320,8 +2326,8 @@ mod tests {
 
     #[test]
     fn discovery_search_stays_within_github_search_budget() {
-        assert!(DEFAULT_QUERIES.len() < 30);
-        assert_eq!(DEFAULT_QUERIES.len() * 1, DEFAULT_QUERIES.len());
+        assert!(DEFAULT_QUERIES.len() <= MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
+        assert!(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN < 30);
     }
 
 
