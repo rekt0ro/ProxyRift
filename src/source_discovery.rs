@@ -11,9 +11,9 @@ use url::Url;
 
 const REGISTRY_VERSION: u64 = 1;
 const SEARCH_PER_PAGE: usize = 100;
-const MAX_DISCOVERY_REPOS: usize = 300;
-const MAX_TREE_SCANS: usize = 60;
-const MAX_TREE_FILES_PER_REPO: usize = 25;
+const MAX_DISCOVERY_REPOS: usize = 500;
+const MAX_TREE_SCANS: usize = 150;
+const MAX_TREE_FILES_PER_REPO: usize = 40;
 const MAX_ACTIVE_SOURCES: usize = 600;
 const MAX_NEW_SOURCES: usize = 800;
 const MAX_NEW_SOURCES_PER_REPO: usize = 25;
@@ -41,11 +41,14 @@ const README_MAX_BYTES: usize = 256 * 1024;
 const MAX_README_API_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_SOURCE_URL_LENGTH: usize = 8192;
 const MAX_SEARCH_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
-const MAX_README_CANDIDATES: usize = 100;
-const MAX_README_URLS_SCANNED: usize = 500;
-const MAX_DISCOVERED_CANDIDATES: usize = 6000;
+const MAX_README_CANDIDATES: usize = 150;
+const MAX_README_URLS_SCANNED: usize = 750;
+const MAX_DISCOVERED_CANDIDATES: usize = 12_000;
+const MAX_NEW_ACTIVE_SOURCES_PER_REPO: usize = 8;
 
-const DEFAULT_QUERIES: [&str; 10] = [
+const SEARCH_SORTS: [&str; 2] = ["updated", "stars"];
+
+const DEFAULT_QUERIES: [&str; 24] = [
     "v2ray subscription",
     "vless subscription",
     "vmess subscription",
@@ -53,10 +56,23 @@ const DEFAULT_QUERIES: [&str; 10] = [
     "free v2ray configs",
     "v2ray configs",
     "sing-box subscription",
+    "singbox subscription",
+    "mihomo subscription",
+    "clash subscription",
     "hysteria2 subscription",
+    "tuic subscription",
     "reality configs",
+    "free v2ray nodes",
+    "vless nodes",
+    "vmess nodes",
+    "proxy subscription",
+    "proxy list",
+    "node list",
     "v2ray collector",
-];
+    "proxy collector",
+    "subscription collector",
+    "subscription aggregator",
+    "subconverter"
 
 const PATH_HINTS: [&str; 24] = [
     "sub",
@@ -1233,12 +1249,21 @@ async fn discover_from_repos(
         }
     }
 
-    let discovered_repos = discovered_repository_names(&all, repos);
+    let readme_counts = all.iter().fold(HashMap::<String, usize>::new(), |mut counts, candidate| {
+        *counts.entry(candidate.repo.clone()).or_default() += 1;
+        counts
+    });
 
     let mut tree_targets = repos
         .iter()
         .enumerate()
-        .filter(|(_, repo)| !discovered_repos.contains(repo.name.as_str()))
+        .filter(|(_, repo)| {
+            readme_counts
+                .get(&repo.name)
+                .copied()
+                .unwrap_or_default()
+                < 5
+        })
         .take(MAX_TREE_SCANS)
         .map(|(repo_rank, repo)| (repo_rank, repo.clone()))
         .collect::<Vec<_>>();
@@ -1550,6 +1575,7 @@ async fn search_repositories(
                     branch: branch.to_string(),
                     pushed_at: pushed_at.to_string(),
                 });
+                }
             }
         }
     }
@@ -1779,11 +1805,7 @@ fn select_active_sources(
     } else {
         MAX_NEW_ACTIVE_SOURCES
     };
-    let new_urls = new_candidates
-        .iter()
-        .take(new_limit)
-        .map(|candidate| candidate.url.clone())
-        .collect::<Vec<_>>();
+    let new_urls = select_new_active_urls(new_candidates, new_limit);
     let discovered_new_set = new_urls.iter().cloned().collect::<HashSet<_>>();
     let recoverable_known_urls = known_candidates
         .iter()
@@ -1803,6 +1825,99 @@ fn select_active_sources(
     active.extend(new_urls.into_iter().take(remaining_slots));
     active.truncate(limit);
     active
+}
+
+fn select_new_active_urls(candidates: &[Candidate], limit: usize) -> Vec<String> {
+    if limit == 0 || candidates.is_empty() {
+        return Vec::new();
+    }
+
+    let mut pool = candidates.to_vec();
+    let mut selected = Vec::with_capacity(limit.min(pool.len()));
+    let mut selected_urls = HashSet::new();
+    let mut repo_counts = HashMap::<String, usize>::new();
+    let mut family_counts = HashMap::<&'static str, usize>::new();
+
+    while selected.len() < limit && selected.len() < pool.len() {
+        let mut best_index = None;
+        let mut best_key = None::<(i32, i32, i32, i32, i32, String)>;
+
+        for (index, candidate) in pool.iter().enumerate() {
+            if selected_urls.contains(&candidate.url) {
+                continue;
+            }
+
+            let repo_count = repo_counts.get(&candidate.repo).copied().unwrap_or_default();
+            if repo_count >= MAX_NEW_ACTIVE_SOURCES_PER_REPO {
+                continue;
+            }
+
+            let family = source_path_family(&candidate.url);
+            let family_count = family_counts.get(family).copied().unwrap_or_default();
+
+            let repo_bonus = if repo_count == 0 { 250 } else { 0 };
+            let family_bonus = if family_count == 0 { 40 } else { 0 };
+            let diversity_penalty = (repo_count as i32 * 35) + (family_count as i32 * 8);
+
+            let key = (
+                candidate.priority as i32 * 1_000
+                    + source_url_score(&candidate.url) as i32 * 10
+                    + repo_bonus
+                    + family_bonus
+                    - diversity_penalty,
+                -candidate.repo_rank as i32,
+                -family_count as i32,
+                -repo_count as i32,
+                -(candidate.url.len() as i32),
+                candidate.url.clone(),
+            );
+
+            if best_key.as_ref().is_none_or(|current| key > *current) {
+                best_key = Some(key);
+                best_index = Some(index);
+            }
+        }
+
+        let Some(index) = best_index else {
+            break;
+        };
+
+        let candidate = pool.swap_remove(index);
+        selected_urls.insert(candidate.url.clone());
+        *repo_counts.entry(candidate.repo.clone()).or_default() += 1;
+        *family_counts
+            .entry(source_path_family(&candidate.url))
+            .or_default() += 1;
+        selected.push(candidate.url);
+    }
+
+    selected
+}
+
+fn source_path_family(url: &str) -> &'static str {
+    let Some(path) = github_source_path(url) else {
+        return "generic";
+    };
+
+    for token in path
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+    {
+        match token.to_ascii_lowercase().as_str() {
+            "vless" => return "vless",
+            "vmess" => return "vmess",
+            "trojan" => return "trojan",
+            "shadowsocks" => return "shadowsocks",
+            "hysteria" | "hysteria2" | "hy2" => return "hysteria",
+            "tuic" => return "tuic",
+            "reality" => return "reality",
+            "sing" | "singbox" => return "singbox",
+            "clash" | "mihomo" => return "clash",
+            _ => {}
+        }
+    }
+
+    "generic"
 }
 
 fn persisted_active_sources(registry: &Registry) -> Option<Vec<String>> {
@@ -2168,12 +2283,54 @@ fn unix_now() -> u64 {
 mod tests {
     use super::{
         extract_source_urls, is_source_path, likely_source_url, normalize_github_source,
-        percent_encode_path, Candidate, CollectionOutcome, Registry, Repository, Value,
+        percent_encode_path, select_new_active_urls, source_path_family, Candidate,
+        CollectionOutcome, Registry, Repository, Value,
         MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK,
         MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH, RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
     };
     use base64::Engine as _;
     use std::collections::HashSet;
+
+    #[test]
+    fn new_active_selection_spreads_across_repositories() {
+        let candidates = (0..4)
+            .flat_map(|repo_index| {
+                (0..4).map(move |source_index| Candidate {
+                    url: format!(
+                        "https://raw.githubusercontent.com/example/repo-{repo_index}/main/subscriptions/vless-{source_index}.txt"
+                    ),
+                    repo: format!("example/repo-{repo_index}"),
+                    repo_rank: repo_index,
+                    priority: 100,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let selected = select_new_active_urls(&candidates, 8);
+        let repos = selected
+            .iter()
+            .filter_map(|url| super::source_repository_from_raw_url(url))
+            .collect::<HashSet<_>>();
+
+        assert_eq!(selected.len(), 8);
+        assert!(repos.len() >= 2);
+    }
+
+    #[test]
+    fn source_path_family_detects_protocol_and_generic_paths() {
+        assert_eq!(
+            source_path_family(
+                "https://raw.githubusercontent.com/example/repo/main/subscriptions/vless.txt"
+            ),
+            "vless"
+        );
+        assert_eq!(
+            source_path_family(
+                "https://raw.githubusercontent.com/example/repo/main/subscriptions/all.txt"
+            ),
+            "generic"
+        );
+    }
 
     #[test]
     fn permanent_source_failures_are_quarantined_immediately() {
