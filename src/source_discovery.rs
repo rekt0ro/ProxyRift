@@ -1075,11 +1075,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
 
     let mut seen_repositories = HashSet::new();
     repos.retain(|repo| seen_repositories.insert(repo.name.clone()));
-    repos.sort_by(|a, b| {
-        b.pushed_at
-            .cmp(&a.pushed_at)
-            .then_with(|| a.name.cmp(&b.name))
-    });
+    sort_discovered_repositories(&mut repos);
     repos.truncate(MAX_DISCOVERY_REPOS);
 
     let discovered = if repos.is_empty() {
