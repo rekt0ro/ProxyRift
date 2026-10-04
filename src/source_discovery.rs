@@ -1966,6 +1966,7 @@ fn select_known_refresh_candidates(
     selected
 }
 
+#[cfg(test)]
 fn discovered_repository_names(candidates: &[Candidate], repos: &[Repository]) -> HashSet<String> {
     candidates
         .iter()
