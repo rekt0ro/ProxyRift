@@ -46,6 +46,8 @@ const MAX_README_URLS_SCANNED: usize = 750;
 const MAX_DISCOVERED_CANDIDATES: usize = 12_000;
 const MAX_NEW_ACTIVE_SOURCES_PER_REPO: usize = 8;
 const MAX_GITHUB_SEARCH_REQUESTS_PER_RUN: usize = 24;
+const GITHUB_SEARCH_MIN_INTERVAL_MS: u64 = 2_100;
+const GITHUB_SEARCH_MIN_REMAINING: u64 = 1;
 
 const SEARCH_SORTS: [&str; 2] = ["updated", "stars"];
 
@@ -202,6 +204,9 @@ struct Repository {
     name: String,
     branch: String,
     pushed_at: String,
+    search_hits: u16,
+    best_search_rank: u16,
+    stars: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1070,11 +1075,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
 
     let mut seen_repositories = HashSet::new();
     repos.retain(|repo| seen_repositories.insert(repo.name.clone()));
-    repos.sort_by(|a, b| {
-        b.pushed_at
-            .cmp(&a.pushed_at)
-            .then_with(|| a.name.cmp(&b.name))
-    });
+    sort_discovered_repositories(&mut repos);
     repos.truncate(MAX_DISCOVERY_REPOS);
 
     let discovered = if repos.is_empty() {
@@ -1515,24 +1516,34 @@ async fn search_repositories(
     client: &Client,
     token: Option<&str>,
 ) -> Result<Vec<Repository>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut repos = Vec::new();
+    let mut repos_by_name = HashMap::<String, Repository>::new();
     let sort = current_search_sort();
     let search_query_count = DEFAULT_QUERIES
         .len()
         .min(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
+    let mut search_requests_made = 0usize;
+    let mut search_rate_remaining = None;
+    let mut stopped_for_rate_limit = false;
 
     println!(
-        "[INFO] 🔭 [DISCOVERY] repository search strategy | sort {} | queries {} | max search requests {}",
+        "[INFO] 🔭 [DISCOVERY] repository search strategy | sort {} | queries {} | max search requests {} | min interval {}ms",
         sort,
         search_query_count,
-        MAX_GITHUB_SEARCH_REQUESTS_PER_RUN
+        MAX_GITHUB_SEARCH_REQUESTS_PER_RUN,
+        GITHUB_SEARCH_MIN_INTERVAL_MS
     );
 
-    for query in DEFAULT_QUERIES
+    for (query_index, query) in DEFAULT_QUERIES
         .iter()
         .copied()
         .take(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN)
+        .enumerate()
     {
+        if query_index > 0 {
+            tokio::time::sleep(Duration::from_millis(GITHUB_SEARCH_MIN_INTERVAL_MS)).await;
+        }
+        search_requests_made += 1;
+
         let search_query = format!("{query} archived:false fork:false is:public");
         let url = format!(
             "https://api.github.com/search/repositories?q={}&sort={sort}&order=desc&per_page={}",
@@ -1548,11 +1559,32 @@ async fn search_repositories(
             }
         };
 
+        let remaining = github_search_rate_limit_remaining(&response);
+        search_rate_remaining = remaining.or(search_rate_remaining);
+
         if !response.status().is_success() {
+            let status = response.status();
             println!(
-                "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}",
-                response.status()
+                "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}{}",
+                status,
+                remaining
+                    .map(|value| format!(" | search rate remaining {}", value))
+                    .unwrap_or_default()
             );
+
+            if status == reqwest::StatusCode::FORBIDDEN
+                || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            {
+                let reset = github_search_rate_limit_reset(&response)
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                println!(
+                    "[WARN] 🔭 [DISCOVERY] stopping remaining repository searches after rate-limit response | reset {}",
+                    reset
+                );
+                stopped_for_rate_limit = true;
+                break;
+            }
             continue;
         }
 
@@ -1564,10 +1596,26 @@ async fn search_repositories(
             continue;
         }
 
+        let stop_after_response =
+            remaining.is_some_and(|value| value <= GITHUB_SEARCH_MIN_REMAINING);
+        if let Some(value) = remaining {
+            search_rate_remaining = Some(value);
+            if value <= GITHUB_SEARCH_MIN_REMAINING + 2 {
+                println!(
+                    "[INFO] 🔭 [DISCOVERY] GitHub search budget low | remaining {}",
+                    value
+                );
+            }
+        }
+
         let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
             Ok(body) => body,
             Err(error) => {
                 println!("[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}");
+                if stop_after_response {
+                    stopped_for_rate_limit = true;
+                    break;
+                }
                 continue;
             }
         };
@@ -1576,12 +1624,16 @@ async fn search_repositories(
             Ok(payload) => payload,
             Err(error) => {
                 println!("[WARN] 🔭 [DISCOVERY] GitHub search response parse failed: {error}");
+                if stop_after_response {
+                    stopped_for_rate_limit = true;
+                    break;
+                }
                 continue;
             }
         };
 
         if let Some(items) = payload.get("items").and_then(Value::as_array) {
-            for item in items {
+            for (search_rank, item) in items.iter().enumerate() {
                 let Some(name) = item.get("full_name").and_then(Value::as_str) else {
                     continue;
                 };
@@ -1596,20 +1648,79 @@ async fn search_repositories(
                     .and_then(Value::as_str)
                     .unwrap_or_default();
 
-                repos.push(Repository {
-                    name: name.to_string(),
-                    branch: branch.to_string(),
-                    pushed_at: pushed_at.to_string(),
-                });
+                let stars = item
+                    .get("stargazers_count")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default();
+
+                let key = name.to_string();
+                if let Some(repository) = repos_by_name.get_mut(&key) {
+                    repository.search_hits = repository.search_hits.saturating_add(1);
+                    repository.best_search_rank = repository
+                        .best_search_rank
+                        .min(search_rank.min(u16::MAX as usize) as u16);
+                    repository.stars = repository.stars.max(stars);
+                } else {
+                    repos_by_name.insert(
+                        key,
+                        Repository {
+                            name: name.to_string(),
+                            branch: branch.to_string(),
+                            pushed_at: pushed_at.to_string(),
+                            search_hits: 1,
+                            best_search_rank: search_rank.min(u16::MAX as usize) as u16,
+                            stars,
+                        },
+                    );
+                }
             }
         }
+
+        if stop_after_response {
+            stopped_for_rate_limit = true;
+            println!(
+                "[INFO] 🔭 [DISCOVERY] stopping repository searches early to preserve search-rate headroom | remaining {}",
+                remaining.unwrap_or_default()
+            );
+            break;
+        }
     }
+
+    let mut repos = repos_by_name.into_values().collect::<Vec<_>>();
+    sort_discovered_repositories(&mut repos);
+
+    let multi_query_repositories = repos
+        .iter()
+        .filter(|repository| repository.search_hits > 1)
+        .count();
+
+    println!(
+        "[INFO] 🔭 [DISCOVERY] repository search complete | requests {} | repositories discovered {} | multi-query repos {} | search rate remaining {} | stopped for rate limit {}",
+        search_requests_made,
+        repos.len(),
+        multi_query_repositories,
+        search_rate_remaining
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        stopped_for_rate_limit
+    );
 
     if repos.is_empty() {
         return Err("GitHub repository search produced no usable repositories".into());
     }
 
     Ok(repos)
+}
+
+fn sort_discovered_repositories(repositories: &mut [Repository]) {
+    repositories.sort_by(|a, b| {
+        b.search_hits
+            .cmp(&a.search_hits)
+            .then_with(|| a.best_search_rank.cmp(&b.best_search_rank))
+            .then_with(|| b.pushed_at.cmp(&a.pushed_at))
+            .then_with(|| b.stars.cmp(&a.stars))
+            .then_with(|| a.name.cmp(&b.name))
+    });
 }
 
 async fn github_get(
@@ -1666,6 +1777,40 @@ fn is_retryable_github_response(response: &reqwest::Response) -> bool {
         response.status(),
         response.headers().contains_key("retry-after"),
     )
+}
+
+fn github_search_rate_limit_remaining(response: &reqwest::Response) -> Option<u64> {
+    let resource = response
+        .headers()
+        .get("x-ratelimit-resource")
+        .and_then(|value| value.to_str().ok())?;
+
+    if resource != "search" {
+        return None;
+    }
+
+    response
+        .headers()
+        .get("x-ratelimit-remaining")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+}
+
+fn github_search_rate_limit_reset(response: &reqwest::Response) -> Option<u64> {
+    let resource = response
+        .headers()
+        .get("x-ratelimit-resource")
+        .and_then(|value| value.to_str().ok())?;
+
+    if resource != "search" {
+        return None;
+    }
+
+    response
+        .headers()
+        .get("x-ratelimit-reset")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
 }
 
 fn retry_after_delay(response: &reqwest::Response, attempt: usize) -> Duration {
@@ -2335,6 +2480,42 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
+    fn discovered_repository_sort_prefers_multi_query_evidence() {
+        let mut repositories = vec![
+            Repository {
+                name: "fresh/repo".to_string(),
+                branch: "main".to_string(),
+                pushed_at: "2026-10-04T22:00:00Z".to_string(),
+                search_hits: 1,
+                best_search_rank: 0,
+                stars: 1_000,
+            },
+            Repository {
+                name: "corroborated/repo".to_string(),
+                branch: "main".to_string(),
+                pushed_at: "2026-10-01T22:00:00Z".to_string(),
+                search_hits: 3,
+                best_search_rank: 10,
+                stars: 1,
+            },
+            Repository {
+                name: "ranked/repo".to_string(),
+                branch: "main".to_string(),
+                pushed_at: "2026-10-03T22:00:00Z".to_string(),
+                search_hits: 2,
+                best_search_rank: 2,
+                stars: 10,
+            },
+        ];
+
+        super::sort_discovered_repositories(&mut repositories);
+
+        assert_eq!(repositories[0].name, "corroborated/repo");
+        assert_eq!(repositories[1].name, "ranked/repo");
+        assert_eq!(repositories[2].name, "fresh/repo");
+    }
+
+    #[test]
     fn new_active_selection_spreads_across_repositories() {
         let candidates = (0..4)
             .flat_map(|repo_index| {
@@ -2774,11 +2955,17 @@ mod tests {
                 name: "reader/repo".to_string(),
                 branch: "main".to_string(),
                 pushed_at: String::new(),
+                search_hits: 1,
+                best_search_rank: 0,
+                stars: 0,
             },
             Repository {
                 name: "source/repo".to_string(),
                 branch: "main".to_string(),
                 pushed_at: String::new(),
+                search_hits: 1,
+                best_search_rank: 1,
+                stars: 0,
             },
         ];
         let candidates = vec![Candidate {
