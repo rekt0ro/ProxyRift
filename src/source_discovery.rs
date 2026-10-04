@@ -204,6 +204,9 @@ struct Repository {
     name: String,
     branch: String,
     pushed_at: String,
+    search_hits: u16,
+    best_search_rank: u16,
+    stars: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1517,7 +1520,7 @@ async fn search_repositories(
     client: &Client,
     token: Option<&str>,
 ) -> Result<Vec<Repository>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut repos = Vec::new();
+    let mut repos_by_name = HashMap::<String, Repository>::new();
     let sort = current_search_sort();
     let search_query_count = DEFAULT_QUERIES
         .len()
@@ -1634,7 +1637,7 @@ async fn search_repositories(
         };
 
         if let Some(items) = payload.get("items").and_then(Value::as_array) {
-            for item in items {
+            for (search_rank, item) in items.iter().enumerate() {
                 let Some(name) = item.get("full_name").and_then(Value::as_str) else {
                     continue;
                 };
@@ -1649,11 +1652,31 @@ async fn search_repositories(
                     .and_then(Value::as_str)
                     .unwrap_or_default();
 
-                repos.push(Repository {
-                    name: name.to_string(),
-                    branch: branch.to_string(),
-                    pushed_at: pushed_at.to_string(),
-                });
+                let stars = item
+                    .get("stargazers_count")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default();
+
+                let key = name.to_string();
+                if let Some(repository) = repos_by_name.get_mut(&key) {
+                    repository.search_hits = repository.search_hits.saturating_add(1);
+                    repository.best_search_rank = repository
+                        .best_search_rank
+                        .min(search_rank.min(u16::MAX as usize) as u16);
+                    repository.stars = repository.stars.max(stars);
+                } else {
+                    repos_by_name.insert(
+                        key,
+                        Repository {
+                            name: name.to_string(),
+                            branch: branch.to_string(),
+                            pushed_at: pushed_at.to_string(),
+                            search_hits: 1,
+                            best_search_rank: search_rank.min(u16::MAX as usize) as u16,
+                            stars,
+                        },
+                    );
+                }
             }
         }
 
@@ -1667,10 +1690,19 @@ async fn search_repositories(
         }
     }
 
+    let mut repos = repos_by_name.into_values().collect::<Vec<_>>();
+    sort_discovered_repositories(&mut repos);
+
+    let multi_query_repositories = repos
+        .iter()
+        .filter(|repository| repository.search_hits > 1)
+        .count();
+
     println!(
-        "[INFO] 🔭 [DISCOVERY] repository search complete | requests {} | repositories discovered {} | search rate remaining {} | stopped for rate limit {}",
+        "[INFO] 🔭 [DISCOVERY] repository search complete | requests {} | repositories discovered {} | multi-query repos {} | search rate remaining {} | stopped for rate limit {}",
         search_requests_made,
         repos.len(),
+        multi_query_repositories,
         search_rate_remaining
             .map(|value| value.to_string())
             .unwrap_or_else(|| "unknown".to_string()),
@@ -1682,6 +1714,17 @@ async fn search_repositories(
     }
 
     Ok(repos)
+}
+
+fn sort_discovered_repositories(repositories: &mut [Repository]) {
+    repositories.sort_by(|a, b| {
+        b.search_hits
+            .cmp(&a.search_hits)
+            .then_with(|| a.best_search_rank.cmp(&b.best_search_rank))
+            .then_with(|| b.pushed_at.cmp(&a.pushed_at))
+            .then_with(|| b.stars.cmp(&a.stars))
+            .then_with(|| a.name.cmp(&b.name))
+    });
 }
 
 async fn github_get(
@@ -2441,6 +2484,42 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
+    fn discovered_repository_sort_prefers_multi_query_evidence() {
+        let mut repositories = vec![
+            Repository {
+                name: "fresh/repo".to_string(),
+                branch: "main".to_string(),
+                pushed_at: "2026-10-04T22:00:00Z".to_string(),
+                search_hits: 1,
+                best_search_rank: 0,
+                stars: 1_000,
+            },
+            Repository {
+                name: "corroborated/repo".to_string(),
+                branch: "main".to_string(),
+                pushed_at: "2026-10-01T22:00:00Z".to_string(),
+                search_hits: 3,
+                best_search_rank: 10,
+                stars: 1,
+            },
+            Repository {
+                name: "ranked/repo".to_string(),
+                branch: "main".to_string(),
+                pushed_at: "2026-10-03T22:00:00Z".to_string(),
+                search_hits: 2,
+                best_search_rank: 2,
+                stars: 10,
+            },
+        ];
+
+        super::sort_discovered_repositories(&mut repositories);
+
+        assert_eq!(repositories[0].name, "corroborated/repo");
+        assert_eq!(repositories[1].name, "ranked/repo");
+        assert_eq!(repositories[2].name, "fresh/repo");
+    }
+
+    #[test]
     fn new_active_selection_spreads_across_repositories() {
         let candidates = (0..4)
             .flat_map(|repo_index| {
@@ -2880,11 +2959,17 @@ mod tests {
                 name: "reader/repo".to_string(),
                 branch: "main".to_string(),
                 pushed_at: String::new(),
+                search_hits: 1,
+                best_search_rank: 0,
+                stars: 0,
             },
             Repository {
                 name: "source/repo".to_string(),
                 branch: "main".to_string(),
                 pushed_at: String::new(),
+                search_hits: 1,
+                best_search_rank: 1,
+                stars: 0,
             },
         ];
         let candidates = vec![Candidate {
