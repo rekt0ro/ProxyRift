@@ -46,6 +46,8 @@ const MAX_README_URLS_SCANNED: usize = 750;
 const MAX_DISCOVERED_CANDIDATES: usize = 12_000;
 const MAX_NEW_ACTIVE_SOURCES_PER_REPO: usize = 8;
 const MAX_GITHUB_SEARCH_REQUESTS_PER_RUN: usize = 24;
+const GITHUB_SEARCH_MIN_INTERVAL_MS: u64 = 2_100;
+const GITHUB_SEARCH_MIN_REMAINING: u64 = 1;
 
 const SEARCH_SORTS: [&str; 2] = ["updated", "stars"];
 
@@ -1520,19 +1522,29 @@ async fn search_repositories(
     let search_query_count = DEFAULT_QUERIES
         .len()
         .min(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
+    let mut search_requests_made = 0usize;
+    let mut search_rate_remaining = None;
+    let mut stopped_for_rate_limit = false;
 
     println!(
-        "[INFO] 🔭 [DISCOVERY] repository search strategy | sort {} | queries {} | max search requests {}",
+        "[INFO] 🔭 [DISCOVERY] repository search strategy | sort {} | queries {} | max search requests {} | min interval {}ms",
         sort,
         search_query_count,
-        MAX_GITHUB_SEARCH_REQUESTS_PER_RUN
+        MAX_GITHUB_SEARCH_REQUESTS_PER_RUN,
+        GITHUB_SEARCH_MIN_INTERVAL_MS
     );
 
-    for query in DEFAULT_QUERIES
+    for (query_index, query) in DEFAULT_QUERIES
         .iter()
         .copied()
         .take(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN)
+        .enumerate()
     {
+        if query_index > 0 {
+            tokio::time::sleep(Duration::from_millis(GITHUB_SEARCH_MIN_INTERVAL_MS)).await;
+        }
+        search_requests_made += 1;
+
         let search_query = format!("{query} archived:false fork:false is:public");
         let url = format!(
             "https://api.github.com/search/repositories?q={}&sort={sort}&order=desc&per_page={}",
@@ -1548,11 +1560,32 @@ async fn search_repositories(
             }
         };
 
+        let remaining = github_search_rate_limit_remaining(&response);
+        search_rate_remaining = remaining.or(search_rate_remaining);
+
         if !response.status().is_success() {
+            let status = response.status();
             println!(
-                "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}",
-                response.status()
+                "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}{}",
+                status,
+                remaining
+                    .map(|value| format!(" | search rate remaining {}", value))
+                    .unwrap_or_default()
             );
+
+            if status == reqwest::StatusCode::FORBIDDEN
+                || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            {
+                let reset = github_search_rate_limit_reset(&response)
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                println!(
+                    "[WARN] 🔭 [DISCOVERY] stopping remaining repository searches after rate-limit response | reset {}",
+                    reset
+                );
+                stopped_for_rate_limit = true;
+                break;
+            }
             continue;
         }
 
@@ -1564,10 +1597,26 @@ async fn search_repositories(
             continue;
         }
 
+        let stop_after_response =
+            remaining.is_some_and(|value| value <= GITHUB_SEARCH_MIN_REMAINING);
+        if let Some(value) = remaining {
+            search_rate_remaining = Some(value);
+            if value <= GITHUB_SEARCH_MIN_REMAINING + 2 {
+                println!(
+                    "[INFO] 🔭 [DISCOVERY] GitHub search budget low | remaining {}",
+                    value
+                );
+            }
+        }
+
         let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
             Ok(body) => body,
             Err(error) => {
                 println!("[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}");
+                if stop_after_response {
+                    stopped_for_rate_limit = true;
+                    break;
+                }
                 continue;
             }
         };
@@ -1576,6 +1625,10 @@ async fn search_repositories(
             Ok(payload) => payload,
             Err(error) => {
                 println!("[WARN] 🔭 [DISCOVERY] GitHub search response parse failed: {error}");
+                if stop_after_response {
+                    stopped_for_rate_limit = true;
+                    break;
+                }
                 continue;
             }
         };
@@ -1603,7 +1656,26 @@ async fn search_repositories(
                 });
             }
         }
+
+        if stop_after_response {
+            stopped_for_rate_limit = true;
+            println!(
+                "[INFO] 🔭 [DISCOVERY] stopping repository searches early to preserve search-rate headroom | remaining {}",
+                remaining.unwrap_or_default()
+            );
+            break;
+        }
     }
+
+    println!(
+        "[INFO] 🔭 [DISCOVERY] repository search complete | requests {} | repositories discovered {} | search rate remaining {} | stopped for rate limit {}",
+        search_requests_made,
+        repos.len(),
+        search_rate_remaining
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        stopped_for_rate_limit
+    );
 
     if repos.is_empty() {
         return Err("GitHub repository search produced no usable repositories".into());
@@ -1666,6 +1738,40 @@ fn is_retryable_github_response(response: &reqwest::Response) -> bool {
         response.status(),
         response.headers().contains_key("retry-after"),
     )
+}
+
+fn github_search_rate_limit_remaining(response: &reqwest::Response) -> Option<u64> {
+    let resource = response
+        .headers()
+        .get("x-ratelimit-resource")
+        .and_then(|value| value.to_str().ok())?;
+
+    if resource != "search" {
+        return None;
+    }
+
+    response
+        .headers()
+        .get("x-ratelimit-remaining")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+}
+
+fn github_search_rate_limit_reset(response: &reqwest::Response) -> Option<u64> {
+    let resource = response
+        .headers()
+        .get("x-ratelimit-resource")
+        .and_then(|value| value.to_str().ok())?;
+
+    if resource != "search" {
+        return None;
+    }
+
+    response
+        .headers()
+        .get("x-ratelimit-reset")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
 }
 
 fn retry_after_delay(response: &reqwest::Response, attempt: usize) -> Duration {
