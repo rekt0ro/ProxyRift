@@ -29,6 +29,8 @@ const FINAL_RECHECK_LIMIT: usize = 350;
 const DEFAULT_SELECTION_LIMIT: usize = 200;
 const DEFAULT_MAX_PER_ENDPOINT: usize = 1;
 const DEFAULT_MAX_PER_FAMILY: usize = 3;
+const STRICT_VALIDATION_RESERVE_PERCENT: usize = 20;
+const STRICT_VALIDATION_RESERVE_MAX: usize = 64;
 const RECHECK_FAMILY_DIVERSITY: usize = 3;
 const RECHECK_EXPLORATION_PERCENT: usize = 15;
 const MAX_RECHECK_EXPLORATION: usize = 64;
@@ -38,14 +40,14 @@ const TRANSFER_RESERVE_SAFETY_FACTOR: f64 = 1.08;
 const TRANSFER_RESERVE_MAX_HEADROOM: usize = 120;
 const FINAL_TRANSFER_BATCH_SIZE: usize = 32;
 const FINAL_TRANSFER_WORKERS: usize = 8;
-const FINAL_TRANSFER_INITIAL_WORKERS: usize = 4;
+const FINAL_TRANSFER_INITIAL_WORKERS: usize = 8;
 const FINAL_TRANSFER_MIN_WORKERS: usize = 2;
 const FINAL_TRANSFER_QUEUE_MULTIPLIER: usize = 3;
 const FINAL_TRANSFER_CLEAN_BATCHES_TO_RAMP: usize = 2;
 const FINAL_TRANSFER_TEST_LIMIT: usize = 320;
 const STABILITY_TRANSFER_TEST_LIMIT: usize = 450;
 const STABILITY_TRANSFER_BATCH_SIZE: usize = 32;
-const STABILITY_TRANSFER_WORKERS: usize = 8;
+const STABILITY_TRANSFER_WORKERS: usize = 12;
 const STABILITY_TRANSFER_MAX_LATENCY_MS: f64 = 15000.0;
 const STABILITY_TRANSFER_MAX_ELAPSED_SECS: u64 = 5 * 60;
 const STABILITY_TARGET_SAFETY_FACTOR: f64 = 1.15;
@@ -60,11 +62,11 @@ const STREAM_CONTINUITY_TEST_LIMIT: usize = 240;
 const STREAM_CONTINUITY_RESERVE_PERCENT: usize = 5;
 const STREAM_CONTINUITY_RESERVE_MAX: usize = 16;
 const STREAM_CONTINUITY_BATCH_SIZE: usize = 16;
-const STREAM_CONTINUITY_WORKERS: usize = 8;
+const STREAM_CONTINUITY_WORKERS: usize = 12;
 const STREAM_CONTINUITY_SEGMENTS: usize = 3;
 const STREAM_CONTINUITY_SEGMENT_BYTES: usize = 1_048_576;
 const STREAM_CONTINUITY_MAX_IDLE_SECS: u64 = 4;
-const STREAM_CONTINUITY_MAX_ELAPSED_SECS: u64 = 4 * 60;
+const STREAM_CONTINUITY_MAX_ELAPSED_SECS: u64 = 5 * 60;
 const FINAL_TRANSFER_TIMEOUT_SECS: f64 = 15.0;
 const FINAL_TRANSFER_LATENCY_LIMIT_MS: f64 = 15000.0;
 const HISTORY_MAX_ENTRIES: usize = 10000;
@@ -86,6 +88,19 @@ fn transfer_validation_target(selection_limit: usize) -> usize {
         .saturating_mul(STREAM_CONTINUITY_RESERVE_PERCENT)
         .div_ceil(100)
         .clamp(1, STREAM_CONTINUITY_RESERVE_MAX);
+    selection_limit.saturating_add(reserve)
+}
+
+fn strict_validation_target(selection_limit: usize) -> usize {
+    if selection_limit == 0 {
+        return 0;
+    }
+
+    let reserve = selection_limit
+        .saturating_mul(STRICT_VALIDATION_RESERVE_PERCENT)
+        .div_ceil(100)
+        .clamp(1, STRICT_VALIDATION_RESERVE_MAX);
+
     selection_limit.saturating_add(reserve)
 }
 
@@ -235,6 +250,44 @@ fn select_recheck_candidates(
     (selected, exploration_selected)
 }
 
+fn select_stability_test_batch(
+    ranked: &[String],
+    stable_selected: &[String],
+    limit: usize,
+    selection_target: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+) -> Vec<String> {
+    if limit == 0 || selection_target == 0 || stable_selected.len() >= selection_target {
+        return Vec::new();
+    }
+
+    let mut selected_for_capacity = stable_selected.to_vec();
+    let mut batch = Vec::with_capacity(limit.min(ranked.len()));
+
+    for config in ranked {
+        if batch.len() >= limit {
+            break;
+        }
+
+        if selection_additional_potential_count(
+            &selected_for_capacity,
+            std::slice::from_ref(config),
+            selection_target,
+            max_per_endpoint,
+            max_per_family,
+        ) == 0
+        {
+            continue;
+        }
+
+        selected_for_capacity.push(config.clone());
+        batch.push(config.clone());
+    }
+
+    batch
+}
+
 fn selection_eligible_count(
     configs: &[String],
     max_per_endpoint: usize,
@@ -346,7 +399,9 @@ fn transfer_reserve_target(
     let estimated =
         ((remaining as f64 / observed_rate) * TRANSFER_RESERVE_SAFETY_FACTOR).ceil() as usize;
     let minimum = remaining.saturating_add(8);
-    let maximum = remaining.saturating_add(TRANSFER_RESERVE_MAX_HEADROOM);
+    let maximum = remaining
+        .saturating_add(TRANSFER_RESERVE_MAX_HEADROOM)
+        .min(strict_validation_target(selection_limit));
 
     estimated.clamp(minimum, maximum)
 }
@@ -1404,9 +1459,24 @@ async fn fill_transfer_stability_gate(
             stability_tested.len(),
             stability_verified.len(),
             final_verified.len(),
+        )
+        .min(strict_validation_target(selection_limit));
+
+        let mut stable_ranked = stability_verified.keys().cloned().collect::<Vec<_>>();
+        sort_ranked(
+            &mut stable_ranked,
+            stability_verified,
+            global_positions,
+            history,
+        );
+        let stable_selected = select_verified_configs(
+            &stable_ranked,
+            stability_target,
+            max_per_endpoint,
+            max_per_family,
         );
 
-        if stability_verified.len() >= stability_target
+        if stable_selected.len() >= stability_target
             || stability_tested.len() >= STABILITY_TRANSFER_TEST_LIMIT
         {
             return Ok(stability_verified.len());
@@ -1424,11 +1494,11 @@ async fn fill_transfer_stability_gate(
             return Ok(stability_verified.len());
         }
 
-        let completion_mode = stability_verified.len() < selection_limit
-            && stability_verified
+        let completion_mode = stable_selected.len() < stability_target
+            && stable_selected
                 .len()
                 .saturating_add(STABILITY_COMPLETION_GRACE_REMAINING)
-                >= selection_limit;
+                >= stability_target;
         let completion_grace = if completion_mode {
             STABILITY_COMPLETION_GRACE_SECS
         } else {
@@ -1453,8 +1523,14 @@ async fn fill_transfer_stability_gate(
         } else {
             remaining_budget.clamp(1, STABILITY_TRANSFER_BATCH_SIZE)
         };
-        let batch =
-            select_verified_configs(&untested, batch_limit, max_per_endpoint, max_per_family);
+        let batch = select_stability_test_batch(
+            &untested,
+            &stable_selected,
+            batch_limit,
+            stability_target,
+            max_per_endpoint,
+            max_per_family,
+        );
 
         if batch.is_empty() {
             return Ok(stability_verified.len());
@@ -1465,15 +1541,15 @@ async fn fill_transfer_stability_gate(
         if completion_mode {
             println!(
                 "[INFO] 🎯 [1 MiB] COMPLETION MODE | STABLE: {} | NEED: {} | PRIORITIZING {} HIGHEST-RANKED UNTESTED CANDIDATES | GRACE: {}s",
-                stability_verified.len(),
-                selection_limit.saturating_sub(stability_verified.len()),
+                stable_selected.len(),
+                stability_target.saturating_sub(stable_selected.len()),
                 batch.len(),
                 completion_grace
             );
         } else {
             println!(
                 "[INFO] 📥 [1 MiB] STABLE POOL: {}/{} | TESTING {} CANDIDATES | TESTED: {}/{}",
-                stability_verified.len(),
+                stable_selected.len(),
                 stability_target,
                 batch.len(),
                 stability_tested.len(),
@@ -2983,7 +3059,7 @@ async fn main() -> Result<(), String> {
         let strict_untested_additional_potential = selection_additional_potential_count(
             &transfer_selected_configs,
             &strict_untested,
-            selection_limit,
+            strict_validation_target(selection_limit),
             max_per_endpoint,
             max_per_family,
         );
@@ -3068,10 +3144,12 @@ async fn main() -> Result<(), String> {
                 selection_limit,
                 stability_tested.len(),
                 stability_verified.len(),
-            );
+            )
+            .min(strict_validation_target(selection_limit));
             let stability_reserve_ready = final_verified.len() >= stability_pool_target;
 
-            if potential_selected >= selection_limit && stability_reserve_ready {
+            if potential_selected >= strict_validation_target(selection_limit)
+                && stability_reserve_ready {
                 println!(
                     "[INFO] 🎯 [LIGHT] TRANSFER-FIRST | CURRENT STRICT POOL CAN REACH {} AND SUSTAINS 1 MiB RESERVE {} | SKIPPING MORE DISCOVERY",
                     selection_limit, stability_pool_target
@@ -3090,7 +3168,8 @@ async fn main() -> Result<(), String> {
             }
         }
 
-        let remaining = selection_limit.saturating_sub(transfer_selected);
+        let remaining =
+            strict_validation_target(selection_limit).saturating_sub(final_verified.len());
 
         let checked_candidates = final_attempts.len();
         let dynamic_limit = adaptive_recheck_limit(
@@ -3210,7 +3289,7 @@ async fn main() -> Result<(), String> {
         let strict_untested_additional_potential = selection_additional_potential_count(
             &transfer_selected_configs_after,
             &strict_untested,
-            selection_limit,
+            strict_validation_target(selection_limit),
             max_per_endpoint,
             max_per_family,
         );
@@ -3419,6 +3498,7 @@ mod tests {
         adaptive_recheck_limit, adaptive_stability_pool_target, adaptive_stability_target,
         adaptive_transfer_test_limit, adjust_transfer_workers, has_disabled_tls_verification,
         history_fingerprint, light_backend, light_training_features, merge_light_metadata,
+        select_stability_test_batch, strict_validation_target,
         normalize_light_config, recheck_exploration_limit, select_recheck_candidates,
         select_transfer_target, select_verified_configs, select_verified_configs_with_cohort_floor,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
@@ -3459,6 +3539,14 @@ mod tests {
         assert_eq!(selected.len(), 8);
         assert_eq!(previous, 3);
         assert_eq!(older, 2);
+    }
+
+    #[test]
+    fn strict_validation_target_keeps_a_bounded_recheck_reserve() {
+        assert_eq!(strict_validation_target(0), 0);
+        assert_eq!(strict_validation_target(1), 2);
+        assert_eq!(strict_validation_target(200), 240);
+        assert_eq!(strict_validation_target(1000), 1064);
     }
 
     #[test]
@@ -3580,14 +3668,51 @@ mod tests {
 
     #[test]
     fn transfer_reserve_is_conservative_at_start() {
-        assert_eq!(transfer_reserve_target(200, 0, 0, 0), 270);
+        assert_eq!(transfer_reserve_target(200, 0, 0, 0), 240);
         assert_eq!(transfer_reserve_target(200, 190, 200, 160), 18);
     }
 
     #[test]
     fn transfer_reserve_scales_with_low_pass_rate_and_is_capped() {
-        assert_eq!(transfer_reserve_target(200, 0, 200, 160), 273);
-        assert_eq!(transfer_reserve_target(200, 0, 200, 100), 320);
+        assert_eq!(transfer_reserve_target(200, 0, 200, 160), 240);
+        assert_eq!(transfer_reserve_target(200, 0, 200, 100), 240);
+    }
+
+    #[test]
+    fn stability_batch_preserves_global_selection_capacity() {
+        let stable_selected = vec![
+            "vless://a@example.com:443".to_string(),
+            "trojan://b@example.net:8443".to_string(),
+        ];
+        let ranked = vec![
+            "vless://duplicate@example.com:443".to_string(),
+            "vless://c@example.org:443".to_string(),
+            "vless://d@example.dev:443".to_string(),
+            "vless://e@example.io:443".to_string(),
+        ];
+
+        let batch = select_stability_test_batch(&ranked, &stable_selected, 3, 6, 1, 3);
+
+        assert_eq!(batch.len(), 3);
+        assert_eq!(batch[0], ranked[1]);
+        assert_eq!(batch[1], ranked[2]);
+        assert_eq!(batch[2], ranked[3]);
+    }
+
+    #[test]
+    fn stability_batch_can_move_to_a_new_endpoint_after_a_failed_one() {
+        let stable_selected = vec!["vless://good@example.com:443".to_string()];
+        let ranked = vec![
+            "vless://failed1@example.net:443".to_string(),
+            "vless://failed2@example.net:443".to_string(),
+            "vless://new@example.org:443".to_string(),
+        ];
+
+        let batch = select_stability_test_batch(&ranked, &stable_selected, 2, 4, 1, 3);
+
+        assert_eq!(batch.len(), 2);
+        assert_eq!(batch[0], ranked[0]);
+        assert_eq!(batch[1], ranked[2]);
     }
 
     #[test]
