@@ -2481,8 +2481,6 @@ pub fn rate_limit_events() -> u64 {
     RATE_LIMIT_EVENTS.load(Ordering::Acquire)
 }
 
-pub(crate) async fn wait_for_rate_limit() {}
-
 pub(crate) fn timeout_duration(seconds: f64) -> Result<Duration, String> {
     if !seconds.is_finite() || seconds <= 0.0 {
         return Err("timeout must be a positive finite number".to_string());
@@ -2626,7 +2624,6 @@ async fn probe_request_with_minimum(
     url: Url,
     minimum_body_bytes: Option<usize>,
 ) -> Result<ProbeSample, ProbeError> {
-    wait_for_rate_limit().await;
     let started = Instant::now();
     let response_limit =
         minimum_body_bytes.unwrap_or_else(|| response_limit_for_target(url.as_str()));
@@ -2699,7 +2696,6 @@ async fn probe_request_sustained(
     let started = Instant::now();
     let required_bytes = segments.max(1).saturating_mul(minimum_body_bytes);
 
-    wait_for_rate_limit().await;
     let mut request = client.get(url.as_str());
     request = request.timeout(SUSTAINED_THROUGHPUT_TIMEOUT);
     let response = request.send().await.map_err(|_| ProbeError::Failed)?;
