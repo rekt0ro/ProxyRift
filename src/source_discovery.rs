@@ -1250,21 +1250,17 @@ async fn discover_from_repos(
         }
     }
 
-    let readme_counts = all.iter().fold(HashMap::<String, usize>::new(), |mut counts, candidate| {
-        *counts.entry(candidate.repo.clone()).or_default() += 1;
-        counts
-    });
+    let readme_counts =
+        all.iter()
+            .fold(HashMap::<String, usize>::new(), |mut counts, candidate| {
+                *counts.entry(candidate.repo.clone()).or_default() += 1;
+                counts
+            });
 
     let mut tree_targets = repos
         .iter()
         .enumerate()
-        .filter(|(_, repo)| {
-            readme_counts
-                .get(&repo.name)
-                .copied()
-                .unwrap_or_default()
-                < 5
-        })
+        .filter(|(_, repo)| readme_counts.get(&repo.name).copied().unwrap_or_default() < 5)
         .take(MAX_TREE_SCANS)
         .map(|(repo_rank, repo)| (repo_rank, repo.clone()))
         .collect::<Vec<_>>();
@@ -1545,9 +1541,7 @@ async fn search_repositories(
             let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
                 Ok(body) => body,
                 Err(error) => {
-                    println!(
-                        "[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}"
-                    );
+                    println!("[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}");
                     continue;
                 }
             };
@@ -1853,7 +1847,10 @@ fn select_new_active_urls(candidates: &[Candidate], limit: usize) -> Vec<String>
                 continue;
             }
 
-            let repo_count = repo_counts.get(&candidate.repo).copied().unwrap_or_default();
+            let repo_count = repo_counts
+                .get(&candidate.repo)
+                .copied()
+                .unwrap_or_default();
             if repo_count >= MAX_NEW_ACTIVE_SOURCES_PER_REPO {
                 continue;
             }
