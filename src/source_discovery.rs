@@ -36,6 +36,7 @@ const MAX_TREE_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const GITHUB_REQUEST_RETRIES: usize = 2;
 const GITHUB_RETRY_BASE_MS: u64 = 500;
 const GITHUB_RETRY_AFTER_MAX_SECS: u64 = 10;
+const GITHUB_ACCEPT: &str = "application/vnd.github+json";
 const USER_AGENT: &str = "ProxyRift-source-discovery/1.0";
 const README_MAX_BYTES: usize = 256 * 1024;
 const MAX_README_API_RESPONSE_BYTES: usize = 512 * 1024;
@@ -1731,7 +1732,7 @@ async fn github_get(
     let mut attempt = 0usize;
 
     loop {
-        let mut request = client.get(url);
+        let mut request = client.get(url).header("Accept", GITHUB_ACCEPT);
 
         if let Some(token) = token {
             request = request.bearer_auth(token);
