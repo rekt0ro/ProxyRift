@@ -48,6 +48,8 @@ const FINAL_TRANSFER_TEST_LIMIT: usize = 320;
 const STABILITY_TRANSFER_TEST_LIMIT: usize = 450;
 const STABILITY_TRANSFER_BATCH_SIZE: usize = 32;
 const STABILITY_TRANSFER_WORKERS: usize = 12;
+const STABILITY_TEST_MAX_PER_ENDPOINT: usize = 2;
+const STABILITY_TEST_MAX_PER_FAMILY: usize = 6;
 const STABILITY_TRANSFER_MAX_LATENCY_MS: f64 = 15000.0;
 const STABILITY_TRANSFER_MAX_ELAPSED_SECS: u64 = 5 * 60;
 const STABILITY_TARGET_SAFETY_FACTOR: f64 = 1.15;
@@ -1528,8 +1530,8 @@ async fn fill_transfer_stability_gate(
             &stable_selected,
             batch_limit,
             stability_target,
-            max_per_endpoint,
-            max_per_family,
+            STABILITY_TEST_MAX_PER_ENDPOINT,
+            STABILITY_TEST_MAX_PER_FAMILY,
         );
 
         if batch.is_empty() {
@@ -1540,18 +1542,22 @@ async fn fill_transfer_stability_gate(
 
         if completion_mode {
             println!(
-                "[INFO] 🎯 [1 MiB] COMPLETION MODE | STABLE: {} | NEED: {} | PRIORITIZING {} HIGHEST-RANKED UNTESTED CANDIDATES | GRACE: {}s",
+                "[INFO] 🎯 [1 MiB] COMPLETION MODE | STABLE: {} | NEED: {} | PRIORITIZING {} HIGHEST-RANKED UNTESTED CANDIDATES | TEST CAPS: {}/{} endpoint/family | GRACE: {}s",
                 stable_selected.len(),
                 stability_target.saturating_sub(stable_selected.len()),
                 batch.len(),
+                STABILITY_TEST_MAX_PER_ENDPOINT,
+                STABILITY_TEST_MAX_PER_FAMILY,
                 completion_grace
             );
         } else {
             println!(
-                "[INFO] 📥 [1 MiB] STABLE POOL: {}/{} | TESTING {} CANDIDATES | TESTED: {}/{}",
+                "[INFO] 📥 [1 MiB] STABLE POOL: {}/{} | TESTING {} CANDIDATES | TEST CAPS: {}/{} endpoint/family | TESTED: {}/{}",
                 stable_selected.len(),
                 stability_target,
                 batch.len(),
+                STABILITY_TEST_MAX_PER_ENDPOINT,
+                STABILITY_TEST_MAX_PER_FAMILY,
                 stability_tested.len(),
                 STABILITY_TRANSFER_TEST_LIMIT
             );
@@ -3555,6 +3561,19 @@ mod tests {
         assert_eq!(transfer_validation_target(0), 0);
         assert_eq!(transfer_validation_target(1), 2);
         assert_eq!(transfer_validation_target(200), 210);
+    }
+
+    #[test]
+    fn stability_test_batch_can_recheck_endpoint_variants() {
+        let configs = vec![
+            "vless://00000000-0000-0000-0000-000000000001@a.example:443?path=%2Fa".to_string(),
+            "vless://00000000-0000-0000-0000-000000000002@a.example:443?path=%2Fb".to_string(),
+            "vless://00000000-0000-0000-0000-000000000003@b.example:443?path=%2Fc".to_string(),
+        ];
+
+        let batch = select_stability_test_batch(&configs, &[], 3, 3, 2, 6);
+
+        assert_eq!(batch.len(), 3);
     }
 
     #[test]
