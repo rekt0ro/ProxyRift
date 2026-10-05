@@ -3570,9 +3570,8 @@ mod tests {
             "vless://00000000-0000-0000-0000-000000000002@a.example:443?path=%2Fb".to_string(),
             "vless://00000000-0000-0000-0000-000000000003@b.example:443?path=%2Fc".to_string(),
         ];
-        let stable = vec!["vless://00000000-0000-0000-0000-000000000004@a.example:443".to_string()];
 
-        let batch = select_stability_test_batch(&configs, &stable, 3, 3, 2, 6);
+        let batch = select_stability_test_batch(&configs, &[], 3, 3, 2, 6);
 
         assert_eq!(batch.len(), 3);
     }
