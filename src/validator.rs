@@ -18,7 +18,7 @@ pub const PRIMARY_TARGET: &str = "https://www.google.com/generate_204";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speed.cloudflare.com/__down?bytes=10485760";
 pub const STRICT_THROUGHPUT_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
-    "https://bom.proof.ovh.net/files/10Mb.dat",
+    "https://fsn1-speed.hetzner.com/10MB.bin",
     "https://cdn.truefilesize.com/test/test-10mb.bin",
     "http://speedtest.tele2.net/10MB.zip",
 ];
