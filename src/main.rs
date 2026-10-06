@@ -520,9 +520,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return Err("no proxy configurations were collected".into());
     }
 
-    let consumer_evidence = ConsumerEvidence::load(
-        "subscriptions/light-consumer-evidence.json",
-    );
+    let consumer_evidence =
+        ConsumerEvidence::load("subscriptions/light-consumer-evidence.json");
     let light_gbm = match LightGbmScores::train_and_score(&configs) {
         Ok(scores) => {
             println!(
@@ -540,8 +539,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     configs.sort_unstable_by(|a, b| {
-        let a_score = 0.60 * light_gbm.score(a) + 0.40 * consumer_evidence.score(a);
-        let b_score = 0.60 * light_gbm.score(b) + 0.40 * consumer_evidence.score(b);
+        let a_score =
+            0.60 * light_gbm.score(a) + 0.40 * consumer_evidence.score(a);
+        let b_score =
+            0.60 * light_gbm.score(b) + 0.40 * consumer_evidence.score(b);
         b_score
             .total_cmp(&a_score)
             .then_with(|| {
