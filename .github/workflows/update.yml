@@ -107,7 +107,7 @@ jobs:
             echo "singbox_asset=$SINGBOX_ASSET_PIN"
           } >> "$GITHUB_OUTPUT"
 
-          echo "[INFO] 🧩 [Cores] PINNED RELEASES | Xray $XRAY_VERSION_PIN | sing-box $SINGBOX_VERSION_PIN"
+          echo "[INFO] 🧩 [Cores] Pinned releases | Xray $XRAY_VERSION_PIN | sing-box $SINGBOX_VERSION_PIN"
       - name: "⚡ Compute cache keys"
         id: keys
         env:
@@ -218,7 +218,7 @@ jobs:
 
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           singbox_version="$("$HOME/.local/bin/sing-box" version | head -n 1)"
-          echo "[INFO] 🧩 [Sing-Box] VERSION | ${singbox_version}"
+          echo "[INFO] 🧩 [Sing-Box] Version | ${singbox_version}"
           grep -F "$SINGBOX_VERSION" <<< "$singbox_version" >/dev/null
 
       - name: "💾 Save sing-box binary cache"
@@ -235,7 +235,7 @@ jobs:
         run: |
           curl -fsS --max-time 10 "https://speed.cloudflare.com/__down?bytes=1" -o /dev/null
           curl -fsS --max-time 10 "https://api.ipify.org?format=json" -o /dev/null
-          echo "[INFO] 🌍 [Network] RUNNER CONNECTIVITY OK"
+          echo "[INFO] 🌍 [Network] Runner connectivity OK"
 
       - name: "🔨 Build Rust binaries"
         run: |
@@ -310,25 +310,25 @@ jobs:
             --stats /tmp/proxyrift/light-stats.json
           status=$?
           set -e
-          echo "[INFO] ✅ [Light] VALIDATION COMPLETE | $light_elapsed"
+          echo "[INFO] ✅ [Light] Validation complete | $light_elapsed"
 
           if [ "$status" -ne 0 ]; then
-            echo "[WARN] ⚠️ [Light] VALIDATION FAILED | PRESERVING PREVIOUS SUBSCRIPTION" >&2
+            echo "[WARN] ⚠️ [Light] Validation failed | Preserving previous subscription" >&2
             exit "$status"
           fi
 
           if [ -s /tmp/proxyrift/light.next.txt ]; then
             light_count="$(awk 'NF { count++ } END { print count + 0 }' /tmp/proxyrift/light.next.txt)"
-            echo "[INFO] 🎯 [Light] OUTPUT | ${light_count} CANDIDATES | TARGET/MAX: ${LIGHT_SELECTION_LIMIT} | MIN PUBLISH: ${LIGHT_MIN_PUBLISH}"
+            echo "[INFO] 🎯 [Light] Output | ${light_count} Candidates | Target/max: ${LIGHT_SELECTION_LIMIT} | MIN PUBLISH: ${LIGHT_MIN_PUBLISH}"
             if [ "$light_count" -ge "$LIGHT_MIN_PUBLISH" ]; then
               cp /tmp/proxyrift/light.next.txt subscriptions/.light.txt.next
               mv -f subscriptions/.light.txt.next subscriptions/light.txt
-              echo "[INFO] ✅ [Light] PUBLISHED REFRESHED SUBSCRIPTION"
+              echo "[INFO] ✅ [Light] Published refreshed subscription"
             else
-              echo "[WARN] ⚠️ [Light] POOL TOO SMALL | ${light_count}/${LIGHT_MIN_PUBLISH} MINIMUM | PRESERVING PREVIOUS SUBSCRIPTION"
+              echo "[WARN] ⚠️ [Light] Pool too small | ${light_count}/${LIGHT_MIN_PUBLISH} Minimum | Preserving previous subscription"
             fi
           else
-            echo "[WARN] ⚠️ [Light] NO CONFIGS | PRESERVING PREVIOUS SUBSCRIPTION"
+            echo "[WARN] ⚠️ [Light] No configs | Preserving previous subscription"
           fi
 
       - name: "🏷️ Add subscription update metadata"
@@ -390,7 +390,7 @@ jobs:
           git config user.email "104654981+rekt0ro@users.noreply.github.com"
 
           for attempt in 1 2 3 4 5; do
-            echo "[INFO] 📤 [Publish] ATTEMPT ${attempt}/5"
+            echo "[INFO] 📤 [Publish] Attempt ${attempt}/5"
 
             git fetch origin main
             git reset --hard origin/main
@@ -436,7 +436,7 @@ jobs:
 
 
             if git diff --cached --quiet; then
-              echo "[INFO] 📤 [Publish] NO CHANGES"
+              echo "[INFO] 📤 [Publish] No changes"
               exit 0
             fi
 
@@ -448,21 +448,21 @@ jobs:
             printf '%s\n' "$push_output"
 
             if [ "$push_status" -eq 0 ]; then
-              echo "[INFO] ✅ [Publish] SUBSCRIPTION UPDATE PUBLISHED"
+              echo "[INFO] ✅ [Publish] Subscription update published"
               exit 0
             fi
 
             if grep -Eiq 'non-fast-forward|fetch first|tip of your current branch is behind|updates were rejected because the tip' <<< "$push_output"; then
-              echo "[WARN] ⚠️ [Publish] MAIN MOVED | RETRYING"
+              echo "[WARN] ⚠️ [Publish] Main moved | Retrying"
               git reset --hard
               continue
             fi
 
-            echo "[ERROR] ❌ [Publish] PUSH FAILED FOR A NON-RACE REASON" >&2
+            echo "[ERROR] ❌ [Publish] Push failed for a non-race reason" >&2
             exit "$push_status"
           done
 
-          echo "[ERROR] ❌ [Publish] FAILED AFTER 5 ATTEMPTS" >&2
+          echo "[ERROR] ❌ [Publish] FAILED AFTER 5 AttemptS" >&2
           exit 1
 
       - name: "📊 Write run summary"
@@ -785,8 +785,8 @@ jobs:
             echo
             echo "| Core | Version |"
             echo "|---|---|"
-            echo "| Xray | $XRAY_VERSION |"
-            echo "| sing-box | $SINGBOX_VERSION |"
+            echo "| Xray | $XRAY_Version |"
+            echo "| sing-box | $SINGBOX_Version |"
             echo
             echo "_Generated by the ProxyRift update workflow._"
           } >> "$GITHUB_STEP_SUMMARY"
