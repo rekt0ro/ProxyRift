@@ -88,13 +88,6 @@ fn read_candidates(path: &str) -> Result<Vec<String>, String> {
         .collect())
 }
 
-fn now_unix() -> Result<u64, String> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_secs())
-        .map_err(|error| format!("system clock error: {error}"))
-}
-
 fn result_from_metrics(
     config: &str,
     backend: &str,
@@ -326,7 +319,10 @@ async fn validate_round(
         if !seen.contains(&hash) {
             results.push(ConfigResult {
                 config_hash: hash,
+                family_hash: family_hash(config),
+                archetype_hash: archetype_hash(config),
                 protocol: protocol(config),
+                compatible: is_light_consumer_compatible(config),
                 pass: false,
                 backend: None,
                 attempts: 0,
