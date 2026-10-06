@@ -340,10 +340,7 @@ impl TrainingRow {
             "transfer_pass".to_string(),
             self.transfer_pass.map(Value::from).unwrap_or(Value::Null),
         );
-        label.insert(
-            "stream_tested".to_string(),
-            Value::from(self.stream_tested),
-        );
+        label.insert("stream_tested".to_string(), Value::from(self.stream_tested));
         label.insert(
             "stream_pass".to_string(),
             self.stream_pass.map(Value::from).unwrap_or(Value::Null),
@@ -586,10 +583,7 @@ mod tests {
             value.get("schema_version").and_then(Value::as_u64),
             Some(DATASET_VERSION)
         );
-        assert_eq!(
-            value["label"]["stream_tested"].as_bool(),
-            Some(false)
-        );
+        assert_eq!(value["label"]["stream_tested"].as_bool(), Some(false));
         assert!(value["label"]["stream_pass"].is_null());
 
         let _ = fs::remove_file(path);
@@ -635,8 +629,14 @@ mod tests {
     fn v1_rows_are_upgraded_without_fabricating_stream_results() {
         let mut value = row("legacy", 1_000, true, None).to_value();
         value["schema_version"] = Value::from(1u64);
-        value["label"].as_object_mut().expect("label").remove("stream_tested");
-        value["label"].as_object_mut().expect("label").remove("stream_pass");
+        value["label"]
+            .as_object_mut()
+            .expect("label")
+            .remove("stream_tested");
+        value["label"]
+            .as_object_mut()
+            .expect("label")
+            .remove("stream_pass");
 
         super::upgrade_stored_row(&mut value);
         assert_eq!(
