@@ -32,6 +32,7 @@ const DEFAULT_MAX_PER_FAMILY: usize = 3;
 const STRICT_VALIDATION_RESERVE_PERCENT: usize = 20;
 const STRICT_VALIDATION_RESERVE_MAX: usize = 64;
 const RECHECK_FAMILY_DIVERSITY: usize = 3;
+const RECHECK_MAX_PER_ENDPOINT: usize = 2;
 const RECHECK_EXPLORATION_PERCENT: usize = 15;
 const MAX_RECHECK_EXPLORATION: usize = 64;
 const MAX_FINAL_RECHECK_ATTEMPTS: usize = 2;
@@ -75,7 +76,6 @@ const HISTORY_MAX_ENTRIES: usize = 10000;
 const HISTORY_RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
 const LIGHT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
 const LIGHT_SUBSCRIPTION_PATH: &str = "subscriptions/light.txt";
-const LIGHT_PREFILTER_TARGET: &str = "https://example.com/";
 const HISTORICAL_LIGHT_COHORTS: usize = 2;
 const PREVIOUS_COHORT_MIN_PERCENT: usize = 20;
 const OLDER_COHORT_MIN_PERCENT: usize = 10;
@@ -183,7 +183,7 @@ fn select_recheck_candidates(
 
     let mut selected = Vec::with_capacity(limit.min(model_ranked.len()));
     let mut selected_set = HashSet::new();
-    let mut seen_endpoints = HashSet::new();
+    let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
     let mut family_counts = HashMap::<String, usize>::new();
 
     let mut exploration_ranked = untested.to_vec();
@@ -192,7 +192,7 @@ fn select_recheck_candidates(
     let try_add = |config: &String,
                    selected: &mut Vec<String>,
                    selected_set: &mut HashSet<String>,
-                   seen_endpoints: &mut HashSet<(String, u16)>,
+                   endpoint_counts: &mut HashMap<(String, u16), usize>,
                    family_counts: &mut HashMap<String, usize>|
      -> bool {
         if selected.len() >= limit || !selected_set.insert(config.clone()) {
@@ -206,11 +206,11 @@ fn select_recheck_candidates(
         }
 
         if let Some(ep) = endpoint(config) {
-            if seen_endpoints.contains(&ep) {
+            if endpoint_counts.get(&ep).copied().unwrap_or(0) >= RECHECK_MAX_PER_ENDPOINT {
                 selected_set.remove(config);
                 return false;
             }
-            seen_endpoints.insert(ep);
+            *endpoint_counts.entry(ep).or_default() += 1;
         }
 
         *family_counts.entry(family).or_default() += 1;
@@ -228,7 +228,7 @@ fn select_recheck_candidates(
             &config,
             &mut selected,
             &mut selected_set,
-            &mut seen_endpoints,
+            &mut endpoint_counts,
             &mut family_counts,
         ) {
             exploration_selected += 1;
@@ -244,7 +244,7 @@ fn select_recheck_candidates(
             config,
             &mut selected,
             &mut selected_set,
-            &mut seen_endpoints,
+            &mut endpoint_counts,
             &mut family_counts,
         );
     }
@@ -513,7 +513,9 @@ fn persist_light_result(
     for config in final_attempts.keys() {
         model.update(
             config,
-            global_metadata.get(config),
+            final_metadata
+                .get(config)
+                .or_else(|| global_metadata.get(config)),
             1,
             final_metadata.contains_key(config),
         );
@@ -2850,7 +2852,10 @@ async fn main() -> Result<(), String> {
         .parse::<usize>()
         .map_err(|_| "invalid --selected-batch-size".to_string())?;
     let primary_target = value(&args, "--primary-target", PRIMARY_TARGET);
-    let early_targets = [LIGHT_PREFILTER_TARGET];
+    let early_targets = [
+        primary_target.as_str(),
+        "https://www.cloudflare.com/robots.txt",
+    ];
     let consumer_targets = {
         let mut targets = LIGHT_CONSUMER_TARGETS.to_vec();
         targets[0] = primary_target.as_str();
@@ -3374,7 +3379,7 @@ async fn main() -> Result<(), String> {
     let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
     sort_ranked(
         &mut stream_ranked,
-        &transfer_verified,
+        &stream_verified,
         &global_positions,
         &history,
     );
@@ -3667,6 +3672,19 @@ mod tests {
         assert_eq!(recheck_exploration_limit(350), 53);
         assert_eq!(recheck_exploration_limit(1000), 64);
         assert_eq!(recheck_exploration_limit(2), 1);
+    }
+
+    #[test]
+    fn recheck_selection_allows_two_variants_per_endpoint() {
+        let configs = vec![
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443".to_string(),
+            "vless://00000000-0000-0000-0000-000000000002@example.com:443".to_string(),
+        ];
+
+        let (selected, explored) = select_recheck_candidates(&configs, &[], 2, 3, 0, 42);
+
+        assert_eq!(explored, 0);
+        assert_eq!(selected, configs);
     }
 
     #[test]
