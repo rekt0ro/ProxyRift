@@ -259,7 +259,7 @@ fn structural_parts(config: &str) -> (String, String) {
                         .or_else(|| value.as_str()?.parse::<u64>().ok())
                 })
                 .and_then(|port| u16::try_from(port).ok())
-                .map(port_bucket)
+                .map(|port| port_bucket(Some(port)))
         })
         .unwrap_or("unknown");
 
