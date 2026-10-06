@@ -79,7 +79,7 @@ fn fnv64(value: &[u8], seed: u64) -> u64 {
 
 fn config_hash(config: &str) -> String {
     let first = fnv64(config.as_bytes(), 0xcbf29ce484222325);
-    let second = fnv64(config.as_bytes(), 0x84222325cbf29ce4d);
+    let second = fnv64(config.as_bytes(), 0x84222325cbf29ce4);
     format!("{first:016x}{second:016x}")
 }
 
