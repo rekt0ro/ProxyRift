@@ -2,8 +2,9 @@ use crate::validator::ProxyMetrics;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
+use url::Url;
 
-const MODEL_VERSION: u64 = 1;
+const MODEL_VERSION: u64 = 2;
 const MIN_TRAINING_SAMPLES: u64 = 50;
 const MIN_FEATURES: usize = 3;
 const MIN_ANOMALY_TRAINING_SAMPLES: u64 = 200;
@@ -32,6 +33,15 @@ impl IntelligenceModel {
         let Ok(value) = serde_json::from_str::<Value>(&content) else {
             return Self::default();
         };
+
+        if value
+            .get("version")
+            .and_then(Value::as_u64)
+            .unwrap_or_default()
+            != MODEL_VERSION
+        {
+            return Self::default();
+        }
 
         let mut model = Self {
             total_attempts: value
@@ -222,11 +232,87 @@ fn wilson_interval(successes: f64, attempts: f64, z: f64) -> (f64, f64) {
     )
 }
 
+fn query_value(url: &Url, keys: &[&str]) -> Option<String> {
+    url.query_pairs()
+        .find(|(key, _)| keys.iter().any(|candidate| key.eq_ignore_ascii_case(candidate)))
+        .map(|(_, value)| {
+            let value = value.to_ascii_lowercase();
+            if value.len() > 48 {
+                value[..48].to_string()
+            } else {
+                value
+            }
+        })
+}
+
+fn default_transport(scheme: &str) -> &'static str {
+    match scheme {
+        "hysteria" | "hysteria2" | "hy2" | "tuic" => "quic",
+        "wg" => "wireguard",
+        _ => "tcp",
+    }
+}
+
+fn default_security(scheme: &str) -> &'static str {
+    match scheme {
+        "trojan" | "https" => "tls",
+        _ => "none",
+    }
+}
+
+fn port_bucket(port: Option<u16>) -> &'static str {
+    match port {
+        Some(80) | Some(443) => "web",
+        Some(8080) | Some(8443) | Some(2053) | Some(2083) | Some(2087) | Some(2096) => "alt-web",
+        Some(_) => "other",
+        None => "unknown",
+    }
+}
+
+fn host_kind(url: &Url) -> &'static str {
+    url.host_str()
+        .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+        .map(|_| "ip")
+        .unwrap_or("domain")
+}
+
 fn feature_key(config: &str, metrics: Option<&ProxyMetrics>) -> String {
-    let scheme = config
-        .split_once("://")
-        .map(|(value, _)| value.to_ascii_lowercase())
+    let parsed = Url::parse(config).ok();
+    let scheme = parsed
+        .as_ref()
+        .map(|url| url.scheme().to_ascii_lowercase())
+        .or_else(|| {
+            config
+                .split_once("://")
+                .map(|(value, _)| value.to_ascii_lowercase())
+        })
         .unwrap_or_else(|| "unknown".to_string());
+
+    let transport = parsed
+        .as_ref()
+        .and_then(|url| query_value(url, &["type", "network", "transport", "net"]))
+        .unwrap_or_else(|| default_transport(&scheme).to_string());
+
+    let security = parsed
+        .as_ref()
+        .and_then(|url| query_value(url, &["security", "tls"]))
+        .unwrap_or_else(|| default_security(&scheme).to_string());
+
+    let port = parsed
+        .as_ref()
+        .map(|url| port_bucket(url.port_or_known_default()))
+        .unwrap_or("unknown");
+
+    let host = parsed.as_ref().map(host_kind).unwrap_or("unknown");
+    let has_sni = parsed
+        .as_ref()
+        .is_some_and(|url| query_value(url, &["sni"]).is_some());
+    let has_host_header = parsed
+        .as_ref()
+        .is_some_and(|url| query_value(url, &["host", "authority"]).is_some());
+    let has_path = parsed
+        .as_ref()
+        .is_some_and(|url| url.path().len() > 1 || query_value(url, &["path"]).is_some());
 
     let latency = metrics.map(|value| value.median_ms).unwrap_or(1200.0);
     let latency_bucket = if latency.is_finite() {
@@ -235,11 +321,41 @@ fn feature_key(config: &str, metrics: Option<&ProxyMetrics>) -> String {
         12
     };
 
-    format!("{scheme}|latency:{latency_bucket}")
+    let throughput = metrics.map(|value| value.throughput_kbps).unwrap_or(0.0);
+    let throughput_bucket = if throughput.is_finite() {
+        match throughput.max(0.0) {
+            value if value >= 8192.0 => 6,
+            value if value >= 4096.0 => 5,
+            value if value >= 2048.0 => 4,
+            value if value >= 1024.0 => 3,
+            value if value >= 512.0 => 2,
+            value if value >= 256.0 => 1,
+            _ => 0,
+        }
+    } else {
+        0
+    };
+
+    let success_rate = metrics
+        .filter(|value| value.attempts > 0)
+        .map(|value| value.successes as f64 / value.attempts as f64)
+        .unwrap_or(0.0);
+    let success_bucket = (success_rate.clamp(0.0, 1.0) * 4.0).round() as u8;
+
+    let jitter = metrics.map(|value| value.jitter_ms).unwrap_or(1000.0);
+    let jitter_bucket = if jitter.is_finite() {
+        ((jitter.max(0.0) / 50.0).floor() as u64).min(8)
+    } else {
+        8
+    };
+
+    format!(
+        "{scheme}|transport:{transport}|security:{security}|port:{port}|host:{host}|sni:{has_sni}|hosthdr:{has_host_header}|path:{has_path}|latency:{latency_bucket}|throughput:{throughput_bucket}|success:{success_bucket}|jitter:{jitter_bucket}"
+    )
 }
 #[cfg(test)]
 mod tests {
-    use super::IntelligenceModel;
+    use super::{feature_key, IntelligenceModel};
     use crate::validator::ProxyMetrics;
     use std::collections::HashMap;
 
@@ -326,6 +442,31 @@ mod tests {
 
         model.rank(&mut configs, &metadata, &positions);
         assert_eq!(configs[0], "vless://a@example.com:443");
+    }
+
+    #[test]
+    fn feature_key_includes_transport_security_and_path_shape() {
+        let metrics = ProxyMetrics {
+            successes: 3,
+            attempts: 4,
+            median_ms: 120.0,
+            min_ms: 90.0,
+            jitter_ms: 20.0,
+            throughput_kbps: 5000.0,
+        };
+        let websocket = feature_key(
+            "vless://id@example.com:443?type=ws&security=tls&sni=edge.example.com&path=/proxy",
+            Some(&metrics),
+        );
+        let tcp = feature_key(
+            "vless://id@example.com:443?type=tcp&security=none",
+            Some(&metrics),
+        );
+
+        assert_ne!(websocket, tcp);
+        assert!(websocket.contains("transport:ws"));
+        assert!(websocket.contains("security:tls"));
+        assert!(websocket.contains("path:true"));
     }
 
     #[test]
