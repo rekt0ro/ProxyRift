@@ -4,19 +4,57 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const DATASET_VERSION: u64 = 1;
+pub const DATASET_VERSION: u64 = 2;
 pub const FEATURE_COUNT: usize = 19;
 
 const MAX_ROWS: usize = 50_000;
 const RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
+const MIN_ROWS_FOR_STRICT_MODEL: usize = 5_000;
+const MIN_UNIQUE_RUNS_FOR_STRICT_MODEL: usize = 20;
+const MIN_UNIQUE_CANDIDATES_FOR_STRICT_MODEL: usize = 1_000;
+const MIN_STRICT_PASSES_FOR_STRICT_MODEL: usize = 500;
+const MIN_STRICT_FAILURES_FOR_STRICT_MODEL: usize = 500;
+const MIN_TRANSFER_TESTS_FOR_END_TO_END: usize = 1_000;
+const MIN_TRANSFER_PASSES_FOR_END_TO_END: usize = 100;
+const MIN_TRANSFER_FAILURES_FOR_END_TO_END: usize = 100;
+const MIN_STREAM_TESTS_FOR_END_TO_END: usize = 500;
+const MIN_STREAM_PASSES_FOR_END_TO_END: usize = 50;
+const MIN_STREAM_FAILURES_FOR_END_TO_END: usize = 50;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DatasetStats {
     pub rows: usize,
     pub new_rows: usize,
+    pub unique_runs: usize,
+    pub unique_candidates: usize,
     pub strict_passes: usize,
+    pub strict_failures: usize,
     pub transfer_tests: usize,
     pub transfer_passes: usize,
+    pub transfer_failures: usize,
+    pub stream_tests: usize,
+    pub stream_passes: usize,
+    pub stream_failures: usize,
+}
+
+impl DatasetStats {
+    pub fn strict_model_ready(&self) -> bool {
+        self.rows >= MIN_ROWS_FOR_STRICT_MODEL
+            && self.unique_runs >= MIN_UNIQUE_RUNS_FOR_STRICT_MODEL
+            && self.unique_candidates >= MIN_UNIQUE_CANDIDATES_FOR_STRICT_MODEL
+            && self.strict_passes >= MIN_STRICT_PASSES_FOR_STRICT_MODEL
+            && self.strict_failures >= MIN_STRICT_FAILURES_FOR_STRICT_MODEL
+    }
+
+    pub fn end_to_end_model_ready(&self) -> bool {
+        self.strict_model_ready()
+            && self.transfer_tests >= MIN_TRANSFER_TESTS_FOR_END_TO_END
+            && self.transfer_passes >= MIN_TRANSFER_PASSES_FOR_END_TO_END
+            && self.transfer_failures >= MIN_TRANSFER_FAILURES_FOR_END_TO_END
+            && self.stream_tests >= MIN_STREAM_TESTS_FOR_END_TO_END
+            && self.stream_passes >= MIN_STREAM_PASSES_FOR_END_TO_END
+            && self.stream_failures >= MIN_STREAM_FAILURES_FOR_END_TO_END
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -30,6 +68,8 @@ pub struct TrainingRow {
     pub strict_checks: u64,
     pub transfer_tested: bool,
     pub transfer_pass: Option<bool>,
+    pub stream_tested: bool,
+    pub stream_pass: Option<bool>,
 }
 
 pub fn persist(path: &str, rows: &[TrainingRow]) -> Result<DatasetStats, String> {
@@ -51,10 +91,11 @@ fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats
                 continue;
             }
 
-            let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            let Ok(mut value) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
 
+            upgrade_stored_row(&mut value);
             if !valid_stored_row(&value) {
                 continue;
             }
@@ -109,7 +150,21 @@ fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats
     let mut strict_passes = 0usize;
     let mut transfer_tests = 0usize;
     let mut transfer_passes = 0usize;
+    let mut stream_tests = 0usize;
+    let mut stream_passes = 0usize;
+    let mut run_ids = std::collections::BTreeSet::<String>::new();
+    let mut candidate_fingerprints = std::collections::BTreeSet::<String>::new();
     for value in &values {
+        if let Some(run_id) = value.get("run_id").and_then(Value::as_str) {
+            if !run_id.trim().is_empty() {
+                run_ids.insert(run_id.to_string());
+            }
+        }
+        if let Some(fingerprint) = value.get("candidate_fingerprint").and_then(Value::as_str) {
+            if !fingerprint.trim().is_empty() {
+                candidate_fingerprints.insert(fingerprint.to_string());
+            }
+        }
         let label = value.get("label").and_then(Value::as_object);
         if label
             .and_then(|label| label.get("strict_pass"))
@@ -130,6 +185,21 @@ fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats
                 .unwrap_or(false)
             {
                 transfer_passes += 1;
+            }
+        }
+
+        if label
+            .and_then(|label| label.get("stream_tested"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            stream_tests += 1;
+            if label
+                .and_then(|label| label.get("stream_pass"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                stream_passes += 1;
             }
         }
     }
@@ -154,10 +224,81 @@ fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats
     Ok(DatasetStats {
         rows: values.len(),
         new_rows,
+        unique_runs: run_ids.len(),
+        unique_candidates: candidate_fingerprints.len(),
         strict_passes,
+        strict_failures: values.len().saturating_sub(strict_passes),
         transfer_tests,
         transfer_passes,
+        transfer_failures: transfer_tests.saturating_sub(transfer_passes),
+        stream_tests,
+        stream_passes,
+        stream_failures: stream_tests.saturating_sub(stream_passes),
     })
+}
+
+pub fn write_readiness_report(path: &str, stats: &DatasetStats) -> Result<(), String> {
+    let document = serde_json::json!({
+        "schema_version": DATASET_VERSION,
+        "dataset": {
+            "rows": stats.rows,
+            "new_rows": stats.new_rows,
+            "unique_runs": stats.unique_runs,
+            "unique_candidates": stats.unique_candidates,
+            "strict_passes": stats.strict_passes,
+            "strict_failures": stats.strict_failures,
+            "transfer_tests": stats.transfer_tests,
+            "transfer_passes": stats.transfer_passes,
+            "transfer_failures": stats.transfer_failures,
+            "stream_tests": stats.stream_tests,
+            "stream_passes": stats.stream_passes,
+            "stream_failures": stats.stream_failures,
+        },
+        "readiness": {
+            "strict_model_ready": stats.strict_model_ready(),
+            "end_to_end_model_ready": stats.end_to_end_model_ready(),
+            "requirements": {
+                "min_rows": MIN_ROWS_FOR_STRICT_MODEL,
+                "min_unique_runs": MIN_UNIQUE_RUNS_FOR_STRICT_MODEL,
+                "min_unique_candidates": MIN_UNIQUE_CANDIDATES_FOR_STRICT_MODEL,
+                "min_strict_passes": MIN_STRICT_PASSES_FOR_STRICT_MODEL,
+                "min_strict_failures": MIN_STRICT_FAILURES_FOR_STRICT_MODEL,
+                "min_transfer_tests": MIN_TRANSFER_TESTS_FOR_END_TO_END,
+                "min_transfer_passes": MIN_TRANSFER_PASSES_FOR_END_TO_END,
+                "min_transfer_failures": MIN_TRANSFER_FAILURES_FOR_END_TO_END,
+                "min_stream_tests": MIN_STREAM_TESTS_FOR_END_TO_END,
+                "min_stream_passes": MIN_STREAM_PASSES_FOR_END_TO_END,
+                "min_stream_failures": MIN_STREAM_FAILURES_FOR_END_TO_END,
+            },
+        }
+    });
+    let body = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
+    let temporary = format!("{path}.tmp");
+    std::fs::write(&temporary, body).map_err(|error| error.to_string())?;
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+fn upgrade_stored_row(value: &mut Value) {
+    if value.get("schema_version").and_then(Value::as_u64) != Some(1) {
+        return;
+    }
+
+    if let Some(label) = value.get_mut("label").and_then(Value::as_object_mut) {
+        label
+            .entry("stream_tested".to_string())
+            .or_insert(Value::Bool(false));
+        label
+            .entry("stream_pass".to_string())
+            .or_insert(Value::Null);
+    }
+
+    if let Some(object) = value.as_object_mut() {
+        object.insert("schema_version".to_string(), Value::from(DATASET_VERSION));
+    }
 }
 
 impl TrainingRow {
@@ -198,6 +339,14 @@ impl TrainingRow {
         label.insert(
             "transfer_pass".to_string(),
             self.transfer_pass.map(Value::from).unwrap_or(Value::Null),
+        );
+        label.insert(
+            "stream_tested".to_string(),
+            Value::from(self.stream_tested),
+        );
+        label.insert(
+            "stream_pass".to_string(),
+            self.stream_pass.map(Value::from).unwrap_or(Value::Null),
         );
         root.insert("label".to_string(), Value::Object(label));
 
@@ -334,6 +483,16 @@ fn valid_stored_row(value: &Value) -> bool {
         Some(Value::Null) if !transfer_tested => true,
         Some(Value::Bool(_)) if transfer_tested => true,
         _ => false,
+    };
+
+    let stream_tested = label
+        .get("stream_tested")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    match label.get("stream_pass") {
+        Some(Value::Null) if !stream_tested => true,
+        Some(Value::Bool(_)) if stream_tested => true,
+        _ => false,
     }
 }
 
@@ -412,8 +571,13 @@ mod tests {
         assert_eq!(stats.rows, 2);
         assert_eq!(stats.new_rows, 2);
         assert_eq!(stats.strict_passes, 1);
+        assert_eq!(stats.strict_failures, 1);
         assert_eq!(stats.transfer_tests, 2);
         assert_eq!(stats.transfer_passes, 1);
+        assert_eq!(stats.transfer_failures, 1);
+        assert_eq!(stats.stream_tests, 0);
+        assert_eq!(stats.unique_runs, 1);
+        assert_eq!(stats.unique_candidates, 2);
 
         let body = fs::read_to_string(&path).expect("read dataset");
         let first = body.lines().next().expect("first row");
@@ -422,8 +586,66 @@ mod tests {
             value.get("schema_version").and_then(Value::as_u64),
             Some(DATASET_VERSION)
         );
+        assert_eq!(
+            value["label"]["stream_tested"].as_bool(),
+            Some(false)
+        );
+        assert!(value["label"]["stream_pass"].is_null());
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn readiness_requires_real_time_and_label_coverage() {
+        let not_ready = super::DatasetStats {
+            rows: 4_999,
+            new_rows: 0,
+            unique_runs: 20,
+            unique_candidates: 1_000,
+            strict_passes: 500,
+            strict_failures: 4_499,
+            transfer_tests: 1_000,
+            transfer_passes: 100,
+            transfer_failures: 900,
+            stream_tests: 500,
+            stream_passes: 50,
+            stream_failures: 450,
+        };
+        assert!(!not_ready.strict_model_ready());
+
+        let ready = super::DatasetStats {
+            rows: 5_000,
+            new_rows: 0,
+            unique_runs: 20,
+            unique_candidates: 1_000,
+            strict_passes: 500,
+            strict_failures: 4_500,
+            transfer_tests: 1_000,
+            transfer_passes: 100,
+            transfer_failures: 900,
+            stream_tests: 500,
+            stream_passes: 50,
+            stream_failures: 450,
+        };
+        assert!(ready.strict_model_ready());
+        assert!(ready.end_to_end_model_ready());
+    }
+
+    #[test]
+    fn v1_rows_are_upgraded_without_fabricating_stream_results() {
+        let mut value = row("legacy", 1_000, true, None).to_value();
+        value["schema_version"] = Value::from(1u64);
+        value["label"].as_object_mut().expect("label").remove("stream_tested");
+        value["label"].as_object_mut().expect("label").remove("stream_pass");
+
+        super::upgrade_stored_row(&mut value);
+        assert_eq!(
+            value.get("schema_version").and_then(Value::as_u64),
+            Some(DATASET_VERSION)
+        );
+        assert_eq!(value["label"]["stream_tested"].as_bool(), Some(false));
+        assert!(value["label"]["stream_pass"].is_null());
+        assert!(super::valid_stored_row(&value));
     }
 
     #[test]
