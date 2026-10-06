@@ -15,7 +15,8 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -45,7 +46,7 @@ const MAX_SOURCE_REDIRECTS: usize = 2;
 
 const MAX_COLLECTED_CONFIGS: usize = 30_000;
 const MAX_ALL_CONFIGS: usize = 2000;
-const MAX_ALL_PER_ENDPOINT: usize = 3;
+const MAX_ALL_PER_ENDPOINT: usize = 5;
 const MAX_LIGHT_CANDIDATES: usize = 15_000;
 const MAX_LIGHT_ENDPOINT_VARIANTS: usize = 2;
 const SOURCE_RETRIES: usize = 2;
@@ -494,9 +495,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .cloned()
         .collect::<Vec<_>>();
 
-    configs = cap_configs_by_protocol(configs, MAX_COLLECTED_CONFIGS);
+    let collected_before_global_cap = configs.len();
+    configs = cap_configs_globally(configs, MAX_COLLECTED_CONFIGS);
+
     let retained_configs = configs.iter().cloned().collect::<HashSet<_>>();
     named_config_sources.retain(|config, _| retained_configs.contains(config));
+
+    if collected_before_global_cap > MAX_COLLECTED_CONFIGS {
+        println!(
+            "[INFO] 🧮 [COLLECTION] GLOBAL CAP | RETAINED {} OF {} CONFIGS | CAP: {} | NO PROTOCOL CAPS",
+            configs.len(),
+            collected_before_global_cap,
+            MAX_COLLECTED_CONFIGS
+        );
+    }
 
     println!("[INFO] 📦 Collected {} unique configs", configs.len());
 
@@ -807,44 +819,31 @@ fn project_root() -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
     Err("failed to determine project root".into())
 }
 
-fn cap_configs_by_protocol(configs: Vec<String>, cap: usize) -> Vec<String> {
+fn cap_configs_globally(configs: Vec<String>, cap: usize) -> Vec<String> {
     if configs.len() <= cap {
         return configs;
     }
 
-    let mut by_protocol = HashMap::<String, Vec<String>>::new();
-    for config in configs {
-        by_protocol
-            .entry(config_scheme(&config))
-            .or_default()
-            .push(config);
-    }
+    let mut scored = configs
+        .into_iter()
+        .map(|config| {
+            let mut hasher = DefaultHasher::new();
+            config.hash(&mut hasher);
+            (hasher.finish(), config)
+        })
+        .collect::<Vec<_>>();
 
-    let mut protocols = by_protocol.keys().cloned().collect::<Vec<_>>();
-    protocols.sort_unstable();
+    scored.sort_unstable_by(|(score_a, config_a), (score_b, config_b)| {
+        score_a
+            .cmp(score_b)
+            .then_with(|| config_a.cmp(config_b))
+    });
+    scored.truncate(cap);
 
-    let mut selected = Vec::with_capacity(cap);
-    let mut index = 0usize;
-
-    while selected.len() < cap {
-        let mut added = false;
-        for protocol in &protocols {
-            if selected.len() >= cap {
-                break;
-            }
-            if let Some(values) = by_protocol.get(protocol) {
-                if index < values.len() {
-                    selected.push(values[index].clone());
-                    added = true;
-                }
-            }
-        }
-        if !added {
-            break;
-        }
-        index += 1;
-    }
-
+    let mut selected = scored
+        .into_iter()
+        .map(|(_, config)| config)
+        .collect::<Vec<_>>();
     selected.sort_unstable();
     selected
 }
@@ -2085,7 +2084,9 @@ mod tests {
             ("vless://uuid2@example.com:443".to_string(), 20),
             ("vless://uuid3@example.com:443".to_string(), 30),
             ("vless://uuid4@example.com:443".to_string(), 40),
-            ("vless://uuid5@other.example.com:443".to_string(), 50),
+            ("vless://uuid5@example.com:443".to_string(), 50),
+            ("vless://uuid6@example.com:443".to_string(), 60),
+            ("vless://uuid7@other.example.com:443".to_string(), 70),
         ];
 
         let selected = select_all_candidates(&working, &[]);
@@ -2096,7 +2097,39 @@ mod tests {
                 "vless://uuid1@example.com:443",
                 "vless://uuid2@example.com:443",
                 "vless://uuid3@example.com:443",
-                "vless://uuid5@other.example.com:443",
+                "vless://uuid4@example.com:443",
+                "vless://uuid5@example.com:443",
+                "vless://uuid7@other.example.com:443",
+            ]
+        );
+    }
+
+    #[test]
+    fn global_collection_cap_is_not_protocol_balanced() {
+        let configs = vec![
+            "http://http.example.com:80".to_string(),
+            "http://http2.example.com:80".to_string(),
+            "hysteria://hy.example.com:443".to_string(),
+            "hysteria2://hy2.example.com:443".to_string(),
+            "ss://ss.example.com:443".to_string(),
+            "socks5://socks.example.com:1080".to_string(),
+            "trojan://trojan.example.com:443".to_string(),
+            "vless://vless.example.com:443".to_string(),
+            "vmess://vmess.example.com:443".to_string(),
+        ];
+
+        let selected = super::cap_configs_globally(configs.clone(), 5);
+
+        assert_eq!(selected.len(), 5);
+        assert!(selected.iter().all(|config| configs.contains(config)));
+        assert_ne!(
+            selected,
+            vec![
+                "http://http.example.com:80".to_string(),
+                "hysteria://hy.example.com:443".to_string(),
+                "hysteria2://hy2.example.com:443".to_string(),
+                "socks5://socks.example.com:1080".to_string(),
+                "ss://ss.example.com:443".to_string(),
             ]
         );
     }
