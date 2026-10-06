@@ -183,7 +183,7 @@ fn vmess_payload(config: &str) -> Option<Value> {
 fn shape(value: Option<&str>) -> &'static str {
     match value.filter(|value| !value.trim().is_empty()) {
         None => "absent",
-        Some(value) if value == "/" => "root",
+        Some("/") => "root",
         Some(value) if value.starts_with('/') => "nested",
         Some(_) => "other",
     }
