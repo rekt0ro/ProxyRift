@@ -6,7 +6,7 @@ use lgbm::{
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::sync::Arc;
 
 const DEFAULT_SCORE: f64 = 0.5;
