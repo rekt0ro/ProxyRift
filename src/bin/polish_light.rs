@@ -1,5 +1,6 @@
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
+use proxyrift::consumer_history::ConsumerEvidence;
 use proxyrift::intelligence::IntelligenceModel;
 use proxyrift::light_training::{
     persist as persist_light_training, write_readiness_report, DatasetStats, TrainingRow,
@@ -77,6 +78,7 @@ const FINAL_TRANSFER_LATENCY_LIMIT_MS: f64 = 15000.0;
 const HISTORY_MAX_ENTRIES: usize = 10000;
 const HISTORY_RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
 const LIGHT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
+const LIGHT_CONSUMER_EVIDENCE_PATH: &str = "subscriptions/light-consumer-evidence.json";
 const LIGHT_TRAINING_STATS_PATH: &str = "subscriptions/light-training-stats.json";
 const LIGHT_SUBSCRIPTION_PATH: &str = "subscriptions/light.txt";
 const HISTORICAL_LIGHT_COHORTS: usize = 2;
@@ -2833,7 +2835,7 @@ async fn main() -> Result<(), String> {
 
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "Usage: polish_light --candidates FILE --output FILE [--workers N]              [--batch-size N] [--timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--selected-workers N] [--selected-batch-size N]              [--primary-target URL] [--selection-limit N] [--max-per-endpoint N]              [--max-per-family N] [--xray PATH] [--singbox PATH] [--stats PATH]"
+            "Usage: polish_light --candidates FILE --output FILE [--workers N]              [--batch-size N] [--timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--selected-workers N] [--selected-batch-size N]              [--primary-target URL] [--selection-limit N] [--max-per-endpoint N]              [--max-per-family N] [--consumer-evidence FILE] [--xray PATH] [--singbox PATH] [--stats PATH]"
         );
         return Ok(());
     }
@@ -2884,6 +2886,7 @@ async fn main() -> Result<(), String> {
         targets[0] = primary_target.as_str();
         targets
     };
+    let consumer_evidence_path = value(&args, "--consumer-evidence", LIGHT_CONSUMER_EVIDENCE_PATH);
     let xray = value(&args, "--xray", "xray");
     let selection_limit = value(
         &args,
@@ -2971,6 +2974,19 @@ async fn main() -> Result<(), String> {
 
     let intelligence_path = "subscriptions/light-ai.json";
     let intelligence = IntelligenceModel::load(intelligence_path);
+    let consumer_evidence = ConsumerEvidence::load(&consumer_evidence_path);
+
+    if consumer_evidence.is_empty() {
+        println!(
+            "[INFO] 🧠 [Consumer history] No structural evidence loaded | Ranking falls back to existing Light intelligence"
+        );
+    } else {
+        println!(
+            "[INFO] 🧠 [Consumer history] Loaded {} structural families | {:.0} weighted observations",
+            consumer_evidence.family_count(),
+            consumer_evidence.observation_count()
+        );
+    }
 
     if candidates.is_empty() {
         return Err("no Light candidates available".to_string());
@@ -3225,7 +3241,13 @@ async fn main() -> Result<(), String> {
             .collect::<Vec<_>>();
 
         let mut ai_ranked = untested.clone();
-        intelligence.rank(&mut ai_ranked, &global_metadata, &global_positions);
+        let consumer_scores = consumer_evidence.scores(&untested);
+        intelligence.rank_with_consumer_signal(
+            &mut ai_ranked,
+            &global_metadata,
+            &global_positions,
+            &consumer_scores,
+        );
 
         let exploration_limit = recheck_exploration_limit(dynamic_limit);
         let (final_candidates, exploration_selected) = select_recheck_candidates(

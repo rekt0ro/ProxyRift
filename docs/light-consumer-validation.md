@@ -1,26 +1,57 @@
-# Light consumer validation
+# Local Light consumer validation
 
-The GitHub runner cannot tell whether a Light proxy works from a user's network path. This repository now includes a local consumer validator that runs the same public Xray/sing-box validation logic from the machine that actually uses the subscription.
+`light_consumer_test` measures Light subscription candidates from a real consumer network. The result is intentionally split into two layers:
 
-Build and run it locally:
+- `subscriptions/light-consumer-results.json` is local/private history. It stores an exact config hash plus structural hashes and pass/fail observations. Raw proxy URLs, country, and ISP are never written.
+- `subscriptions/light-consumer-evidence.json` is the reusable knowledge layer. It stores only aggregated protocol, archetype, and structural-family statistics. It does not store raw configs or exact config hashes, so new configs can inherit evidence from similar historical structures.
+
+The structural family deliberately ignores per-instance identity such as IP/host values, UUIDs, passwords, remarks, exact SNI values, and exact paths. It keeps reusable shape information such as protocol, transport, security, port bucket, host kind, SNI/header/path presence and shape, flow/obfs class, and selected feature presence.
+
+The evidence model is hierarchical:
+
+1. Exact config history remains useful locally when the same config returns.
+2. A new config first inherits its structural-family history.
+3. An unseen family falls back to its broader archetype.
+4. An unseen archetype falls back to protocol history.
+5. Completely new cases fall back to the global consumer prior.
+
+Evidence uses a 30-day exponential half-life, so old observations do not disappear immediately but naturally lose influence as the consumer network or proxy ecosystem changes. A small exploration bonus prevents unseen families from becoming permanently invisible.
+
+## Local usage
+
+From the repository root:
 
 ```bash
-cargo run --release --bin light_consumer_test
+./target/release/light_consumer_test
 ```
 
-By default it reads `subscriptions/light.txt`, uses `xray` and `sing-box` from `PATH`, and writes anonymous results to `subscriptions/light-consumer-results.json`.
+Typical defaults:
 
-The history file never stores raw proxy URLs, country names, ISP names, or other user-identifying fields. Each observation stores a stable hash, protocol, pass/fail, attempt counts, and validation metrics.
+- input: `subscriptions/light.txt`
+- private history: `subscriptions/light-consumer-results.json`
+- reusable evidence: `subscriptions/light-consumer-evidence.json`
+- Xray: `xray`
+- sing-box: `sing-box`
+- workers: 8
+- batch size: 24
+- timeout: 15 seconds
+- max latency: 800 ms
+- rounds: 1
 
-Useful options:
+For repeated observation:
 
 ```bash
-cargo run --release --bin light_consumer_test -- \
-  --xray /path/to/xray \
-  --singbox /path/to/sing-box \
-  --rounds 3
+./target/release/light_consumer_test --rounds 10
 ```
 
-Run the validator again whenever the Light subscription changes. Multiple rounds are stored, so the tool can distinguish one-off success from repeated consumer success.
+Do not commit `subscriptions/light-consumer-results.json`. The generated evidence file is designed to be reviewed and, after enough local rounds, committed to the repository so `polish_light` can use it during future update runs.
 
-This PR intentionally stops at local consumer observation. It does not change the published Light list automatically yet. The next integration step is to feed these anonymous observations into the ranking/training pipeline after the local validator has been proven on real consumer traffic.
+`polish_light` reads `subscriptions/light-consumer-evidence.json` automatically when it exists. The consumer signal is blended with the existing Light intelligence for strict candidate ranking, while current strict/transfer/stream validation remains authoritative for publication.
+
+The current tester records one observation per compatible candidate per round. Candidates rejected before consumer validation are marked incompatible and are excluded from the reusable consumer evidence.
+
+## Privacy
+
+The local history contains stable exact and structural hashes. Stable hashes are not raw proxy URLs, but anyone who already has the original config can recompute them. The public evidence file is safer: it contains only aggregated structural-family, archetype, and protocol statistics.
+
+The next step after the initial 10 local rounds is to review `subscriptions/light-consumer-evidence.json`, commit that aggregate file, and let normal `Update Configs` runs consume it.

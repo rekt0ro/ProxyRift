@@ -1,3 +1,6 @@
+use proxyrift::consumer_history::{
+    archetype_hash, config_hash, family_hash, now_unix, protocol, ConsumerEvidence,
+};
 use proxyrift::singbox::validate_candidates_with_consumer_targets as validate_singbox_consumer_targets;
 use proxyrift::validator::{
     is_light_consumer_compatible, validate_candidates_with_consumer_targets, LIGHT_CONSUMER_TARGETS,
@@ -6,10 +9,10 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const DEFAULT_INPUT: &str = "subscriptions/light.txt";
 const DEFAULT_HISTORY: &str = "subscriptions/light-consumer-results.json";
+const DEFAULT_EVIDENCE: &str = "subscriptions/light-consumer-evidence.json";
 const DEFAULT_WORKERS: usize = 8;
 const DEFAULT_BATCH_SIZE: usize = 24;
 const DEFAULT_TIMEOUT_SECONDS: f64 = 15.0;
@@ -20,7 +23,10 @@ const MAX_STORED_ROUNDS: usize = 30;
 #[derive(Clone, Debug)]
 struct ConfigResult {
     config_hash: String,
+    family_hash: String,
+    archetype_hash: String,
     protocol: String,
+    compatible: bool,
     pass: bool,
     backend: Option<String>,
     attempts: usize,
@@ -68,28 +74,6 @@ fn parse_f64(args: &[String], name: &str, default: f64) -> Result<f64, String> {
         })
 }
 
-fn fnv64(value: &[u8], seed: u64) -> u64 {
-    let mut hash = seed;
-    for byte in value {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
-}
-
-fn config_hash(config: &str) -> String {
-    let first = fnv64(config.as_bytes(), 0xcbf29ce484222325);
-    let second = fnv64(config.as_bytes(), 0x84222325cbf29ce4);
-    format!("{first:016x}{second:016x}")
-}
-
-fn protocol(config: &str) -> String {
-    config
-        .split_once("://")
-        .map(|(scheme, _)| scheme.to_ascii_lowercase())
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
 fn read_candidates(path: &str) -> Result<Vec<String>, String> {
     let content =
         fs::read_to_string(path).map_err(|error| format!("failed to read {path}: {error}"))?;
@@ -104,13 +88,6 @@ fn read_candidates(path: &str) -> Result<Vec<String>, String> {
         .collect())
 }
 
-fn now_unix() -> Result<u64, String> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_secs())
-        .map_err(|error| format!("system clock error: {error}"))
-}
-
 fn result_from_metrics(
     config: &str,
     backend: &str,
@@ -119,7 +96,10 @@ fn result_from_metrics(
     let passed = metrics.is_some();
     ConfigResult {
         config_hash: config_hash(config),
+        family_hash: family_hash(config),
+        archetype_hash: archetype_hash(config),
         protocol: protocol(config),
+        compatible: true,
         pass: passed,
         backend: passed.then(|| backend.to_string()),
         attempts: metrics.map(|value| value.attempts).unwrap_or(0),
@@ -134,7 +114,10 @@ fn result_from_metrics(
 fn result_json(result: &ConfigResult) -> Value {
     json!({
         "config_hash": result.config_hash,
+        "family_hash": result.family_hash,
+        "archetype_hash": result.archetype_hash,
         "protocol": result.protocol,
+        "compatible": result.compatible,
         "pass": result.pass,
         "backend": result.backend,
         "attempts": result.attempts,
@@ -155,6 +138,16 @@ fn load_history(path: &str) -> Result<Vec<Value>, String> {
         fs::read_to_string(path).map_err(|error| format!("failed to read {path}: {error}"))?;
     let value: Value = serde_json::from_str(&content)
         .map_err(|error| format!("invalid consumer history {path}: {error}"))?;
+
+    if value
+        .get("schema_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        != 2
+    {
+        println!("[INFO] 🧹 Ignoring legacy consumer history; starting structural history v2");
+        return Ok(Vec::new());
+    }
 
     let rounds = value
         .get("rounds")
@@ -181,11 +174,12 @@ fn save_history(
     stored_rounds.reverse();
 
     let output = json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "input": input_path,
         "targets": targets,
         "privacy": {
             "stores_raw_configs": false,
+            "stores_exact_config_hashes": true,
             "stores_country_or_isp": false
         },
         "rounds": stored_rounds
@@ -217,7 +211,8 @@ fn print_usage() {
            --rounds N            Consecutive rounds in one invocation (default: 1)\n\
            --help                Show this help\n\
          \n\
-         The tester never writes raw proxy URLs to the history file."
+         The history stores exact + structural hashes only. Raw proxy URLs are never persisted.
+         The evidence file stores only structural aggregates for reuse by ranking."
     );
 }
 
@@ -324,7 +319,10 @@ async fn validate_round(
         if !seen.contains(&hash) {
             results.push(ConfigResult {
                 config_hash: hash,
+                family_hash: family_hash(config),
+                archetype_hash: archetype_hash(config),
                 protocol: protocol(config),
+                compatible: is_light_consumer_compatible(config),
                 pass: false,
                 backend: None,
                 attempts: 0,
@@ -348,8 +346,8 @@ async fn validate_round(
     Ok(results)
 }
 
-fn aggregate(rounds: &[Value]) -> BTreeMap<String, (String, usize, usize, f64)> {
-    let mut data = BTreeMap::<String, (String, usize, usize, f64)>::new();
+fn aggregate_families(rounds: &[Value]) -> BTreeMap<String, (String, usize, usize)> {
+    let mut data = BTreeMap::<String, (String, usize, usize)>::new();
 
     for round in rounds {
         let Some(results) = round.get("results").and_then(Value::as_array) else {
@@ -357,7 +355,14 @@ fn aggregate(rounds: &[Value]) -> BTreeMap<String, (String, usize, usize, f64)> 
         };
 
         for result in results {
-            let Some(hash) = result.get("config_hash").and_then(Value::as_str) else {
+            if !result
+                .get("compatible")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+            {
+                continue;
+            }
+            let Some(hash) = result.get("family_hash").and_then(Value::as_str) else {
                 continue;
             };
             let protocol = result
@@ -366,20 +371,10 @@ fn aggregate(rounds: &[Value]) -> BTreeMap<String, (String, usize, usize, f64)> 
                 .unwrap_or("unknown")
                 .to_string();
             let passed = result.get("pass").and_then(Value::as_bool).unwrap_or(false);
-            let latency = result
-                .get("median_ms")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0);
-
-            let entry = data
-                .entry(hash.to_string())
-                .or_insert((protocol, 0, 0, 0.0));
+            let entry = data.entry(hash.to_string()).or_insert((protocol, 0, 0));
             entry.1 += 1;
             if passed {
                 entry.2 += 1;
-                if latency > 0.0 {
-                    entry.3 += latency;
-                }
             }
         }
     }
@@ -396,53 +391,34 @@ fn print_summary(rounds: &[Value], latest: &[ConfigResult]) {
         latest.len()
     );
 
-    let aggregates = aggregate(rounds);
+    let aggregates = aggregate_families(rounds);
     let mut stable = aggregates
         .iter()
-        .filter(|&(_, (_, observations, passes, _))| {
+        .filter(|&(_, (_, observations, passes))| {
             *observations >= 2 && *passes * 100 >= *observations * 70
         })
-        .map(|(hash, (protocol, observations, passes, latency_sum))| {
-            let avg_latency = if *passes > 0 {
-                latency_sum / *passes as f64
-            } else {
-                0.0
-            };
-            (
-                hash.clone(),
-                protocol.clone(),
-                *observations,
-                *passes,
-                avg_latency,
-            )
+        .map(|(hash, (protocol, observations, passes))| {
+            (hash.clone(), protocol.clone(), *observations, *passes)
         })
         .collect::<Vec<_>>();
 
-    stable.sort_by(|left, right| {
-        right
-            .3
-            .cmp(&left.3)
-            .then_with(|| left.4.total_cmp(&right.4))
-    });
+    stable.sort_by(|left, right| right.3.cmp(&left.3).then_with(|| right.2.cmp(&left.2)));
 
     println!(
-        "[SUMMARY] Historical observations: {} configs | {} stored rounds | {} stable >=70%",
+        "[SUMMARY] Structural history: {} families | {} stored rounds | {} stable >=70%",
         aggregates.len(),
         rounds.len(),
         stable.len()
     );
 
-    for (index, (hash, protocol, observations, passes, avg_latency)) in
-        stable.into_iter().take(10).enumerate()
-    {
+    for (index, (hash, protocol, observations, passes)) in stable.into_iter().take(10).enumerate() {
         println!(
-            "[SUMMARY] #{:02} {} {} | {}/{} passes | avg median {:.0} ms",
+            "[SUMMARY] #{:02} {} {} | {}/{} passes",
             index + 1,
             protocol,
             &hash[..12],
             passes,
-            observations,
-            avg_latency
+            observations
         );
     }
 
@@ -461,6 +437,7 @@ async fn main() -> Result<(), String> {
 
     let input_path = value(&args, "--input", DEFAULT_INPUT);
     let history_path = value(&args, "--history", DEFAULT_HISTORY);
+    let evidence_path = value(&args, "--evidence", DEFAULT_EVIDENCE);
     let xray = value(&args, "--xray", "xray");
     let singbox = value(&args, "--singbox", "sing-box");
     let workers = parse_usize(&args, "--workers", DEFAULT_WORKERS)?;
@@ -482,7 +459,10 @@ async fn main() -> Result<(), String> {
         rounds
     );
     println!("[INFO] 🎯 Targets: {}", LIGHT_CONSUMER_TARGETS.join(", "));
-    println!("[INFO] 🔐 History stores hashes only | Raw configs are never persisted");
+    println!(
+        "[INFO] 🔐 History stores exact + structural hashes | Raw configs are never persisted"
+    );
+    println!("[INFO] 🧠 Evidence stores structural aggregates for future ranking");
 
     let mut latest_round = Vec::new();
 
@@ -506,6 +486,7 @@ async fn main() -> Result<(), String> {
         }));
 
         save_history(&history_path, &history, &input_path, LIGHT_CONSUMER_TARGETS)?;
+        ConsumerEvidence::from_rounds(&history, observed_at).save(&evidence_path)?;
 
         latest_round = latest.clone();
         let passes = latest.iter().filter(|result| result.pass).count();
