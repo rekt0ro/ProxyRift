@@ -439,22 +439,11 @@ mod tests {
             "vless://new@example.com:443".to_string(),
             "trojan://new@example.com:443".to_string(),
         ];
-        let positions = HashMap::from([
-            (configs[0].clone(), 0usize),
-            (configs[1].clone(), 1usize),
-        ]);
-        let scores = HashMap::from([
-            (configs[0].clone(), 0.20),
-            (configs[1].clone(), 0.90),
-        ]);
+        let positions = HashMap::from([(configs[0].clone(), 0usize), (configs[1].clone(), 1usize)]);
+        let scores = HashMap::from([(configs[0].clone(), 0.20), (configs[1].clone(), 0.90)]);
 
         let mut ranked = configs.clone();
-        model.rank_with_consumer_signal(
-            &mut ranked,
-            &HashMap::new(),
-            &positions,
-            &scores,
-        );
+        model.rank_with_consumer_signal(&mut ranked, &HashMap::new(), &positions, &scores);
 
         assert_eq!(ranked, vec![configs[1].clone(), configs[0].clone()]);
     }
