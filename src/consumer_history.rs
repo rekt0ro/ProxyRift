@@ -788,8 +788,7 @@ impl ConsumerEvidence {
             .map(learned_stats)
             .map(|stats| smoothed_rate(stats, archetype_rate, FAMILY_PRIOR_STRENGTH))
             .unwrap_or(archetype_rate);
-        let family_rate =
-            smoothed_rate(family_stats, learned_family_rate, FAMILY_PRIOR_STRENGTH);
+        let family_rate = smoothed_rate(family_stats, learned_family_rate, FAMILY_PRIOR_STRENGTH);
 
         let exploration = EXPLORATION_BONUS
             / (family_stats.observations
@@ -820,9 +819,7 @@ fn learned_stats(confirmations: u32) -> WeightedStats {
 }
 
 fn permanent_from_weighted(passes: f64) -> u32 {
-    passes
-        .ceil()
-        .clamp(0.0, PERMANENT_SUPPORT_CAP as f64) as u32
+    passes.ceil().clamp(0.0, PERMANENT_SUPPORT_CAP as f64) as u32
 }
 
 fn smoothed_rate(stats: WeightedStats, prior: f64, strength: f64) -> f64 {
@@ -979,11 +976,8 @@ mod tests {
         })];
 
         let evidence = ConsumerEvidence::from_rounds(&rounds, 1_000_001);
-        let stale = ConsumerEvidence::merge_rounds(
-            &evidence,
-            &[],
-            1_000_001 + 365 * 24 * 60 * 60,
-        );
+        let stale =
+            ConsumerEvidence::merge_rounds(&evidence, &[], 1_000_001 + 365 * 24 * 60 * 60);
 
         assert!(stale.score(unseen) > 0.65);
         assert_eq!(
