@@ -977,8 +977,7 @@ mod tests {
         })];
 
         let evidence = ConsumerEvidence::from_rounds(&rounds, 1_000_001);
-        let stale =
-            ConsumerEvidence::merge_rounds(&evidence, &[], 1_000_001 + 365 * 24 * 60 * 60);
+        let stale = ConsumerEvidence::merge_rounds(&evidence, &[], 1_000_001 + 365 * 24 * 60 * 60);
 
         assert!(stale.score(unseen) > 0.65);
         assert_eq!(
