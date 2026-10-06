@@ -379,6 +379,9 @@ jobs:
           if [ -s "subscriptions/light-training.jsonl" ]; then
             cp -- subscriptions/light-training.jsonl "$publish_snapshot/subscriptions/light-training.jsonl"
           fi
+          if [ -s "subscriptions/light-training-stats.json" ]; then
+            cp -- subscriptions/light-training-stats.json "$publish_snapshot/subscriptions/light-training-stats.json"
+          fi
           if [ -s "subscriptions/light-ai.json" ]; then
             cp -- subscriptions/light-ai.json "$publish_snapshot/subscriptions/light-ai.json"
           fi
@@ -406,6 +409,9 @@ jobs:
             if [ -f "$publish_snapshot/subscriptions/light-training.jsonl" ]; then
               cp -- "$publish_snapshot/subscriptions/light-training.jsonl" subscriptions/light-training.jsonl
             fi
+            if [ -f "$publish_snapshot/subscriptions/light-training-stats.json" ]; then
+              cp -- "$publish_snapshot/subscriptions/light-training-stats.json" subscriptions/light-training-stats.json
+            fi
             if [ -f "$publish_snapshot/subscriptions/light-ai.json" ]; then
               cp -- "$publish_snapshot/subscriptions/light-ai.json" subscriptions/light-ai.json
             fi
@@ -426,6 +432,9 @@ jobs:
 
             if [ -f "subscriptions/light-training.jsonl" ]; then
               git add -- subscriptions/light-training.jsonl
+            fi
+            if [ -f "subscriptions/light-training-stats.json" ]; then
+              git add -- subscriptions/light-training-stats.json
             fi
             if [ -f "subscriptions/light-ai.json" ]; then
               git add -- subscriptions/light-ai.json
