@@ -549,6 +549,8 @@ mod tests {
             strict_checks: 1,
             transfer_tested: transfer_pass.is_some(),
             transfer_pass,
+            stream_tested: false,
+            stream_pass: None,
         }
     }
 
