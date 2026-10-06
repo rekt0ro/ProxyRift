@@ -3778,8 +3778,11 @@ mod tests {
             "vless://00000000-0000-0000-0000-000000000002@example.com:443".to_string(),
         ];
 
-        let (selected, explored) = select_recheck_candidates(&configs, &[], 2, 3, 0, 42);
+        let priorities = HashMap::new();
+        let (selected, learned, explored) =
+            select_recheck_candidates(&configs, &[], 2, 3, 0, 42, &priorities, 0);
 
+        assert_eq!(learned, 0);
         assert_eq!(explored, 0);
         assert_eq!(selected, configs);
     }
@@ -3795,9 +3798,12 @@ mod tests {
             "socks5://f@example.xyz:1080".to_string(),
         ];
 
-        let (selected, explored) = select_recheck_candidates(&configs, &configs, 4, 3, 2, 42);
+        let priorities = HashMap::new();
+        let (selected, learned, explored) =
+            select_recheck_candidates(&configs, &configs, 4, 3, 2, 42, &priorities, 0);
 
         assert_eq!(selected.len(), 4);
+        assert_eq!(learned, 0);
         assert_eq!(explored, 2);
     }
 
