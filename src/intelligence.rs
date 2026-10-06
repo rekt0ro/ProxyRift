@@ -162,6 +162,46 @@ impl IntelligenceModel {
         });
     }
 
+    pub fn rank_with_consumer_signal(
+        &self,
+        configs: &mut [String],
+        metadata: &HashMap<String, ProxyMetrics>,
+        positions: &HashMap<String, usize>,
+        consumer_scores: &HashMap<String, f64>,
+    ) {
+        if configs.len() < 2 {
+            return;
+        }
+
+        let model_mature = self.is_mature();
+        configs.sort_unstable_by(|a, b| {
+            let consumer_a = consumer_scores.get(a).copied().unwrap_or(0.5);
+            let consumer_b = consumer_scores.get(b).copied().unwrap_or(0.5);
+
+            let score_a = if model_mature {
+                0.65 * self.score(a, metadata.get(a)) + 0.35 * consumer_a
+            } else {
+                consumer_a
+            };
+            let score_b = if model_mature {
+                0.65 * self.score(b, metadata.get(b)) + 0.35 * consumer_b
+            } else {
+                consumer_b
+            };
+
+            score_b
+                .total_cmp(&score_a)
+                .then_with(|| {
+                    positions
+                        .get(a)
+                        .copied()
+                        .unwrap_or(usize::MAX)
+                        .cmp(&positions.get(b).copied().unwrap_or(usize::MAX))
+                })
+                .then_with(|| a.cmp(b))
+        });
+    }
+
     pub fn anomaly_message(&self, checked_candidates: usize, successes: usize) -> Option<String> {
         if !self.is_mature()
             || self.total_attempts < MIN_ANOMALY_TRAINING_SAMPLES
@@ -390,6 +430,33 @@ mod tests {
         }
 
         model
+    }
+
+    #[test]
+    fn consumer_signal_ranks_new_configs_before_model_maturity() {
+        let model = IntelligenceModel::default();
+        let configs = vec![
+            "vless://new@example.com:443".to_string(),
+            "trojan://new@example.com:443".to_string(),
+        ];
+        let positions = HashMap::from([
+            (configs[0].clone(), 0usize),
+            (configs[1].clone(), 1usize),
+        ]);
+        let scores = HashMap::from([
+            (configs[0].clone(), 0.20),
+            (configs[1].clone(), 0.90),
+        ]);
+
+        let mut ranked = configs.clone();
+        model.rank_with_consumer_signal(
+            &mut ranked,
+            &HashMap::new(),
+            &positions,
+            &scores,
+        );
+
+        assert_eq!(ranked, vec![configs[1].clone(), configs[0].clone()]);
     }
 
     #[test]
