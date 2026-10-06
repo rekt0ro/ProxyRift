@@ -506,7 +506,7 @@ fn persist_light_result(
         transfer_tested,
         &transfer_passed,
     ) {
-        println!("[WARN] ⚠️ [SOURCE QUALITY] failed to persist Light feedback: {error}");
+        println!("[WARN] ⚠️ [Source quality] Failed to persist Light feedback: {error}");
     }
 
     let mut model = intelligence.clone();
@@ -1036,7 +1036,7 @@ async fn validate_light_transfer_batch(
     let singbox_metadata = match singbox_result {
         Ok(metadata) => metadata,
         Err(error) => {
-            println!("[WARN] ⚠️ sing-box validation failed for this batch; preserving Xray results: {error}");
+            println!("[WARN] ⚠️ Sing-box validation failed for this batch; preserving Xray results: {error}");
             HashMap::new()
         }
     };
@@ -1510,7 +1510,7 @@ async fn fill_transfer_stability_gate(
 
         if stability_started.elapsed().as_secs() >= elapsed_limit {
             println!(
-                "[INFO] ⏱️ [1 MiB] STABILITY TIME BUDGET REACHED | STABLE: {} | TARGET: {} | TESTED: {} | GRACE: {}s",
+                "[INFO] ⏱️ [1 MiB] Stability time budget reached | Stable: {} | Target: {} | Tested: {} | Grace: {}s",
                 stability_verified.len(),
                 stability_target,
                 stability_tested.len(),
@@ -1542,7 +1542,7 @@ async fn fill_transfer_stability_gate(
 
         if completion_mode {
             println!(
-                "[INFO] 🎯 [1 MiB] COMPLETION MODE | STABLE: {} | NEED: {} | PRIORITIZING {} HIGHEST-RANKED UNTESTED CANDIDATES | TEST CAPS: {}/{} endpoint/family | GRACE: {}s",
+                "[INFO] 🎯 [1 MiB] Completion mode | Stable: {} | Need: {} | Prioritizing {} highest-ranked untested candidates | Test caps: {}/{} endpoint/family | Grace: {}s",
                 stable_selected.len(),
                 stability_target.saturating_sub(stable_selected.len()),
                 batch.len(),
@@ -1552,7 +1552,7 @@ async fn fill_transfer_stability_gate(
             );
         } else {
             println!(
-                "[INFO] 📥 [1 MiB] STABLE POOL: {}/{} | TESTING {} CANDIDATES | TEST CAPS: {}/{} endpoint/family | TESTED: {}/{}",
+                "[INFO] 📥 [1 MiB] Stable pool: {}/{} | Testing {} candidates | Test caps: {}/{} endpoint/family | Tested: {}/{}",
                 stable_selected.len(),
                 stability_target,
                 batch.len(),
@@ -1574,7 +1574,7 @@ async fn fill_transfer_stability_gate(
         stability_verified.extend(metadata);
 
         println!(
-            "[INFO] ✅ [1 MiB] {}/{} PASSED BOTH TRANSFER DESTINATIONS | STABLE POOL: {}",
+            "[INFO] ✅ [1 MiB] {}/{} Passed both transfer destinations | Stable pool: {}",
             batch_passed,
             batch.len(),
             stability_verified.len()
@@ -1602,7 +1602,7 @@ async fn fill_stream_continuity_gate(
     loop {
         if started.elapsed().as_secs() >= STREAM_CONTINUITY_MAX_ELAPSED_SECS {
             println!(
-                "[INFO] ⏱️ [STREAM] CONTINUITY TIME BUDGET REACHED | PASSED: {} | TESTED: {} | LIMIT: {}",
+                "[INFO] ⏱️ [Stream] Continuity time budget reached | Passed: {} | Tested: {} | Limit: {}",
                 stream_verified.len(),
                 stream_tested.len(),
                 test_limit
@@ -1612,7 +1612,7 @@ async fn fill_stream_continuity_gate(
 
         if stream_tested.len() >= test_limit {
             println!(
-                "[INFO] 🎯 [STREAM] CONTINUITY TEST LIMIT REACHED | PASSED: {} | TESTED: {} | LIMIT: {}",
+                "[INFO] 🎯 [Stream] Continuity test limit reached | Passed: {} | Tested: {} | Limit: {}",
                 stream_verified.len(),
                 stream_tested.len(),
                 test_limit
@@ -1640,7 +1640,7 @@ async fn fill_stream_continuity_gate(
 
         stream_tested.extend(batch.iter().cloned());
         println!(
-            "[INFO] 📥 [STREAM] CONTINUITY POOL: {}/{} | TESTING {} | TESTED: {}/{}",
+            "[INFO] 📥 [Stream] Continuity pool: {}/{} | Testing {} | Tested: {}/{}",
             stream_verified.len(),
             test_limit,
             batch.len(),
@@ -1660,7 +1660,7 @@ async fn fill_stream_continuity_gate(
         stream_verified.extend(metadata);
 
         println!(
-            "[INFO] ✅ [STREAM] {}/{} PASSED CONTINUITY | STREAM POOL: {} | BATCH: {}s",
+            "[INFO] ✅ [Stream] {}/{} Passed continuity | Stream pool: {} | Batch: {}s",
             batch_passed,
             batch.len(),
             stream_verified.len(),
@@ -1721,7 +1721,7 @@ async fn fill_transfer_gate(
 
     if stability_target < selection_limit {
         println!(
-            "[INFO] ⏭️ [1 MiB] STABLE POOL BELOW PUBLISH TARGET | STABLE: {} | TARGET: {}",
+            "[INFO] ⏭️ [1 MiB] Stable pool below publish target | Stable: {} | Target: {}",
             stability_target, selection_limit
         );
     }
@@ -1790,7 +1790,7 @@ async fn fill_transfer_gate(
         );
         if selected.len().saturating_add(eligible_remaining) < transfer_target {
             println!(
-                "[INFO] ⏭️ [10 MiB] TARGET UNREACHABLE WITH CURRENT STRICT POOL | SELECTABLE: {} | UNTESTED ELIGIBLE: {} | VALIDATION TARGET: {} | PUBLISH TARGET: {} | CONTINUING BEST-EFFORT GATE",
+                "[INFO] ⏭️ [10 MiB] Target unreachable with current strict pool | Selectable: {} | Untested eligible: {} | Validation target: {} | Publish target: {} | Continuing best-effort gate",
                 selected.len(),
                 eligible_remaining,
                 transfer_target,
@@ -1808,7 +1808,7 @@ async fn fill_transfer_gate(
             >= FINAL_TRANSFER_MAX_ELAPSED_SECS.saturating_add(completion_grace)
         {
             println!(
-                "[WARN] ⏱️ [10 MiB] TIME BUDGET REACHED | TESTED: {} | SELECTABLE: {} | VALIDATION TARGET: {} | PUBLISH TARGET: {} | STOPPING BEST-EFFORT GATE",
+                "[WARN] ⏱️ [10 MiB] Time budget reached | Tested: {} | Selectable: {} | Validation target: {} | Publish target: {} | Stopping best-effort gate",
                 transfer_tested.len(),
                 selected.len(),
                 transfer_target,
@@ -1827,7 +1827,7 @@ async fn fill_transfer_gate(
 
         if transfer_tested.len() >= dynamic_test_limit {
             println!(
-                "[INFO] 🎯 [10 MiB] ADAPTIVE TEST BUDGET REACHED | TESTED: {} | SELECTABLE: {} | VALIDATION TARGET: {} | PUBLISH TARGET: {}",
+                "[INFO] 🎯 [10 MiB] Adaptive test budget reached | Tested: {} | Selectable: {} | Validation target: {} | Publish target: {}",
                 transfer_tested.len(),
                 selected.len(),
                 transfer_target,
@@ -1859,7 +1859,7 @@ async fn fill_transfer_gate(
         target_tested_candidates[target_index].extend(batch.iter().cloned());
 
         println!(
-            "[INFO] 📥 [10 MiB] {} VALIDATION SLOTS REMAINING | TESTING {} CANDIDATES | ADAPTIVE MAX TESTS: {} | TARGET: {} | SCORE: {:.3} | QUARANTINED: {}",
+            "[INFO] 📥 [10 MiB] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {}",
             remaining,
             batch.len(),
             dynamic_test_limit,
@@ -1894,7 +1894,7 @@ async fn fill_transfer_gate(
                 .any(|(index, state)| index != target_index && !state.quarantined);
 
             println!(
-                "[WARN] ⚠️ [10 MiB] QUARANTINING TARGET FOR THIS RUN | TARGET: {} | TESTED: {} | PASSED: {} | PASS RATE: {:.1}% | RATE LIMITS: {}",
+                "[WARN] ⚠️ [10 MiB] Quarantining target for this run | Target: {} | Tested: {} | Passed: {} | Pass rate: {:.1}% | Rate limits: {}",
                 target,
                 target_states[target_index].tested,
                 target_states[target_index].passed,
@@ -1912,13 +1912,13 @@ async fn fill_transfer_gate(
 
                 if requeued > 0 {
                     println!(
-                        "[INFO] ↪️ [10 MiB] REQUEUED {} FAILED CANDIDATES AFTER TARGET QUARANTINE | TARGET: {}",
+                        "[INFO] ↪️ [10 MiB] Requeued {} failed candidates after target quarantine | Target: {}",
                         requeued, target
                     );
                 }
             } else {
                 println!(
-                    "[WARN] ⚠️ [10 MiB] ALL TRANSFER TARGETS ARE QUARANTINED | KEEPING FAILED CANDIDATES CLOSED TO AVOID RETRY LOOP"
+                    "[WARN] ⚠️ [10 MiB] All transfer targets are quarantined | Keeping failed candidates closed to avoid retry loop"
                 );
             }
         }
@@ -1936,7 +1936,7 @@ async fn fill_transfer_gate(
 
             if transfer_workers < previous_workers {
                 println!(
-                    "[WARN] ⚠️ LIGHT TRANSFER: {} rate-limit responses ({rate_limit_percent}%) at {} | reducing workers {} -> {}",
+                    "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Reducing workers {} -> {}",
                     rate_limits,
                     target,
                     previous_workers,
@@ -1944,7 +1944,7 @@ async fn fill_transfer_gate(
                 );
             } else {
                 println!(
-                    "[WARN] ⚠️ LIGHT TRANSFER: {} rate-limit responses ({rate_limit_percent}%) at {} | within tolerance, keeping workers at {}",
+                    "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Within tolerance, keeping workers at {}",
                     rate_limits,
                     target,
                     transfer_workers
@@ -1952,7 +1952,7 @@ async fn fill_transfer_gate(
             }
         } else if transfer_workers > previous_workers {
             println!(
-                "[INFO] 📈 LIGHT TRANSFER: {} clean batches; increasing workers {} -> {}",
+                "[INFO] 📈 Light transfer: {} clean batches; increasing workers {} -> {}",
                 previous_clean_batches + 1,
                 previous_workers,
                 transfer_workers
@@ -1960,7 +1960,7 @@ async fn fill_transfer_gate(
         }
 
         println!(
-            "[INFO] ✅ [10 MiB] {}/{} PASSED IN {}s | TOTAL PASSED: {} | VALIDATION SLOTS REMAINING: {}",
+            "[INFO] ✅ [10 MiB] {}/{} Passed in {}s | Total passed: {} | Validation slots remaining: {}",
             batch_passed,
             batch.len(),
             batch_elapsed,
@@ -2641,7 +2641,7 @@ fn persist_light_training_data(
     };
 
     println!(
-        "[INFO] 🧠 [LIGHT ML DATA] +{} ROWS | TOTAL: {} | FEATURES: {} | STRICT PASS RATE: {:.1}% | TRANSFER: {}/{}",
+        "[INFO] 🧠 [Light ml data] +{} Rows | Total: {} | Features: {} | Strict pass rate: {:.1}% | Transfer: {}/{}",
         stats.new_rows,
         stats.rows,
         rows.first().map(|row| row.features.len()).unwrap_or(0),
@@ -2756,7 +2756,7 @@ async fn validate_light_batch(
 
     if !fallback_retry.is_empty() {
         println!(
-            "[INFO] 🔄 [LIGHT FALLBACK] RETRYING {} CANDIDATES WITH XRAY",
+            "[INFO] 🔄 [Light fallback] Retrying {} candidates with xray",
             fallback_retry.len()
         );
         let fallback_xray = if settings.strict {
@@ -2793,7 +2793,7 @@ async fn validate_light_batch(
         "PREFILTER"
     };
     println!(
-        "[INFO] ✅ [LIGHT {stage}] {}/{} CANDIDATES VERIFIED | TARGETS: {}",
+        "[INFO] ✅ [Light {stage}] {}/{} Candidates verified | Targets: {}",
         verified.len(),
         candidates.len(),
         if settings.strict { targets.len() } else { 1 }
@@ -2901,7 +2901,7 @@ async fn main() -> Result<(), String> {
 
     if consumer_rejected > 0 {
         println!(
-            "[INFO] 🧹 [LIGHT COMPATIBILITY] REJECTED {} CANDIDATES BY CONSERVATIVE CONSUMER CONTRACT",
+            "[INFO] 🧹 [Light compatibility] Rejected {} candidates by conservative consumer contract",
             consumer_rejected
         );
     }
@@ -2936,7 +2936,7 @@ async fn main() -> Result<(), String> {
     }
 
     println!(
-        "[INFO] 🛡️ [LIGHT RETENTION] COHORTS LOADED: {} | COHORT CONFIGS: {}",
+        "[INFO] 🛡️ [Light retention] Cohorts loaded: {} | Cohort configs: {}",
         light_cohorts.len(),
         cohort_configs_loaded
     );
@@ -2962,7 +2962,7 @@ async fn main() -> Result<(), String> {
     let chunk_count = candidates.len().div_ceil(DISCOVERY_CHUNK_SIZE);
 
     println!(
-        "[INFO] 🔬 [LIGHT] VALIDATION STARTED | {} CANDIDATES | TARGETS: {}",
+        "[INFO] 🔬 [Light] Validation started | {} Candidates | Targets: {}",
         candidates.len(),
         early_targets.len()
     );
@@ -2971,7 +2971,7 @@ async fn main() -> Result<(), String> {
         let wave = chunk_index + 1;
 
         println!(
-            "[INFO] 🔎 [LIGHT DISCOVERY] WAVE {wave}/{chunk_count} | TESTING {} CANDIDATES | VERIFIED SO FAR: {}",
+            "[INFO] 🔎 [Light discovery] Wave {wave}/{chunk_count} | Testing {} candidates | Verified so far: {}",
             chunk.len(),
             global_verified.len()
         );
@@ -2985,7 +2985,7 @@ async fn main() -> Result<(), String> {
             }
 
             println!(
-                "[INFO] 🔎 [LIGHT DISCOVERY] WAVE {wave}/{chunk_count} | EARLY TARGET {}/{} | TESTING {} REMAINING",
+                "[INFO] 🔎 [Light discovery] Wave {wave}/{chunk_count} | Early target {}/{} | Testing {} remaining",
                 target_index + 1,
                 early_targets.len(),
                 remaining_candidates.len()
@@ -3009,7 +3009,7 @@ async fn main() -> Result<(), String> {
             chunk_metadata.extend(target_metadata);
 
             println!(
-                "[INFO] 📊 [LIGHT DISCOVERY] WAVE {wave}/{chunk_count} | EARLY TARGET {}/{} COMPLETE | VERIFIED: {} | REMAINING: {} | GLOBAL VERIFIED: {}",
+                "[INFO] 📊 [Light discovery] Wave {wave}/{chunk_count} | Early target {}/{} complete | Verified: {} | Remaining: {} | Global verified: {}",
                 target_index + 1,
                 early_targets.len(),
                 chunk_metadata.len(),
@@ -3078,12 +3078,12 @@ async fn main() -> Result<(), String> {
 
         if transfer_selected >= selection_limit {
             println!(
-                "[INFO] ✅ [LIGHT] TRANSFER-QUALIFIED {}/{} | PUBLISH READY",
+                "[INFO] ✅ [Light] Transfer-qualified {}/{} | Publish ready",
                 transfer_selected, selection_limit
             );
 
             println!(
-                "[INFO] ✅ [LIGHT] TRANSFER-QUALIFIED {}/{} | STOPPING DISCOVERY FOR STREAM CONTINUITY",
+                "[INFO] ✅ [Light] Transfer-qualified {}/{} | Stopping discovery for stream continuity",
                 transfer_selected, selection_limit
             );
             break;
@@ -3091,7 +3091,7 @@ async fn main() -> Result<(), String> {
 
         if strict_untested_additional_potential >= reserve_target {
             println!(
-                "[INFO] 🎯 [LIGHT] TRANSFER RESERVE READY | ADDITIONAL STRICT POTENTIAL: {} | RESERVE TARGET: {} | TRANSFER QUALIFIED: {}",
+                "[INFO] 🎯 [Light] Transfer reserve ready | Additional strict potential: {} | Reserve target: {} | Transfer qualified: {}",
                 strict_untested_additional_potential, reserve_target, transfer_selected
             );
 
@@ -3121,7 +3121,7 @@ async fn main() -> Result<(), String> {
                     &history,
                 );
                 println!(
-                    "[INFO] ✅ [LIGHT] TRANSFER-QUALIFIED {}/{} | STOPPING DISCOVERY FOR STREAM CONTINUITY",
+                    "[INFO] ✅ [Light] Transfer-qualified {}/{} | Stopping discovery for stream continuity",
                     transfer_selected, selection_limit
                 );
                 break;
@@ -3158,7 +3158,7 @@ async fn main() -> Result<(), String> {
                 && stability_reserve_ready
             {
                 println!(
-                    "[INFO] 🎯 [LIGHT] TRANSFER-FIRST | CURRENT STRICT POOL CAN REACH {} AND SUSTAINS 1 MiB RESERVE {} | SKIPPING MORE DISCOVERY",
+                    "[INFO] 🎯 [Light] Transfer-first | Current strict pool can reach {} and sustains 1 MiB reserve {} | Skipping more discovery",
                     selection_limit, stability_pool_target
                 );
                 break;
@@ -3166,7 +3166,7 @@ async fn main() -> Result<(), String> {
 
             if potential_selected >= selection_limit {
                 println!(
-                    "[INFO] 🔁 [LIGHT] EXPANDING STRICT RESERVE FOR 1 MiB | CURRENT STRICT POOL: {} | STABILITY RESERVE TARGET: {} | STABILITY TESTED: {} | STABILITY PASSED: {} | CONTINUING DISCOVERY",
+                    "[INFO] 🔁 [Light] Expanding strict reserve for 1 MiB | Current strict pool: {} | Stability reserve target: {} | Stability tested: {} | Stability passed: {} | Continuing discovery",
                     final_verified.len(),
                     stability_pool_target,
                     stability_tested.len(),
@@ -3218,7 +3218,7 @@ async fn main() -> Result<(), String> {
         }
 
         println!(
-            "[INFO] 🔎 [LIGHT RECHECK] WAVE {wave} | TESTING {} CANDIDATES | EXPLORATION: {}",
+            "[INFO] 🔎 [Light recheck] Wave {wave} | Testing {} candidates | Exploration: {}",
             final_candidates.len(),
             exploration_selected
         );
@@ -3256,7 +3256,7 @@ async fn main() -> Result<(), String> {
         }
 
         println!(
-            "[INFO] 🧭 [LIGHT DISCOVERY] WAVE {wave}/{chunk_count} COMPLETE | PREFILTER VERIFIED: {} | GLOBAL VERIFIED: {} | STRICT VERIFIED: {}",
+            "[INFO] 🧭 [Light discovery] Wave {wave}/{chunk_count} complete | Prefilter verified: {} | Global verified: {} | Strict verified: {}",
             chunk_verified_count,
             global_verified.len(),
             final_metadata.len()
@@ -3310,7 +3310,7 @@ async fn main() -> Result<(), String> {
         let transfer_slots_remaining = selection_limit.saturating_sub(transfer_eligible);
 
         println!(
-            "[INFO] 📈 [LIGHT FILL] STRICT POOL: {}/{} | ADDITIONAL STRICT POTENTIAL: {} | TRANSFER QUALIFIED: {} | TRANSFER SLOTS REMAINING: {} | RESERVE TARGET: {} | STRICT CHECKS: {}",
+            "[INFO] 📈 [Light fill] Strict pool: {}/{} | Additional strict potential: {} | Transfer qualified: {} | Transfer slots remaining: {} | Reserve target: {} | Strict checks: {}",
             selected.len(),
             selection_limit,
             strict_untested_additional_potential,
@@ -3322,12 +3322,12 @@ async fn main() -> Result<(), String> {
 
         if strict_untested_additional_potential >= reserve_target {
             println!(
-                "[INFO] 🎯 [LIGHT] TRANSFER RESERVE READY | ADDITIONAL STRICT POTENTIAL: {} | RESERVE TARGET: {}",
+                "[INFO] 🎯 [Light] Transfer reserve ready | Additional strict potential: {} | Reserve target: {}",
                 strict_untested_additional_potential, reserve_target
             );
         } else {
             println!(
-                "[INFO] ⏭️ [LIGHT] DISCOVER MORE | ADDITIONAL STRICT POTENTIAL: {} | RESERVE TARGET: {} | NEED {} MORE",
+                "[INFO] ⏭️ [Light] Discover more | Additional strict potential: {} | Reserve target: {} | Need {} more",
                 strict_untested_additional_potential,
                 reserve_target,
                 reserve_target.saturating_sub(strict_untested_additional_potential)
@@ -3386,7 +3386,7 @@ async fn main() -> Result<(), String> {
         max_per_family,
     );
     println!(
-        "[INFO] 🛡️ [LIGHT RETENTION] FINAL COHORT | PREVIOUS: {} | OLDER: {} | CURRENT/NEW: {}",
+        "[INFO] 🛡️ [Light retention] Final cohort | Previous: {} | Older: {} | Current/new: {}",
         previous_selected,
         older_selected,
         selected
@@ -3407,14 +3407,14 @@ async fn main() -> Result<(), String> {
 
     if selected.is_empty() {
         println!(
-            "[WARN] ⚠️ [LIGHT] NO CONFIGS PASSED STREAM CONTINUITY | OUTPUT 0 | WORKFLOW WILL PRESERVE PREVIOUS SUBSCRIPTION | TRANSFER QUALIFIED: {} | STREAM TESTED: {} | STREAM PASSES: {}",
+            "[WARN] ⚠️ [Light] No configs passed stream continuity | Output 0 | Workflow will preserve previous subscription | Transfer qualified: {} | Stream tested: {} | Stream passes: {}",
             transfer_selected,
             stream_tested.len(),
             stream_selected
         );
     } else if selected.len() < selection_limit {
         println!(
-            "[WARN] ⚠️ [LIGHT] STREAM TARGET NOT REACHED | PUBLISHING {} CONTINUITY-QUALIFIED CONFIGS | TARGET/MAX: {} | TRANSFER TARGET/MAX: {} | STREAM TESTED: {} | STREAM PASSES: {} | ENDPOINT CAP EXCLUSIONS: {} | FAMILY CAP EXCLUSIONS: {}",
+            "[WARN] ⚠️ [Light] Stream target not reached | Publishing {} continuity-qualified configs | Target/max: {} | Transfer target/max: {} | Stream tested: {} | Stream passes: {} | Endpoint cap exclusions: {} | Family cap exclusions: {}",
             selected.len(),
             selection_limit,
             transfer_selected,
@@ -3460,7 +3460,7 @@ async fn main() -> Result<(), String> {
         .collect::<Vec<_>>()
         .chunks(4)
     {
-        println!("[INFO] 📊 [LIGHT PROTOCOLS] {}", chunk.join(" | "));
+        println!("[INFO] 📊 [Light protocols] {}", Chunk.join(" | "));
     }
 
     let backend_summary = backend_counts
@@ -3468,10 +3468,10 @@ async fn main() -> Result<(), String> {
         .map(|(backend, count)| format!("{backend} {count}"))
         .collect::<Vec<_>>()
         .join(" | ");
-    println!("[INFO] 📊 [LIGHT BACKENDS] {backend_summary}");
+    println!("[INFO] 📊 [Light backends] {backend_summary}");
 
     println!(
-        "[INFO] 🎯 [LIGHT SELECTION] {} CONFIGS READY | NO PROTOCOL QUOTA",
+        "[INFO] 🎯 [Light selection] {} Configs ready | No protocol quota",
         selected.len()
     );
 
@@ -3489,7 +3489,7 @@ async fn main() -> Result<(), String> {
         &transfer_verified,
     )?;
     println!(
-        "[INFO] ✅ [LIGHT] PUBLISHED {} CONFIGS | DISCOVERY: {} | STRICT CHECKS: {} | TRANSFER TESTED: {} | TRANSFER PASSES: {}",
+        "[INFO] ✅ [Light] Published {} configs | Discovery: {} | Strict checks: {} | Transfer tested: {} | Transfer passes: {}",
         selected.len(),
         candidates.len(),
         final_attempts.values().copied().sum::<usize>(),
