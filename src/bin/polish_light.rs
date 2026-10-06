@@ -889,7 +889,7 @@ fn diversify_recheck_candidates(
     max_family: usize,
 ) -> Vec<String> {
     let mut selected = Vec::new();
-    let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
+    let mut seen_endpoints = HashSet::new();
     let mut family_counts = HashMap::<String, usize>::new();
 
     for config in configs {
