@@ -38,6 +38,8 @@ const RECHECK_FAMILY_DIVERSITY: usize = 3;
 const RECHECK_MAX_PER_ENDPOINT: usize = 2;
 const RECHECK_EXPLORATION_PERCENT: usize = 15;
 const MAX_RECHECK_EXPLORATION: usize = 64;
+const CONSUMER_LEARNING_RESERVE_PERCENT: usize = 25;
+const MAX_CONSUMER_LEARNING_RESERVE: usize = 64;
 const MAX_FINAL_RECHECK_ATTEMPTS: usize = 2;
 const TRANSFER_RESERVE_DEFAULT_PASS_RATE: f64 = 0.80;
 const TRANSFER_RESERVE_SAFETY_FACTOR: f64 = 1.08;
@@ -4292,6 +4294,36 @@ mod tests {
 
         assert!(merged.contains_key("xray-only"));
         assert!(merged.contains_key("singbox-only"));
+    }
+
+    #[test]
+    fn learned_consumer_candidates_are_reserved_before_random_exploration() {
+        let configs = vec![
+            "vless://normal@example.com:443?security=reality&type=tcp&sni=other.example"
+                .to_string(),
+            "vless://learned@example.net:443?security=reality&type=tcp&sni=site.example"
+                .to_string(),
+            "trojan://other@example.org:443?security=tls&sni=other.example".to_string(),
+        ];
+        let priorities = HashMap::from([
+            (configs[1].clone(), 3_u8),
+            (configs[2].clone(), 2_u8),
+        ]);
+
+        let (selected, learned, exploration) = select_recheck_candidates(
+            &configs,
+            &configs,
+            2,
+            3,
+            2,
+            123,
+            &priorities,
+            1,
+        );
+
+        assert_eq!(learned, 1);
+        assert!(selected.contains(&configs[1]));
+        assert_eq!(exploration, 1);
     }
 
     #[test]
