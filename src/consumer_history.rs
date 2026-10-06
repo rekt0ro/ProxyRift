@@ -386,6 +386,14 @@ impl ConsumerEvidence {
             };
 
             for result in results {
+                if !result
+                    .get("compatible")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true)
+                {
+                    continue;
+                }
+
                 let protocol = result
                     .get("protocol")
                     .and_then(Value::as_str)
