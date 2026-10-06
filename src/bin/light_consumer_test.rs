@@ -399,8 +399,7 @@ fn print_summary(rounds: &[Value], latest: &[ConfigResult]) {
     let aggregates = aggregate(rounds);
     let mut stable = aggregates
         .iter()
-        .filter(|&(hash, (protocol, observations, passes, latency_sum))| {
-            let _ = (hash, protocol, latency_sum);
+        .filter(|&(_, (_, observations, passes, _))| {
             *observations >= 2 && *passes * 100 >= *observations * 70
         })
         .map(|(hash, (protocol, observations, passes, latency_sum))| {
