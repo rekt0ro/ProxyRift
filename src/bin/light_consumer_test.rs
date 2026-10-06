@@ -251,13 +251,15 @@ async fn validate_round(
             LIGHT_CONSUMER_TARGETS.len()
         );
 
+        let request_timeout = std::time::Duration::try_from_secs_f64(timeout)
+            .map_err(|_| "invalid consumer timeout".to_string())?;
+
         match validate_singbox_consumer_targets(
             singbox,
             &compatible,
             LIGHT_CONSUMER_TARGETS,
             workers.clamp(1, 40),
-            batch_size.max(1),
-            timeout,
+            request_timeout,
             max_latency_ms,
         )
         .await
