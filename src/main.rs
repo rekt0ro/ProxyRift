@@ -2121,7 +2121,10 @@ mod tests {
         assert_eq!(selected.len(), 5);
         assert!(selected.windows(2).all(|pair| pair[0] <= pair[1]));
         assert!(selected.iter().all(|config| configs.contains(config)));
-        assert_eq!(selected.iter().collect::<HashSet<_>>().len(), selected.len());
+        assert_eq!(
+            selected.iter().collect::<HashSet<_>>().len(),
+            selected.len()
+        );
     }
 
     #[test]
