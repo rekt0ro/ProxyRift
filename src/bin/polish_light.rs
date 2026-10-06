@@ -2597,6 +2597,7 @@ fn light_training_features(
     features
 }
 
+#[allow(clippy::too_many_arguments)]
 fn persist_light_training_data(
     history: &HashMap<String, HistoryEntry>,
     final_attempts: &HashMap<String, usize>,
@@ -2649,11 +2650,6 @@ fn persist_light_training_data(
 
     let stats = persist_light_training(LIGHT_TRAINING_PATH, &rows)?;
     write_readiness_report(LIGHT_TRAINING_STATS_PATH, &stats)?;
-    let strict_rate = if stats.rows == 0 {
-        0.0
-    } else {
-        stats.strict_passes as f64 / stats.rows as f64
-    };
 
     println!(
         "[INFO] 🧠 [Light ml data] +{} Rows | Total: {} | Runs: {} | Candidates: {} | Features: {} | Strict: {}/{} | Transfer: {}/{} | Stream: {}/{} | Strict-ML: {} | E2E-ML: {}",
