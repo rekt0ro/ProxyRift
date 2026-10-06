@@ -520,8 +520,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return Err("no proxy configurations were collected".into());
     }
 
-    let consumer_evidence =
-        ConsumerEvidence::load("subscriptions/light-consumer-evidence.json");
+    let consumer_evidence = ConsumerEvidence::load("subscriptions/light-consumer-evidence.json");
     let light_gbm = match LightGbmScores::train_and_score(&configs) {
         Ok(scores) => {
             println!(
@@ -539,10 +538,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     configs.sort_unstable_by(|a, b| {
-        let a_score =
-            0.60 * light_gbm.score(a) + 0.40 * consumer_evidence.score(a);
-        let b_score =
-            0.60 * light_gbm.score(b) + 0.40 * consumer_evidence.score(b);
+        let a_score = 0.60 * light_gbm.score(a) + 0.40 * consumer_evidence.score(a);
+        let b_score = 0.60 * light_gbm.score(b) + 0.40 * consumer_evidence.score(b);
         b_score
             .total_cmp(&a_score)
             .then_with(|| {
@@ -663,14 +660,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return Err("no usable configs remained after transport-aware screening".into());
     }
 
-    ranked_working_configs.sort_unstable_by(
-        |(config_a, latency_a), (config_b, latency_b)| {
-            let a_score =
-                0.60 * light_gbm.score(config_a) + 0.40 * consumer_evidence.score(config_a);
-            let b_score =
-                0.60 * light_gbm.score(config_b) + 0.40 * consumer_evidence.score(config_b);
+    ranked_working_configs.sort_unstable_by(|(config_a, latency_a), (config_b, latency_b)| {
+        let a_score = 0.60 * light_gbm.score(config_a) + 0.40 * consumer_evidence.score(config_a);
+        let b_score = 0.60 * light_gbm.score(config_b) + 0.40 * consumer_evidence.score(config_b);
 
-            b_score
+        b_score
                 .total_cmp(&a_score)
                 .then_with(|| {
                     consumer_evidence
@@ -679,8 +673,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 })
                 .then_with(|| latency_a.cmp(latency_b))
                 .then_with(|| config_a.cmp(config_b))
-        },
-    );
+    });
 
     let light_target = MAX_LIGHT_CANDIDATES.min(ranked_working_configs.len());
     let mut light_candidates = Vec::with_capacity(light_target);
@@ -702,10 +695,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let sampled_transport_count = light_candidates.len();
     special_hysteria_candidates.sort_unstable_by(|a, b| {
-        let a_score =
-            0.60 * light_gbm.score(a) + 0.40 * consumer_evidence.score(a);
-        let b_score =
-            0.60 * light_gbm.score(b) + 0.40 * consumer_evidence.score(b);
+        let a_score = 0.60 * light_gbm.score(a) + 0.40 * consumer_evidence.score(a);
+        let b_score = 0.60 * light_gbm.score(b) + 0.40 * consumer_evidence.score(b);
         b_score
             .total_cmp(&a_score)
             .then_with(|| {
