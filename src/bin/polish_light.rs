@@ -1,7 +1,9 @@
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use proxyrift::intelligence::IntelligenceModel;
-use proxyrift::light_training::{persist as persist_light_training, write_readiness_report, DatasetStats, TrainingRow};
+use proxyrift::light_training::{
+    persist as persist_light_training, write_readiness_report, DatasetStats, TrainingRow,
+};
 use proxyrift::singbox::{
     validate_candidates_with_consumer_targets as validate_singbox_consumer_targets,
     validate_candidates_with_target_once as validate_singbox_target_once,
