@@ -3297,17 +3297,16 @@ async fn main() -> Result<(), String> {
                 .clamp(1, MAX_CONSUMER_LEARNING_RESERVE)
                 .min(consumer_learning_candidates)
         };
-        let (final_candidates, consumer_selected, exploration_selected) =
-            select_recheck_candidates(
-                &ai_ranked,
-                &untested,
-                dynamic_limit,
-                RECHECK_FAMILY_DIVERSITY,
-                exploration_limit,
-                recheck_exploration_seed(wave),
-                &consumer_priorities,
-                consumer_learning_limit,
-            );
+        let (final_candidates, consumer_selected, exploration_selected) = select_recheck_candidates(
+            &ai_ranked,
+            &untested,
+            dynamic_limit,
+            RECHECK_FAMILY_DIVERSITY,
+            exploration_limit,
+            recheck_exploration_seed(wave),
+            &consumer_priorities,
+            consumer_learning_limit,
+        );
 
         if final_candidates.is_empty() {
             continue;
@@ -4343,21 +4342,10 @@ mod tests {
                 .to_string(),
             "trojan://other@example.org:443?security=tls&sni=other.example".to_string(),
         ];
-        let priorities = HashMap::from([
-            (configs[1].clone(), 3_u8),
-            (configs[2].clone(), 2_u8),
-        ]);
+        let priorities = HashMap::from([(configs[1].clone(), 3_u8), (configs[2].clone(), 2_u8)]);
 
-        let (selected, learned, exploration) = select_recheck_candidates(
-            &configs,
-            &configs,
-            2,
-            3,
-            2,
-            123,
-            &priorities,
-            1,
-        );
+        let (selected, learned, exploration) =
+            select_recheck_candidates(&configs, &configs, 2, 3, 2, 123, &priorities, 1);
 
         assert_eq!(learned, 1);
         assert!(selected.contains(&configs[1]));
