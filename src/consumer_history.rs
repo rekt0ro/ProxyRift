@@ -231,17 +231,17 @@ fn structural_parts(config: &str) -> (String, String) {
         let query_security = parsed
             .as_ref()
             .and_then(|url| query_value(url, &["security"]));
-        let query_tls = parsed
-            .as_ref()
-            .and_then(|url| query_value(url, &["tls"]));
+        let query_tls = parsed.as_ref().and_then(|url| query_value(url, &["tls"]));
         normalize_enum(
-            query_security.or_else(|| query_tls.map(|value| {
-                if matches!(value.as_str(), "1" | "true" | "tls" | "https") {
-                    "tls".to_string()
-                } else {
-                    value
-                }
-            })),
+            query_security.or_else(|| {
+                query_tls.map(|value| {
+                    if matches!(value.as_str(), "1" | "true" | "tls" | "https") {
+                        "tls".to_string()
+                    } else {
+                        value
+                    }
+                })
+            }),
             default_security(&scheme),
         )
     };
@@ -413,10 +413,7 @@ impl ConsumerEvidence {
                     continue;
                 }
 
-                let passed = result
-                    .get("pass")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
+                let passed = result.get("pass").and_then(Value::as_bool).unwrap_or(false);
 
                 evidence.global.add(weight, passed);
                 evidence
@@ -425,10 +422,11 @@ impl ConsumerEvidence {
                     .or_default()
                     .add(weight, passed);
 
-                let archetype_entry = evidence
-                    .archetypes
-                    .entry(archetype.clone())
-                    .or_insert_with(|| GroupStats {
+                let archetype_entry =
+                    evidence
+                        .archetypes
+                        .entry(archetype.clone())
+                        .or_insert_with(|| GroupStats {
                         protocol: protocol.clone(),
                         archetype_hash: String::new(),
                         ..GroupStats::default()
@@ -436,10 +434,11 @@ impl ConsumerEvidence {
                 archetype_entry.stats.add(weight, passed);
                 archetype_entry.last_seen = archetype_entry.last_seen.max(observed_at);
 
-                let family_entry = evidence
-                    .families
-                    .entry(family.clone())
-                    .or_insert_with(|| GroupStats {
+                let family_entry =
+                    evidence
+                        .families
+                        .entry(family.clone())
+                        .or_insert_with(|| GroupStats {
                         protocol: protocol.clone(),
                         archetype_hash: archetype.clone(),
                         ..GroupStats::default()
@@ -482,10 +481,9 @@ impl ConsumerEvidence {
         }
         if let Some(archetypes) = value.get("archetypes").and_then(Value::as_object) {
             for (hash, entry) in archetypes {
-                evidence.archetypes.insert(
-                    hash.clone(),
-                    read_group_stats(entry, String::new()),
-                );
+                evidence
+                    .archetypes
+                    .insert(hash.clone(), read_group_stats(entry, String::new()));
             }
         }
         if let Some(families) = value.get("families").and_then(Value::as_object) {
@@ -495,10 +493,7 @@ impl ConsumerEvidence {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                evidence.families.insert(
-                    hash.clone(),
-                    read_group_stats(entry, archetype),
-                );
+                evidence.families.insert(hash.clone(), read_group_stats(entry, archetype));
             }
         }
 
@@ -566,9 +561,12 @@ impl ConsumerEvidence {
     pub fn score(&self, config: &str) -> f64 {
         let global_rate = smoothed_rate(self.global, 0.5, 4.0);
         let protocol_name = protocol(config);
-        let protocol_stats = self.protocols.get(&protocol_name).copied().unwrap_or_default();
-        let protocol_rate =
-            smoothed_rate(protocol_stats, global_rate, PROTOCOL_PRIOR_STRENGTH);
+        let protocol_stats = self
+            .protocols
+            .get(&protocol_name)
+            .copied()
+            .unwrap_or_default();
+        let protocol_rate = smoothed_rate(protocol_stats, global_rate, PROTOCOL_PRIOR_STRENGTH);
 
         let archetype = archetype_hash(config);
         let archetype_stats = self
@@ -585,8 +583,7 @@ impl ConsumerEvidence {
             .get(&family)
             .map(|entry| entry.stats)
             .unwrap_or_default();
-        let family_rate =
-            smoothed_rate(family_stats, archetype_rate, FAMILY_PRIOR_STRENGTH);
+        let family_rate = smoothed_rate(family_stats, archetype_rate, FAMILY_PRIOR_STRENGTH);
 
         let exploration = EXPLORATION_BONUS / (family_stats.observations + 1.0).sqrt();
         (family_rate + exploration).clamp(0.0, 1.0)
@@ -642,10 +639,7 @@ fn read_group_stats(value: &Value, fallback_archetype: String) -> GroupStats {
             .unwrap_or(&fallback_archetype)
             .to_string(),
         stats: read_stats(Some(value)),
-        last_seen: value
-            .get("last_seen")
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
+        last_seen: value.get("last_seen").and_then(Value::as_u64).unwrap_or(0),
     }
 }
 
@@ -696,8 +690,10 @@ mod tests {
 
     #[test]
     fn family_hash_ignores_per_config_identity() {
-        let a = "vless://one@example.com:443?security=reality&type=tcp&sni=site.example&path=%2Ffoo";
-        let b = "vless://two@example.net:443?security=reality&type=tcp&sni=other.example&path=%2Fbar";
+        let a =
+            "vless://one@example.com:443?security=reality&type=tcp&sni=site.example&path=%2Ffoo";
+        let b =
+            "vless://two@example.net:443?security=reality&type=tcp&sni=other.example&path=%2Fbar";
         assert_eq!(family_hash(a), family_hash(b));
         assert_eq!(archetype_hash(a), archetype_hash(b));
     }
