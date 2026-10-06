@@ -346,6 +346,34 @@ async fn validate_round(
     Ok(results)
 }
 
+fn successful_evidence_rounds(rounds: &[Value]) -> Vec<Value> {
+    rounds
+        .iter()
+        .filter_map(|round| {
+            let results = round.get("results")?.as_array()?;
+            let successful = results
+                .iter()
+                .filter(|result| {
+                    result
+                        .get("pass")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+
+            if successful.is_empty() {
+                return None;
+            }
+
+            Some(json!({
+                "observed_at": round.get("observed_at")?.clone(),
+                "results": successful
+            }))
+        })
+        .collect()
+}
+
 fn aggregate_families(rounds: &[Value]) -> BTreeMap<String, (String, usize, usize)> {
     let mut data = BTreeMap::<String, (String, usize, usize)>::new();
 
@@ -463,7 +491,7 @@ async fn main() -> Result<(), String> {
         "[INFO] 🔐 History stores exact + structural hashes | Raw configs are never persisted"
     );
     println!(
-        "[INFO] 🧠 Evidence stores permanent successful structural learning plus decaying recent aggregates for ranking"
+        "[INFO] 🧠 Evidence stores successful consumer observations; full pass/fail history stays in the results file"
     );
 
     let mut latest_round = Vec::new();
@@ -489,7 +517,8 @@ async fn main() -> Result<(), String> {
 
         save_history(&history_path, &history, &input_path, LIGHT_CONSUMER_TARGETS)?;
         let existing_evidence = ConsumerEvidence::load(&evidence_path);
-        ConsumerEvidence::merge_rounds(&existing_evidence, &history, observed_at)
+        let evidence_rounds = successful_evidence_rounds(&history);
+        ConsumerEvidence::merge_rounds(&existing_evidence, &evidence_rounds, observed_at)
             .save(&evidence_path)?;
 
         latest_round = latest.clone();
