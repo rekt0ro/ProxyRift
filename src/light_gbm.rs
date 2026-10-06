@@ -102,6 +102,10 @@ impl LightGbmScores {
         self.scores.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.scores.is_empty()
+    }
+
     pub fn training_rows(&self) -> usize {
         self.training_rows
     }
