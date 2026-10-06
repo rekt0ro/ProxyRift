@@ -10,7 +10,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs;
 
-
 const DEFAULT_INPUT: &str = "subscriptions/light.txt";
 const DEFAULT_HISTORY: &str = "subscriptions/light-consumer-results.json";
 const DEFAULT_EVIDENCE: &str = "subscriptions/light-consumer-evidence.json";
