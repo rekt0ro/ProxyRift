@@ -1,7 +1,7 @@
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use proxyrift::consumer_history::ConsumerEvidence;
-use proxyrift::intelligence::IntelligenceModel;
+use proxyrift::light_gbm::LightGbmScores;
 use proxyrift::light_training::{
     persist as persist_light_training, write_readiness_report, DatasetStats, TrainingRow,
 };
@@ -3003,9 +3003,16 @@ async fn main() -> Result<(), String> {
         cohort_configs_loaded
     );
 
-    let intelligence_path = "subscriptions/light-ai.json";
-    let intelligence = IntelligenceModel::load(intelligence_path);
     let consumer_evidence = ConsumerEvidence::load(&consumer_evidence_path);
+    let light_gbm_scores =
+        LightGbmScores::from_file("/tmp/proxyrift/lightgbm-scores.json").unwrap_or_default();
+
+    println!(
+        "[INFO] 🧠 [LightGBM] Loaded collection scores | Trained: {} | Training rows: {} | Scored: {}",
+        light_gbm_scores.trained(),
+        light_gbm_scores.training_rows(),
+        light_gbm_scores.len()
+    );
 
     if consumer_evidence.is_empty() {
         println!(
@@ -3273,12 +3280,28 @@ async fn main() -> Result<(), String> {
 
         let mut ai_ranked = untested.clone();
         let consumer_scores = consumer_evidence.scores(&untested);
-        intelligence.rank_with_consumer_signal(
-            &mut ai_ranked,
-            &global_metadata,
-            &global_positions,
-            &consumer_scores,
-        );
+        ai_ranked.sort_unstable_by(|a, b| {
+            let a_score =
+                0.60 * light_gbm_scores.score(a) + 0.40 * consumer_scores.get(a).copied().unwrap_or(0.5);
+            let b_score =
+                0.60 * light_gbm_scores.score(b) + 0.40 * consumer_scores.get(b).copied().unwrap_or(0.5);
+
+            b_score
+                .total_cmp(&a_score)
+                .then_with(|| {
+                    consumer_evidence
+                        .learning_priority(b)
+                        .cmp(&consumer_evidence.learning_priority(a))
+                })
+                .then_with(|| {
+                    global_positions
+                        .get(a)
+                        .copied()
+                        .unwrap_or(usize::MAX)
+                        .cmp(&global_positions.get(b).copied().unwrap_or(usize::MAX))
+                })
+                .then_with(|| a.cmp(b))
+        });
 
         let exploration_limit = recheck_exploration_limit(dynamic_limit);
         let consumer_priorities = untested
@@ -3348,12 +3371,6 @@ async fn main() -> Result<(), String> {
                 final_verified.push(config.clone());
             }
             final_metadata.insert(config, metrics);
-        }
-
-        if let Some(message) =
-            intelligence.anomaly_message(final_attempts.len(), final_metadata.len())
-        {
-            println!("[WARN] ⚠️ {message}");
         }
 
         println!(
@@ -3583,9 +3600,7 @@ async fn main() -> Result<(), String> {
         &history,
         &final_attempts,
         &final_metadata,
-        &intelligence,
         &global_metadata,
-        intelligence_path,
         &transfer_tested,
         &transfer_verified,
         &stream_tested,
