@@ -1,10 +1,9 @@
 use proxyrift::singbox::validate_candidates_with_consumer_targets as validate_singbox_consumer_targets;
 use proxyrift::validator::{
-    is_light_consumer_compatible, validate_candidates_with_consumer_targets,
-    LIGHT_CONSUMER_TARGETS,
+    is_light_consumer_compatible, validate_candidates_with_consumer_targets, LIGHT_CONSUMER_TARGETS,
 };
-use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use serde_json::{json, Value};
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -92,8 +91,8 @@ fn protocol(config: &str) -> String {
 }
 
 fn read_candidates(path: &str) -> Result<Vec<String>, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|error| format!("failed to read {path}: {error}"))?;
+    let content =
+        fs::read_to_string(path).map_err(|error| format!("failed to read {path}: {error}"))?;
     let mut seen = HashSet::new();
 
     Ok(content
@@ -152,8 +151,8 @@ fn load_history(path: &str) -> Result<Vec<Value>, String> {
         return Ok(Vec::new());
     }
 
-    let content = fs::read_to_string(path)
-        .map_err(|error| format!("failed to read {path}: {error}"))?;
+    let content =
+        fs::read_to_string(path).map_err(|error| format!("failed to read {path}: {error}"))?;
     let value: Value = serde_json::from_str(&content)
         .map_err(|error| format!("invalid consumer history {path}: {error}"))?;
 
@@ -239,9 +238,7 @@ async fn validate_round(
 
     let skipped = candidates.len().saturating_sub(compatible.len());
     if skipped > 0 {
-        println!(
-            "[INFO] 🧹 Consumer prefilter skipped {skipped} locally unsupported candidates"
-        );
+        println!("[INFO] 🧹 Consumer prefilter skipped {skipped} locally unsupported candidates");
     }
 
     let mut results = Vec::with_capacity(compatible.len());
@@ -281,9 +278,7 @@ async fn validate_round(
                 );
             }
             Err(error) => {
-                println!(
-                    "[WARN] ⚠️ [Consumer/sing-box] unavailable | {error} | Trying Xray"
-                );
+                println!("[WARN] ⚠️ [Consumer/sing-box] unavailable | {error} | Trying Xray");
                 unresolved.extend(compatible.iter().cloned());
             }
         }
@@ -368,10 +363,7 @@ fn aggregate(rounds: &[Value]) -> BTreeMap<String, (String, usize, usize, f64)> 
                 .and_then(Value::as_str)
                 .unwrap_or("unknown")
                 .to_string();
-            let passed = result
-                .get("pass")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
+            let passed = result.get("pass").and_then(Value::as_bool).unwrap_or(false);
             let latency = result
                 .get("median_ms")
                 .and_then(Value::as_f64)
@@ -412,7 +404,13 @@ fn print_summary(rounds: &[Value], latest: &[ConfigResult]) {
                 } else {
                     0.0
                 };
-                (hash.clone(), protocol.clone(), *observations, *passes, avg_latency)
+                (
+                    hash.clone(),
+                    protocol.clone(),
+                    *observations,
+                    *passes,
+                    avg_latency,
+                )
             })
         })
         .collect::<Vec<_>>();
@@ -431,7 +429,9 @@ fn print_summary(rounds: &[Value], latest: &[ConfigResult]) {
         stable.len()
     );
 
-    for (index, (hash, protocol, observations, passes, avg_latency)) in stable.into_iter().take(10).enumerate() {
+    for (index, (hash, protocol, observations, passes, avg_latency)) in
+        stable.into_iter().take(10).enumerate()
+    {
         println!(
             "[SUMMARY] #{:02} {} {} | {}/{} passes | avg median {:.0} ms",
             index + 1,
@@ -444,9 +444,7 @@ fn print_summary(rounds: &[Value], latest: &[ConfigResult]) {
     }
 
     if latest_passes == 0 {
-        println!(
-            "[WARN] ⚠️ No consumer-passing configs were found in the latest round."
-        );
+        println!("[WARN] ⚠️ No consumer-passing configs were found in the latest round.");
     }
 }
 
@@ -480,13 +478,8 @@ async fn main() -> Result<(), String> {
         candidates.len(),
         rounds
     );
-    println!(
-        "[INFO] 🎯 Targets: {}",
-        LIGHT_CONSUMER_TARGETS.join(", ")
-    );
-    println!(
-        "[INFO] 🔐 History stores hashes only | Raw configs are never persisted"
-    );
+    println!("[INFO] 🎯 Targets: {}", LIGHT_CONSUMER_TARGETS.join(", "));
+    println!("[INFO] 🔐 History stores hashes only | Raw configs are never persisted");
 
     let mut latest_round = Vec::new();
 
@@ -509,12 +502,7 @@ async fn main() -> Result<(), String> {
             "results": latest.iter().map(result_json).collect::<Vec<_>>()
         }));
 
-        save_history(
-            &history_path,
-            &history,
-            &input_path,
-            LIGHT_CONSUMER_TARGETS,
-        )?;
+        save_history(&history_path, &history, &input_path, LIGHT_CONSUMER_TARGETS)?;
 
         latest_round = latest.clone();
         let passes = latest.iter().filter(|result| result.pass).count();
