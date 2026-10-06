@@ -488,6 +488,8 @@ async fn main() -> Result<(), String> {
         "[INFO] 🔐 History stores hashes only | Raw configs are never persisted"
     );
 
+    let mut latest_round = Vec::new();
+
     for round_index in 0..rounds {
         let started = std::time::Instant::now();
         let latest = validate_round(
@@ -514,6 +516,7 @@ async fn main() -> Result<(), String> {
             LIGHT_CONSUMER_TARGETS,
         )?;
 
+        latest_round = latest.clone();
         let passes = latest.iter().filter(|result| result.pass).count();
         println!(
             "[INFO] 📊 Consumer round {}/{} complete | {}/{} passed | {:.1}s",
@@ -525,16 +528,7 @@ async fn main() -> Result<(), String> {
         );
     }
 
-    print_summary(&history, &validate_round(
-        &candidates,
-        &xray,
-        &singbox,
-        workers,
-        batch_size,
-        timeout,
-        max_latency_ms,
-    )
-    .await?);
+    print_summary(&history, &latest_round);
 
     Ok(())
 }
