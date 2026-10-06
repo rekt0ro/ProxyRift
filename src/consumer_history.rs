@@ -448,7 +448,10 @@ impl ConsumerEvidence {
                         .learned_global
                         .saturating_add(1)
                         .min(PERMANENT_SUPPORT_CAP);
-                    let count = evidence.learned_protocols.entry(protocol.clone()).or_default();
+                    let count = evidence
+                        .learned_protocols
+                        .entry(protocol.clone())
+                        .or_default();
                     *count = count.saturating_add(1).min(PERMANENT_SUPPORT_CAP);
                     evidence
                         .learned_archetypes
@@ -556,7 +559,9 @@ impl ConsumerEvidence {
             for (protocol, stats) in &evidence.protocols {
                 let confirmations = permanent_from_weighted(stats.passes);
                 if confirmations > 0 {
-                    evidence.learned_protocols.insert(protocol.clone(), confirmations);
+                    evidence
+                        .learned_protocols
+                        .insert(protocol.clone(), confirmations);
                 }
             }
             for (hash, stats) in &evidence.archetypes {
@@ -570,10 +575,9 @@ impl ConsumerEvidence {
             for (hash, stats) in &evidence.families {
                 let confirmations = permanent_from_weighted(stats.stats.passes);
                 if confirmations > 0 {
-                    evidence.learned_families.insert(
-                        hash.clone(),
-                        LearnedGroupStats { confirmations },
-                    );
+                    evidence
+                        .learned_families
+                        .insert(hash.clone(), LearnedGroupStats { confirmations });
                 }
             }
         } else if let Some(learning) = value.get("permanent_learning").and_then(Value::as_object) {
@@ -596,7 +600,9 @@ impl ConsumerEvidence {
                         .unwrap_or(0)
                         .min(PERMANENT_SUPPORT_CAP);
                     if confirmations > 0 {
-                        evidence.learned_protocols.insert(protocol.clone(), confirmations);
+                        evidence
+                            .learned_protocols
+                            .insert(protocol.clone(), confirmations);
                     }
                 }
             }
@@ -763,8 +769,11 @@ impl ConsumerEvidence {
             .map(learned_stats)
             .map(|stats| smoothed_rate(stats, protocol_rate, ARCHETYPE_PRIOR_STRENGTH))
             .unwrap_or(protocol_rate);
-        let archetype_rate =
-            smoothed_rate(archetype_stats, learned_archetype_rate, ARCHETYPE_PRIOR_STRENGTH);
+        let archetype_rate = smoothed_rate(
+            archetype_stats,
+            learned_archetype_rate,
+            ARCHETYPE_PRIOR_STRENGTH,
+        );
 
         let family = family_hash(config);
         let family_stats = self
