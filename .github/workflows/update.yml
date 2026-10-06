@@ -79,10 +79,8 @@ jobs:
       - name: "🔒 Verify dependency lock"
         run: test -s Cargo.lock
 
-      - name: "🧠 Install LightGBM runtime"
-        run: |
-          python3 -m pip install --disable-pip-version-check --no-input -r requirements.txt
-          python3 -c 'import lightgbm; print("[INFO] 🧠 [LightGBM] Version | " + lightgbm.__version__)'
+      - name: "🧠 Install native LightGBM runtime"
+        run: bash scripts/install_lightgbm.sh
 
       - name: "🌐 Resolve pinned validation cores"
         id: validation-cores
