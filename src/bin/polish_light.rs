@@ -3460,7 +3460,7 @@ async fn main() -> Result<(), String> {
         .collect::<Vec<_>>()
         .chunks(4)
     {
-        println!("[INFO] 📊 [Light protocols] {}", Chunk.join(" | "));
+        println!("[INFO] 📊 [Light protocols] {}", chunk.join(" | "));
     }
 
     let backend_summary = backend_counts
