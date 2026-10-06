@@ -2886,11 +2886,7 @@ async fn main() -> Result<(), String> {
         targets[0] = primary_target.as_str();
         targets
     };
-    let consumer_evidence_path = value(
-        &args,
-        "--consumer-evidence",
-        LIGHT_CONSUMER_EVIDENCE_PATH,
-    );
+    let consumer_evidence_path = value(&args, "--consumer-evidence", LIGHT_CONSUMER_EVIDENCE_PATH);
     let xray = value(&args, "--xray", "xray");
     let selection_limit = value(
         &args,
