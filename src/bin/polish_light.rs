@@ -1,7 +1,7 @@
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use proxyrift::intelligence::IntelligenceModel;
-use proxyrift::light_training::{persist as persist_light_training, DatasetStats, TrainingRow};
+use proxyrift::light_training::{persist as persist_light_training, write_readiness_report, DatasetStats, TrainingRow};
 use proxyrift::singbox::{
     validate_candidates_with_consumer_targets as validate_singbox_consumer_targets,
     validate_candidates_with_target_once as validate_singbox_target_once,
@@ -75,6 +75,7 @@ const FINAL_TRANSFER_LATENCY_LIMIT_MS: f64 = 15000.0;
 const HISTORY_MAX_ENTRIES: usize = 10000;
 const HISTORY_RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
 const LIGHT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
+const LIGHT_TRAINING_STATS_PATH: &str = "subscriptions/light-training-stats.json";
 const LIGHT_SUBSCRIPTION_PATH: &str = "subscriptions/light.txt";
 const HISTORICAL_LIGHT_COHORTS: usize = 2;
 const PREVIOUS_COHORT_MIN_PERCENT: usize = 20;
@@ -486,6 +487,8 @@ fn persist_light_result(
     intelligence_path: &str,
     transfer_tested: &HashSet<String>,
     transfer_verified: &HashMap<String, ProxyMetrics>,
+    stream_tested: &HashSet<String>,
+    stream_verified: &HashMap<String, ProxyMetrics>,
 ) -> Result<(), String> {
     write_light_lines(output, selected)?;
     persist_light_training_data(
@@ -495,6 +498,8 @@ fn persist_light_result(
         global_metadata,
         transfer_tested,
         transfer_verified,
+        stream_tested,
+        stream_verified,
     )?;
 
     let strict_tested = final_attempts.keys().cloned().collect::<HashSet<_>>();
@@ -2597,6 +2602,8 @@ fn persist_light_training_data(
     global_metadata: &HashMap<String, ProxyMetrics>,
     transfer_tested: &HashSet<String>,
     transfer_verified: &HashMap<String, ProxyMetrics>,
+    stream_tested: &HashSet<String>,
+    stream_verified: &HashMap<String, ProxyMetrics>,
 ) -> Result<DatasetStats, String> {
     let observed_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2616,6 +2623,7 @@ fn persist_light_training_data(
             format!("local:{observed_at}:{candidate_fingerprint}")
         };
         let transfer_was_tested = transfer_tested.contains(config);
+        let stream_was_tested = stream_tested.contains(config);
 
         rows.push(TrainingRow {
             observed_at,
@@ -2632,10 +2640,13 @@ fn persist_light_training_data(
             strict_checks: *attempts as u64,
             transfer_tested: transfer_was_tested,
             transfer_pass: transfer_was_tested.then(|| transfer_verified.contains_key(config)),
+            stream_tested: stream_was_tested,
+            stream_pass: stream_was_tested.then(|| stream_verified.contains_key(config)),
         });
     }
 
     let stats = persist_light_training(LIGHT_TRAINING_PATH, &rows)?;
+    write_readiness_report(LIGHT_TRAINING_STATS_PATH, &stats)?;
     let strict_rate = if stats.rows == 0 {
         0.0
     } else {
@@ -2643,13 +2654,20 @@ fn persist_light_training_data(
     };
 
     println!(
-        "[INFO] 🧠 [Light ml data] +{} Rows | Total: {} | Features: {} | Strict pass rate: {:.1}% | Transfer: {}/{}",
+        "[INFO] 🧠 [Light ml data] +{} Rows | Total: {} | Runs: {} | Candidates: {} | Features: {} | Strict: {}/{} | Transfer: {}/{} | Stream: {}/{} | Strict-ML: {} | E2E-ML: {}",
         stats.new_rows,
         stats.rows,
+        stats.unique_runs,
+        stats.unique_candidates,
         rows.first().map(|row| row.features.len()).unwrap_or(0),
-        strict_rate * 100.0,
+        stats.strict_passes,
+        stats.rows,
         stats.transfer_passes,
-        stats.transfer_tests
+        stats.transfer_tests,
+        stats.stream_passes,
+        stats.stream_tests,
+        if stats.strict_model_ready() { "READY" } else { "NOT_READY" },
+        if stats.end_to_end_model_ready() { "READY" } else { "NOT_READY" }
     );
 
     Ok(stats)
