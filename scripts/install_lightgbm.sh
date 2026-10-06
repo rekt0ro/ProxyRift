@@ -14,7 +14,8 @@ release_json="$(curl -fsSL \
   https://api.github.com/repos/lightgbm-org/LightGBM/releases/latest)"
 
 tag="$(jq -r '.tag_name // empty' <<< "$release_json")"
-version="\${tag#v}"
+version="$tag"
+version="${version#v}"
 
 if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "[ERROR] [LightGBM] Invalid latest release tag: $tag" >&2
@@ -23,18 +24,18 @@ fi
 
 asset_name="lib_lightgbm.so"
 asset_digest="$(jq -r --arg name "$asset_name" '.assets[] | select(.name == $name) | .digest // empty' <<< "$release_json" | head -n 1)"
-asset_url="https://github.com/lightgbm-org/LightGBM/releases/download/\${tag}/\${asset_name}"
+asset_url="https://github.com/lightgbm-org/LightGBM/releases/download/$tag/$asset_name"
 
 if [[ ! "$asset_digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
-  echo "[ERROR] [LightGBM] Missing SHA-256 digest for \${asset_name}" >&2
+  echo "[ERROR] [LightGBM] Missing SHA-256 digest for $asset_name" >&2
   exit 1
 fi
 
-sha256="\${asset_digest#sha256:}"
-install_dir="\${RUNNER_TEMP:-/tmp}/proxyrift/lightgbm/\${version}"
+sha256="${asset_digest#sha256:}"
+install_dir="${RUNNER_TEMP:-/tmp}/proxyrift/lightgbm/${version}"
 mkdir -p "$install_dir"
 
-echo "[INFO] [LightGBM] Download | \${asset_url}"
+echo "[INFO] [LightGBM] Download | $asset_url"
 curl -fL \
   --retry 5 \
   --retry-delay 2 \
@@ -45,10 +46,11 @@ curl -fL \
 
 echo "$sha256  $install_dir/$asset_name" | sha256sum -c -
 
+existing_ld="${LD_LIBRARY_PATH:-}"
 {
   echo "LIGHTGBM_VERSION=$version"
   echo "LIGHTGBM_LIB_DIR=$install_dir"
-  echo "LD_LIBRARY_PATH=$install_dir:\${LD_LIBRARY_PATH:-}"
+  echo "LD_LIBRARY_PATH=$install_dir:$existing_ld"
 } >> "$GITHUB_ENV"
 
 echo "[INFO] [LightGBM] Native runtime | $version | $install_dir"
