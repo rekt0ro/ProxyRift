@@ -264,6 +264,7 @@ impl LightGbmScores {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn load_training(path: &str) -> Result<(Vec<Vec<f64>>, Vec<f32>, usize, usize), String> {
     let file = fs::File::open(path)
         .map_err(|error| format!("failed to open LightGBM training data {path}: {error}"))?;
@@ -497,6 +498,7 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finish_features(
     protocol: String,
     transport: String,
@@ -660,6 +662,7 @@ fn one_hot(value: &str, vocabulary: &[&str]) -> Vec<f64> {
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn structural_vector(
     protocol: &str,
     backend: &str,
