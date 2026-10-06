@@ -403,21 +403,11 @@ fn print_summary(rounds: &[Value], latest: &[ConfigResult]) {
             *observations >= 2 && *passes * 100 >= *observations * 70
         })
         .map(|(hash, (protocol, observations, passes))| {
-            (
-                hash.clone(),
-                protocol.clone(),
-                *observations,
-                *passes,
-            )
+            (hash.clone(), protocol.clone(), *observations, *passes)
         })
         .collect::<Vec<_>>();
 
-    stable.sort_by(|left, right| {
-        right
-            .3
-            .cmp(&left.3)
-            .then_with(|| right.2.cmp(&left.2))
-    });
+    stable.sort_by(|left, right| right.3.cmp(&left.3).then_with(|| right.2.cmp(&left.2)));
 
     println!(
         "[SUMMARY] Structural history: {} families | {} stored rounds | {} stable >=70%",
@@ -474,7 +464,9 @@ async fn main() -> Result<(), String> {
         rounds
     );
     println!("[INFO] 🎯 Targets: {}", LIGHT_CONSUMER_TARGETS.join(", "));
-    println!("[INFO] 🔐 History stores exact + structural hashes | Raw configs are never persisted");
+    println!(
+        "[INFO] 🔐 History stores exact + structural hashes | Raw configs are never persisted"
+    );
     println!("[INFO] 🧠 Evidence stores structural aggregates for future ranking");
 
     let mut latest_round = Vec::new();
