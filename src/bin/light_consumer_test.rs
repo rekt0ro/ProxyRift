@@ -353,12 +353,7 @@ fn successful_evidence_rounds(rounds: &[Value]) -> Vec<Value> {
             let results = round.get("results")?.as_array()?;
             let successful = results
                 .iter()
-                .filter(|result| {
-                    result
-                        .get("pass")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false)
-                })
+                .filter(|result| result.get("pass").and_then(Value::as_bool).unwrap_or(false))
                 .cloned()
                 .collect::<Vec<_>>();
 
