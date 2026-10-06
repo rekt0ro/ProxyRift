@@ -15,7 +15,7 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use serde_json::Value;
-use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -48,7 +48,7 @@ const MAX_COLLECTED_CONFIGS: usize = 30_000;
 const MAX_ALL_CONFIGS: usize = 2000;
 const MAX_ALL_PER_ENDPOINT: usize = 5;
 const MAX_LIGHT_CANDIDATES: usize = 15_000;
-const MAX_LIGHT_ENDPOINT_VARIANTS: usize = 2;
+const MAX_LIGHT_ENDPOINT_VARIANTS: usize = 6;
 const SOURCE_RETRIES: usize = 2;
 const SOURCE_RETRY_BASE_MS: u64 = 250;
 
@@ -496,7 +496,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .collect::<Vec<_>>();
 
     let collected_before_global_cap = configs.len();
-    configs = cap_configs_globally(configs, MAX_COLLECTED_CONFIGS);
+    configs = cap_configs_globally(configs, MAX_COLLECTED_CONFIGS, &named_config_sources);
 
     let retained_configs = configs.iter().cloned().collect::<HashSet<_>>();
     named_config_sources.retain(|config, _| retained_configs.contains(config));
@@ -817,29 +817,105 @@ fn project_root() -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
     Err("failed to determine project root".into())
 }
 
-fn cap_configs_globally(configs: Vec<String>, cap: usize) -> Vec<String> {
+fn cap_configs_globally(
+    configs: Vec<String>,
+    cap: usize,
+    source_map: &HashMap<String, HashSet<String>>,
+) -> Vec<String> {
     if configs.len() <= cap {
         return configs;
     }
 
-    let mut scored = configs
-        .into_iter()
-        .map(|config| {
-            let mut hasher = DefaultHasher::new();
-            config.hash(&mut hasher);
-            (hasher.finish(), config)
-        })
-        .collect::<Vec<_>>();
-
-    scored.sort_unstable_by(|(score_a, config_a), (score_b, config_b)| {
-        score_a.cmp(score_b).then_with(|| config_a.cmp(config_b))
+    let target = cap.min(configs.len());
+    let mut ranked = configs;
+    ranked.sort_unstable_by(|a, b| {
+        source_map
+            .get(b)
+            .map(HashSet::len)
+            .unwrap_or(0)
+            .cmp(&source_map.get(a).map(HashSet::len).unwrap_or(0))
+            .then_with(|| config_scheme(a).cmp(&config_scheme(b)))
+            .then_with(|| a.cmp(b))
     });
-    scored.truncate(cap);
 
-    let mut selected = scored
-        .into_iter()
-        .map(|(_, config)| config)
+    let mut selected = Vec::with_capacity(target);
+    let mut selected_set = HashSet::with_capacity(target);
+    let mut selected_endpoints = HashSet::<(String, u16)>::new();
+
+    let add = |config: &String,
+               selected: &mut Vec<String>,
+               selected_set: &mut HashSet<String>,
+               selected_endpoints: &mut HashSet<(String, u16)>| {
+        if selected.len() >= target || !selected_set.insert(config.clone()) {
+            return;
+        }
+        if let Some(ep) = endpoint(config) {
+            selected_endpoints.insert(ep);
+        }
+        selected.push(config.clone());
+    };
+
+    // Preserve protocol diversity before spending the remaining cap.
+    let mut schemes = ranked
+        .iter()
+        .map(|config| config_scheme(config))
         .collect::<Vec<_>>();
+    schemes.sort_unstable();
+    schemes.dedup();
+
+    for scheme in schemes {
+        let Some(config) = ranked.iter().find(|config| {
+            config_scheme(config) == scheme && !selected_set.contains(*config)
+        }) else {
+            continue;
+        };
+        add(
+            config,
+            &mut selected,
+            &mut selected_set,
+            &mut selected_endpoints,
+        );
+        if selected.len() >= target {
+            break;
+        }
+    }
+
+    // Prefer a new endpoint whenever possible so one server cannot consume
+    // the whole cap with transport/config variants.
+    if selected.len() < target {
+        for config in &ranked {
+            if selected.len() >= target || selected_set.contains(config) {
+                break;
+            }
+
+            let new_endpoint = endpoint(config)
+                .map(|ep| !selected_endpoints.contains(&ep))
+                .unwrap_or(true);
+
+            if new_endpoint {
+                add(
+                    config,
+                    &mut selected,
+                    &mut selected_set,
+                    &mut selected_endpoints,
+                );
+            }
+        }
+    }
+
+    // Fill any remaining capacity using source-backed ranking.
+    for config in &ranked {
+        if selected.len() >= target {
+            break;
+        }
+        add(
+            config,
+            &mut selected,
+            &mut selected_set,
+            &mut selected_endpoints,
+        );
+    }
+
     selected.sort_unstable();
     selected
 }
@@ -1739,7 +1815,7 @@ mod tests {
     use url::Url;
 
     #[test]
-    fn light_candidates_allow_two_variants_per_endpoint() {
+    fn light_candidates_allow_six_variants_per_endpoint() {
         let configs = [
             "vless://00000000-0000-0000-0000-000000000001@example.com:443".to_string(),
             "vless://00000000-0000-0000-0000-000000000002@example.com:443".to_string(),
@@ -1748,22 +1824,14 @@ mod tests {
         let mut selected = Vec::new();
         let mut endpoint_counts = std::collections::HashMap::new();
 
-        assert!(push_light_candidate(
-            &configs[0],
-            &mut selected,
-            &mut endpoint_counts
-        ));
-        assert!(push_light_candidate(
-            &configs[1],
-            &mut selected,
-            &mut endpoint_counts
-        ));
-        assert!(!push_light_candidate(
-            &configs[2],
-            &mut selected,
-            &mut endpoint_counts
-        ));
-        assert_eq!(selected.len(), 2);
+        for config in &configs {
+            assert!(push_light_candidate(
+                config,
+                &mut selected,
+                &mut endpoint_counts
+            ));
+        }
+        assert_eq!(selected.len(), 3);
     }
 
     #[test]
@@ -2114,7 +2182,7 @@ mod tests {
             "vmess://vmess.example.com:443".to_string(),
         ];
 
-        let selected = super::cap_configs_globally(configs.clone(), 5);
+        let selected = super::cap_configs_globally(configs.clone(), 5, &std::collections::HashMap::new());
 
         assert_eq!(selected.len(), 5);
         assert!(selected.windows(2).all(|pair| pair[0] <= pair[1]));
