@@ -462,7 +462,9 @@ async fn main() -> Result<(), String> {
     println!(
         "[INFO] 🔐 History stores exact + structural hashes | Raw configs are never persisted"
     );
-    println!("[INFO] 🧠 Evidence stores structural aggregates for future ranking");
+    println!(
+        "[INFO] 🧠 Evidence stores permanent successful structural learning plus decaying recent aggregates for ranking"
+    );
 
     let mut latest_round = Vec::new();
 
@@ -486,7 +488,9 @@ async fn main() -> Result<(), String> {
         }));
 
         save_history(&history_path, &history, &input_path, LIGHT_CONSUMER_TARGETS)?;
-        ConsumerEvidence::from_rounds(&history, observed_at).save(&evidence_path)?;
+        let existing_evidence = ConsumerEvidence::load(&evidence_path);
+        ConsumerEvidence::merge_rounds(&existing_evidence, &history, observed_at)
+            .save(&evidence_path)?;
 
         latest_round = latest.clone();
         let passes = latest.iter().filter(|result| result.pass).count();
