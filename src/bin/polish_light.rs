@@ -287,6 +287,44 @@ fn select_recheck_candidates(
     (selected, consumer_selected, exploration_selected)
 }
 
+fn select_stability_test_batch(
+    ranked: &[String],
+    stable_selected: &[String],
+    limit: usize,
+    selection_target: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+) -> Vec<String> {
+    if limit == 0 || selection_target == 0 || stable_selected.len() >= selection_target {
+        return Vec::new();
+    }
+
+    let mut selected_for_capacity = stable_selected.to_vec();
+    let mut batch = Vec::with_capacity(limit.min(ranked.len()));
+
+    for config in ranked {
+        if batch.len() >= limit {
+            break;
+        }
+
+        if selection_additional_potential_count(
+            &selected_for_capacity,
+            std::slice::from_ref(config),
+            selection_target,
+            max_per_endpoint,
+            max_per_family,
+        ) == 0
+        {
+            continue;
+        }
+
+        selected_for_capacity.push(config.clone());
+        batch.push(config.clone());
+    }
+
+    batch
+}
+
 fn selection_eligible_count(
     configs: &[String],
     max_per_endpoint: usize,
