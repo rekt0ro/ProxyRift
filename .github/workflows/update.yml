@@ -319,13 +319,13 @@ jobs:
 
           if [ -s /tmp/proxyrift/light.next.txt ]; then
             light_count="$(awk 'NF { count++ } END { print count + 0 }' /tmp/proxyrift/light.next.txt)"
-            echo "[INFO] 🎯 [Light] Output | ${light_count} Candidates | Target/max: ${LIGHT_SELECTION_LIMIT} | MIN PUBLISH: ${LIGHT_MIN_PUBLISH}"
+            echo "[INFO] 🎯 [Light] Output | ${light_count} Candidates | Target/max: ${LIGHT_SELECTION_LIMIT} | Min publish: ${LIGHT_MIN_PUBLISH}"
             if [ "$light_count" -ge "$LIGHT_MIN_PUBLISH" ]; then
               cp /tmp/proxyrift/light.next.txt subscriptions/.light.txt.next
               mv -f subscriptions/.light.txt.next subscriptions/light.txt
               echo "[INFO] ✅ [Light] Published refreshed subscription"
             else
-              echo "[WARN] ⚠️ [Light] Pool too small | ${light_count}/${LIGHT_MIN_PUBLISH} Minimum | Preserving previous subscription"
+              echo "[WARN] ⚠️ [Light] Pool too small | ${light_count}/${LIGHT_MIN_PUBLISH} minimum | Preserving previous subscription"
             fi
           else
             echo "[WARN] ⚠️ [Light] No configs | Preserving previous subscription"
