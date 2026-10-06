@@ -439,10 +439,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
             if matches!(status_code, 404 | 410) {
                 println!(
-                    "[INFO] 🔭 [SOURCES] permanently unavailable | HTTP {status_code} {reason} | SOURCES: {sources}"
+                    "[INFO] 🔭 [Sources] Permanently unavailable | HTTP {status_code} {reason} | Sources: {sources}"
                 );
             } else {
-                println!("[WARN] ⚠️ [SOURCES] HTTP {status_code} {reason} | SOURCES: {sources}");
+                println!("[WARN] ⚠️ [Sources] HTTP {status_code} {reason} | Sources: {sources}");
             }
         }
     }
@@ -471,7 +471,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cheaply_rejected = before_cheap_compatibility.saturating_sub(configs.len());
     if cheaply_rejected > 0 {
         println!(
-            "[INFO] 🧹 [COMPATIBILITY] REJECTED {} COLLECTED CONFIGS BY CHEAP COMPATIBILITY SCREENING",
+            "[INFO] 🧹 [Compatibility] Rejected {} collected configs by cheap compatibility screening",
             cheaply_rejected
         );
     }
@@ -503,14 +503,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     if collected_before_global_cap > MAX_COLLECTED_CONFIGS {
         println!(
-            "[INFO] 🧮 [COLLECTION] GLOBAL CAP | RETAINED {} OF {} CONFIGS | CAP: {} | NO PROTOCOL CAPS",
+            "[INFO] 🧮 [Collection] Global cap | Retained {} of {} configs | Cap: {} | No protocol caps",
             configs.len(),
             collected_before_global_cap,
             MAX_COLLECTED_CONFIGS
         );
     }
-
-    println!("[INFO] 📦 Collected {} unique configs", configs.len());
 
     if configs.is_empty() {
         return Err("no proxy configurations were collected".into());
@@ -537,7 +535,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .map(|(scheme, count)| format!("{} {count}", scheme.to_ascii_uppercase()))
         .collect::<Vec<_>>()
         .join(" | ");
-    println!("[INFO] 📊 [PROTOCOLS] {summary}");
+    println!("[INFO] 📊 [Protocols] {summary}");
 
     let all_path = output_dir.join("all.txt");
 
@@ -556,7 +554,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .count();
 
     println!(
-        "[INFO] 🔎 [TRANSPORT] PLAN | {} CONFIGS | TCP {} CONFIGS → {} UNIQUE | NON-TCP {}",
+        "[INFO] 🔎 [Transport] Plan | {} Configs | TCP {} Configs → {} unique | Non-TCP {}",
         configs.len(),
         tcp_config_count,
         unique_tcp_endpoints,
@@ -570,7 +568,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .count();
 
     println!(
-        "[INFO] ✅ [TRANSPORT] COMPLETE | {} CONFIGS | {} REACHABLE",
+        "[INFO] ✅ [Transport] Complete | {} Configs | {} Reachable",
         configs.len(),
         reachable_probes
     );
@@ -725,7 +723,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     write_atomic(&source_map_path, format!("{source_map}\n")).await?;
 
     println!(
-        "[INFO] 🧠 [LIGHT INTELLIGENCE] PRIORITIZING {} CANDIDATES | {} HYSTERIA/HYSTERIA2 RETAINED | SOURCE PROVENANCE: {}",
+        "[INFO] 🧠 [Light intelligence] Prioritizing {} candidates | {} Hysteria/Hysteria2 retained | Source provenance: {}",
         sampled_transport_count,
         special_count,
         light_candidates.len()
@@ -758,18 +756,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .len();
 
     println!(
-        "[INFO] 📦 [ALL] {} CONFIGS READY | UNIQUE ENDPOINTS: {}",
+        "[INFO] 📦 [All] {} Configs ready | Unique endpoints: {}",
         working_configs.len(),
         all_unique_endpoints
     );
 
     println!(
-        "[INFO] 🎯 [LIGHT] {} CANDIDATES READY | CAP: {}",
+        "[INFO] 🎯 [Light] {} Candidates ready | Cap: {}",
         light_candidates.len(),
         MAX_LIGHT_CANDIDATES
     );
 
-    println!("[INFO] ✅ [COLLECTION] COMPLETE");
+    println!("[INFO] ✅ [Collection] Complete");
 
     Ok(())
 }
