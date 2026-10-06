@@ -70,12 +70,6 @@ The **All** list is built from transport-reachable configurations and limited to
 
 The **Light** list goes through deeper validation using multiple targets, endpoint diversity, reliability, latency, jitter, transfer performance, and protocol-specific checks.
 
-### 🧠 Consumer Learning
-
-Light consumer validation keeps two kinds of evidence. Recent observations use a 30-day decay so the ranking can adapt to changing conditions. Successful consumer connections are also accumulated as permanent structural support.
-
-The permanent learning stores structural hashes and aggregates rather than raw proxy URLs. New configurations are scored through a hierarchy of global, protocol, archetype, and structural-family evidence, so a new configuration can inherit consumer compatibility from previously successful structures even when that exact configuration has never been observed.
-
 ## 🔄 Automatic Updates
 
 ProxyRift regenerates its subscriptions through GitHub Actions.
