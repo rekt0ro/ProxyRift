@@ -12,6 +12,7 @@ const PROTOCOL_PRIOR_STRENGTH: f64 = 8.0;
 const ARCHETYPE_PRIOR_STRENGTH: f64 = 12.0;
 const FAMILY_PRIOR_STRENGTH: f64 = 16.0;
 const EXPLORATION_BONUS: f64 = 0.03;
+// Keep permanent support bounded so repeated passes strengthen a pattern without growing forever.
 const PERMANENT_SUPPORT_CAP: u32 = 8;
 
 #[derive(Clone, Copy, Debug, Default)]
