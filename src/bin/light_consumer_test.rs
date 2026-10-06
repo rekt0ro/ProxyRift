@@ -161,7 +161,7 @@ fn load_history(path: &str) -> Result<Vec<Value>, String> {
         .and_then(Value::as_array)
         .ok_or_else(|| format!("{path} is missing the rounds array"))?;
 
-    Ok(rounds.iter().cloned().collect())
+    Ok(rounds.to_vec())
 }
 
 fn save_history(
@@ -399,21 +399,23 @@ fn print_summary(rounds: &[Value], latest: &[ConfigResult]) {
     let aggregates = aggregate(rounds);
     let mut stable = aggregates
         .iter()
-        .filter_map(|(hash, (protocol, observations, passes, latency_sum))| {
-            (*observations >= 2 && *passes * 100 >= *observations * 70).then(|| {
-                let avg_latency = if *passes > 0 {
-                    latency_sum / *passes as f64
-                } else {
-                    0.0
-                };
-                (
-                    hash.clone(),
-                    protocol.clone(),
-                    *observations,
-                    *passes,
-                    avg_latency,
-                )
-            })
+        .filter(|&(hash, (protocol, observations, passes, latency_sum))| {
+            let _ = (hash, protocol, latency_sum);
+            *observations >= 2 && *passes * 100 >= *observations * 70
+        })
+        .map(|(hash, (protocol, observations, passes, latency_sum))| {
+            let avg_latency = if *passes > 0 {
+                latency_sum / *passes as f64
+            } else {
+                0.0
+            };
+            (
+                hash.clone(),
+                protocol.clone(),
+                *observations,
+                *passes,
+                avg_latency,
+            )
         })
         .collect::<Vec<_>>();
 
