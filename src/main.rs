@@ -864,9 +864,10 @@ fn cap_configs_globally(
     schemes.dedup();
 
     for scheme in schemes {
-        let Some(config) = ranked.iter().find(|config| {
-            config_scheme(config) == scheme && !selected_set.contains(*config)
-        }) else {
+        let Some(config) = ranked
+            .iter()
+            .find(|config| config_scheme(config) == scheme && !selected_set.contains(*config))
+        else {
             continue;
         };
         add(
@@ -2185,7 +2186,8 @@ mod tests {
             "vmess://vmess.example.com:443".to_string(),
         ];
 
-        let selected = super::cap_configs_globally(configs.clone(), 5, &std::collections::HashMap::new());
+        let selected =
+            super::cap_configs_globally(configs.clone(), 5, &std::collections::HashMap::new());
 
         assert_eq!(selected.len(), 5);
         assert!(selected.windows(2).all(|pair| pair[0] <= pair[1]));
