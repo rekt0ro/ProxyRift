@@ -594,19 +594,25 @@ fn history_identity(config: &str) -> String {
     cleaned.to_string()
 }
 
-fn history_fingerprint(config: &str) -> String {
-    fn fnv64(input: &[u8], seed: u64) -> u64 {
-        let mut hash = seed;
-        for byte in input {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x100000001b3);
-        }
-        hash
+fn fnv64(input: &[u8], seed: u64) -> u64 {
+    let mut hash = seed;
+    for byte in input {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
     }
+    hash
+}
 
+fn history_fingerprint(config: &str) -> String {
     let identity = history_identity(config);
     let first = fnv64(identity.as_bytes(), 0xcbf29ce484222325);
     let second = fnv64(identity.as_bytes(), 0x9e3779b97f4a7c15);
+    format!("{first:016x}{second:016x}")
+}
+
+fn observation_fingerprint(config: &str) -> String {
+    let first = fnv64(config.as_bytes(), 0xcbf29ce484222325);
+    let second = fnv64(config.as_bytes(), 0x9e3779b97f4a7c15);
     format!("{first:016x}{second:016x}")
 }
 
@@ -2620,10 +2626,11 @@ fn persist_light_training_data(
     for (config, attempts) in final_attempts {
         let (history_rate, history_checks) = historical_score(config, history);
         let candidate_fingerprint = history_fingerprint(config);
+        let observation_fingerprint = observation_fingerprint(config);
         let observation_id = if let Some(run_id) = run_id.as_deref() {
-            format!("{run_id}:{candidate_fingerprint}")
+            format!("{run_id}:{candidate_fingerprint}:{observation_fingerprint}")
         } else {
-            format!("local:{observed_at}:{candidate_fingerprint}")
+            format!("local:{observed_at}:{candidate_fingerprint}:{observation_fingerprint}")
         };
         let transfer_was_tested = transfer_tested.contains(config);
         let stream_was_tested = stream_tested.contains(config);
@@ -3528,7 +3535,8 @@ mod tests {
         adaptive_recheck_limit, adaptive_stability_pool_target, adaptive_stability_target,
         adaptive_transfer_test_limit, adjust_transfer_workers, has_disabled_tls_verification,
         history_fingerprint, light_backend, light_training_features, merge_light_metadata,
-        normalize_light_config, recheck_exploration_limit, select_recheck_candidates,
+        normalize_light_config, observation_fingerprint, recheck_exploration_limit,
+        select_recheck_candidates,
         select_stability_test_batch, select_transfer_target, select_verified_configs,
         select_verified_configs_with_cohort_floor, selection_additional_potential_count,
         selection_eligible_count, selection_potential_count, selection_rejection_counts,
@@ -3944,6 +3952,19 @@ mod tests {
             STANDARD.encode(br#"{"ps":"B 01","add":"example.com","port":443}"#)
         );
         assert_eq!(history_fingerprint(&a), history_fingerprint(&b));
+    }
+
+    #[test]
+    fn observation_fingerprint_separates_vmess_variants_with_same_history_identity() {
+        let a = format!(
+            "vmess://{}",
+            STANDARD.encode(br#"{"ps":"A 01","add":"example.com","port":443}"#)
+        );
+        let b = format!(
+            "vmess://{}",
+            STANDARD.encode(br#"{"ps":"B 01","add":"example.com","port":443}"#)
+        );
+        assert_ne!(observation_fingerprint(&a), observation_fingerprint(&b));
     }
 
     #[test]
