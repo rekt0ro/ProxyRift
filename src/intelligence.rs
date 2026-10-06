@@ -236,12 +236,11 @@ fn query_value(url: &Url, keys: &[&str]) -> Option<String> {
     url.query_pairs()
         .find(|(key, _)| keys.iter().any(|candidate| key.eq_ignore_ascii_case(candidate)))
         .map(|(_, value)| {
-            let value = value.to_ascii_lowercase();
-            if value.len() > 48 {
-                value[..48].to_string()
-            } else {
-                value
-            }
+            value
+                .to_ascii_lowercase()
+                .chars()
+                .take(48)
+                .collect::<String>()
         })
 }
 
