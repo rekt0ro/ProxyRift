@@ -1398,18 +1398,18 @@ async fn check_batch_targets(
                     .collect::<String>();
 
                 println!(
-                    "[INFO] 🧹 [SING-BOX] REJECTED | {} | core could not start for this candidate",
+                    "[INFO] 🧹 [Sing-Box] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty() {
-                    println!("[INFO] ℹ️ [SING-BOX] CORE LOG | {tail}");
+                    println!("[INFO] ℹ️ [Sing-Box] Core log | {tail}");
                 }
             }
 
             let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [SING-BOX] CORE FAILURE BUDGET EXHAUSTED | STOPPING FURTHER BATCH SPLITS"
+                    "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
                 );
                 break;
             }
@@ -1490,7 +1490,7 @@ async fn check_batch_targets(
                     pending.push(batch_entries[mid..].to_vec());
                 } else {
                     println!(
-                        "[WARN] ⚠️ [SING-BOX] CORE EXITED | {}",
+                        "[WARN] ⚠️ [Sing-Box] Core exited | {}",
                         config_label(&batch_entries[0].0)
                     );
                 }
@@ -1499,7 +1499,7 @@ async fn check_batch_targets(
                 let _ = fs::remove_dir_all(&work);
                 if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                     println!(
-                        "[WARN] ⚠️ [SING-BOX] CORE FAILURE BUDGET EXHAUSTED | STOPPING FURTHER BATCH SPLITS"
+                        "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
                     );
                     break;
                 }
@@ -1621,19 +1621,19 @@ async fn check_batch_targets(
                 policy.sustained_stream_max_idle,
             ) {
                 println!(
-                    "[INFO] 🔎 [STREAM] TARGET 1 | {primary_successes}/{count} RESPONDED | SEGMENTS: {segments} | MIN BODY: {minimum} BYTES | MAX IDLE: {}ms",
+                    "[INFO] 🔎 [Stream] Target 1 | {primary_successes}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
                 println!(
-                    "[INFO] 🔎 [STREAM] TARGET 2 | {secondary_successes_count}/{count} RESPONDED | SEGMENTS: {segments} | MIN BODY: {minimum} BYTES | MAX IDLE: {}ms",
+                    "[INFO] 🔎 [Stream] Target 2 | {secondary_successes_count}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
             } else {
                 println!(
-                    "[INFO] 🔎 [TRANSFER] TARGET 1 | {primary_successes}/{count} RESPONDED | MIN BODY: {minimum} BYTES"
+                    "[INFO] 🔎 [Transfer] Target 1 | {primary_successes}/{count} Responded | Min body: {minimum} bytes"
                 );
                 println!(
-                    "[INFO] 🔎 [TRANSFER] TARGET 2 | {secondary_successes_count}/{count} RESPONDED | MIN BODY: {minimum} BYTES"
+                    "[INFO] 🔎 [Transfer] Target 2 | {secondary_successes_count}/{count} Responded | Min body: {minimum} bytes"
                 );
             }
         }
@@ -1749,18 +1749,18 @@ async fn check_batch(
                     .rev()
                     .collect::<String>();
                 println!(
-                    "[INFO] 🧹 [SING-BOX] REJECTED | {}",
+                    "[INFO] 🧹 [Sing-Box] Rejected | {}",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty() {
-                    println!("[INFO] ℹ️ [SING-BOX] CORE LOG | {tail}");
+                    println!("[INFO] ℹ️ [Sing-Box] Core log | {tail}");
                 }
             }
 
             let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [SING-BOX] CORE FAILURE BUDGET EXHAUSTED | STOPPING FURTHER BATCH SPLITS"
+                    "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
                 );
                 break;
             }
@@ -2044,7 +2044,7 @@ async fn validate_candidates_with_targets_policy(
     }
 
     println!(
-        "[INFO] 🔬 [SING-BOX] INPUT | {} CONFIGS | ACCEPTED: {} | REJECTED: {}",
+        "[INFO] 🔬 [Sing-Box] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
@@ -2052,7 +2052,7 @@ async fn validate_candidates_with_targets_policy(
 
     for (config, reason) in rejected.iter().take(8) {
         println!(
-            "[INFO] 🧹 [SING-BOX] REJECTED | {} | {reason}",
+            "[INFO] 🧹 [Sing-Box] Rejected | {} | {reason}",
             config_label(config)
         );
     }
@@ -2088,7 +2088,7 @@ async fn validate_candidates_with_targets_policy(
         .await?;
 
         println!(
-            "[INFO] ✅ [SING-BOX] BATCH {}/{} | {} TESTED | {} VERIFIED | REQUIREMENT: {}/{} | DESTINATIONS: {}",
+            "[INFO] ✅ [Sing-Box] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Destinations: {}",
             index + 1,
             total_batches,
             batch.len(),
@@ -2102,7 +2102,7 @@ async fn validate_candidates_with_targets_policy(
     }
 
     println!(
-        "[INFO] ✅ [SING-BOX] COMPLETE | {}/{} VERIFIED | TARGETS: {} | REQUIREMENT: {}/{} | DESTINATIONS: {}",
+        "[INFO] ✅ [Sing-Box] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Destinations: {}",
         metadata.len(),
         candidates.len(),
         targets.len(),
@@ -2139,7 +2139,7 @@ pub async fn validate_candidates_with_target(
     }
 
     println!(
-        "[INFO] 🔬 [SING-BOX] INPUT | {} CONFIGS | ACCEPTED: {} | REJECTED: {}",
+        "[INFO] 🔬 [Sing-Box] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
@@ -2147,7 +2147,7 @@ pub async fn validate_candidates_with_target(
 
     for (config, reason) in rejected.iter().take(8) {
         println!(
-            "[INFO] 🧹 [SING-BOX] REJECTED | {} | {reason}",
+            "[INFO] 🧹 [Sing-Box] Rejected | {} | {reason}",
             config_label(config)
         );
     }
@@ -2174,7 +2174,7 @@ pub async fn validate_candidates_with_target(
         .await?;
 
         println!(
-            "[INFO] ✅ [SING-BOX] BATCH {}/{} | {} TESTED | {} VERIFIED | REQUIREMENT: {}/{} | TARGETS: 1",
+            "[INFO] ✅ [Sing-Box] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: 1",
             index + 1,
             total_batches,
             batch.len(),
@@ -2187,7 +2187,7 @@ pub async fn validate_candidates_with_target(
     }
 
     println!(
-        "[INFO] ✅ [SING-BOX] COMPLETE | {}/{} VERIFIED | TARGETS: 1 | REQUIREMENT: {}/{} | LATENCY ≤ {}ms",
+        "[INFO] ✅ [Sing-Box] Complete | {}/{} Verified | Targets: 1 | Requirement: {}/{} | Latency ≤ {}ms",
         metadata.len(),
         candidates.len(),
         MIN_SUCCESSFUL_ATTEMPTS,

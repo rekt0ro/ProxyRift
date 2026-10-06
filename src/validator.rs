@@ -2840,7 +2840,7 @@ async fn check_batch(
                     .collect::<String>();
 
                 println!(
-                    "[INFO] 🧹 [XRAY] REJECTED | {} | core could not start for this candidate",
+                    "[INFO] 🧹 [Xray] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty()
@@ -2848,13 +2848,13 @@ async fn check_batch(
                         "The feature HTTP transport (without header padding, etc.) has been removed"
                     )
                 {
-                    println!("[INFO] ℹ️ [XRAY] CORE LOG | {tail}");
+                    println!("[INFO] ℹ️ [Xray] Core log | {tail}");
                 }
             }
 
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [XRAY] CORE FAILURE BUDGET EXHAUSTED | STOPPING FURTHER BATCH SPLITS"
+                    "[WARN] ⚠️ [Xray] Core failure budget exhausted | Stopping further batch splits"
                 );
                 let _ = fs::remove_dir_all(&work);
                 break;
@@ -2914,14 +2914,14 @@ async fn check_batch(
                     pending_batches.push(batch_entries[mid..].to_vec());
                 } else {
                     println!(
-                        "[WARN] ⚠️ [XRAY] CORE EXITED | {}",
+                        "[WARN] ⚠️ [Xray] Core exited | {}",
                         config_label(&batch_entries[0].0)
                     );
                 }
                 let _ = fs::remove_dir_all(&work);
                 if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                     println!(
-                        "[WARN] ⚠️ [XRAY] CORE FAILURE BUDGET EXHAUSTED | STOPPING FURTHER BATCH SPLITS"
+                        "[WARN] ⚠️ [Xray] Core failure budget exhausted | Stopping further batch splits"
                     );
                     break;
                 }
@@ -3292,7 +3292,7 @@ async fn validate_candidates_targets_inner(
     targets = healthy_targets(&targets, policy.min_successful_targets).await;
     if targets.len() != original_target_count {
         println!(
-            "[INFO] 🔎 [TARGETS] HEALTH | {}/{} USABLE",
+            "[INFO] 🔎 [Targets] Health | {}/{} Usable",
             targets.len(),
             original_target_count
         );
@@ -3303,7 +3303,7 @@ async fn validate_candidates_targets_inner(
     rejected.append(&mut compatibility_rejected);
 
     println!(
-        "[INFO] 🔬 [XRAY] INPUT | {} CONFIGS | ACCEPTED: {} | REJECTED: {}",
+        "[INFO] 🔬 [Xray] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
@@ -3311,7 +3311,7 @@ async fn validate_candidates_targets_inner(
 
     for (config, reason) in rejected.iter().take(8) {
         println!(
-            "[INFO] 🧹 [XRAY] REJECTED | {} | {reason}",
+            "[INFO] 🧹 [Xray] Rejected | {} | {reason}",
             config_label(config)
         );
     }
@@ -3321,7 +3321,7 @@ async fn validate_candidates_targets_inner(
         for (config, _) in &rejected {
             *counts.entry(scheme_of(clean(config))).or_insert(0) += 1;
         }
-        println!("[INFO] 📊 [XRAY] REJECTED BY SCHEME | {:?}", counts);
+        println!("[INFO] 📊 [Xray] Rejected by scheme | {:?}", counts);
     }
 
     if parsed.is_empty() {
@@ -3346,7 +3346,7 @@ async fn validate_candidates_targets_inner(
         .await?;
 
         println!(
-            "[INFO] ✅ [XRAY] BATCH {}/{} | {} TESTED | {} VERIFIED | REQUIREMENT: {}/{} | DESTINATIONS: {}",
+            "[INFO] ✅ [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Destinations: {}",
             index + 1,
             total_batches,
             batch.len(),
@@ -3360,7 +3360,7 @@ async fn validate_candidates_targets_inner(
     }
 
     println!(
-        "[INFO] ✅ [XRAY] COMPLETE | {}/{} VERIFIED | TARGETS: {} | REQUIREMENT: {}/{} | DESTINATIONS: {}",
+        "[INFO] ✅ [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Destinations: {}",
         metadata.len(),
         candidates.len(),
         targets.len(),
@@ -3456,20 +3456,20 @@ async fn check_batch_targets(
                     .collect::<String>();
 
                 println!(
-                    "[INFO] 🧹 [XRAY] REJECTED | {} | core could not start for this candidate",
+                    "[INFO] 🧹 [Xray] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty() {
-                    println!("[INFO] ℹ️ [XRAY] CORE LOG | {tail}");
+                    println!("[INFO] ℹ️ [Xray] Core log | {tail}");
                 } else {
-                    println!("[INFO] ℹ️ [XRAY] CORE LOG | no diagnostic output captured");
+                    println!("[INFO] ℹ️ [Xray] Core log | No diagnostic output captured");
                 }
             }
 
             let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [XRAY] CORE FAILURE BUDGET EXHAUSTED | STOPPING FURTHER BATCH SPLITS"
+                    "[WARN] ⚠️ [Xray] Core failure budget exhausted | Stopping further batch splits"
                 );
                 break;
             }
@@ -3648,19 +3648,19 @@ async fn check_batch_targets(
                 policy.sustained_stream_max_idle,
             ) {
                 println!(
-                    "[INFO] 🔎 [STREAM] TARGET 1 | {primary_successes}/{count} RESPONDED | SEGMENTS: {segments} | MIN BODY: {minimum} BYTES | MAX IDLE: {}ms",
+                    "[INFO] 🔎 [Stream] Target 1 | {primary_successes}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
                 println!(
-                    "[INFO] 🔎 [STREAM] TARGET 2 | {secondary_successes_count}/{count} RESPONDED | SEGMENTS: {segments} | MIN BODY: {minimum} BYTES | MAX IDLE: {}ms",
+                    "[INFO] 🔎 [Stream] Target 2 | {secondary_successes_count}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
             } else {
                 println!(
-                    "[INFO] 🔎 [TRANSFER] TARGET 1 | {primary_successes}/{count} RESPONDED | MIN BODY: {minimum} BYTES"
+                    "[INFO] 🔎 [Transfer] Target 1 | {primary_successes}/{count} Responded | Min body: {minimum} bytes"
                 );
                 println!(
-                    "[INFO] 🔎 [TRANSFER] TARGET 2 | {secondary_successes_count}/{count} RESPONDED | MIN BODY: {minimum} BYTES"
+                    "[INFO] 🔎 [Transfer] Target 2 | {secondary_successes_count}/{count} Responded | Min body: {minimum} bytes"
                 );
             }
         }
@@ -3718,7 +3718,7 @@ async fn validate_candidates_inner(
     let (parsed, rejected) = unique_parsed(candidates);
 
     println!(
-        "[INFO] 🔬 [XRAY] INPUT | {} CONFIGS | ACCEPTED: {} | REJECTED: {}",
+        "[INFO] 🔬 [Xray] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
@@ -3726,7 +3726,7 @@ async fn validate_candidates_inner(
 
     for (config, reason) in rejected.iter().take(8) {
         println!(
-            "[INFO] 🧹 [XRAY] REJECTED | {} | {reason}",
+            "[INFO] 🧹 [Xray] Rejected | {} | {reason}",
             config_label(config)
         );
     }
@@ -3736,7 +3736,7 @@ async fn validate_candidates_inner(
         for (config, _) in &rejected {
             *counts.entry(scheme_of(clean(config))).or_insert(0) += 1;
         }
-        println!("[INFO] 📊 [XRAY] REJECTED BY SCHEME | {:?}", counts);
+        println!("[INFO] 📊 [Xray] Rejected by scheme | {:?}", counts);
     }
 
     if parsed.is_empty() {
@@ -3767,7 +3767,7 @@ async fn validate_candidates_inner(
         .await?;
 
         println!(
-            "[INFO] ✅ [XRAY] BATCH {}/{} | {} TESTED | {} VERIFIED | REQUIREMENT: {}/{} | TARGETS: {}",
+            "[INFO] ✅ [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: {}",
             index + 1,
             total_batches,
             batch.len(),
@@ -3781,7 +3781,7 @@ async fn validate_candidates_inner(
     }
 
     println!(
-        "[INFO] ✅ [XRAY] COMPLETE | {}/{} VERIFIED | TARGETS: {} | REQUIREMENT: {}/{} | LATENCY ≤ {}ms",
+        "[INFO] ✅ [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Latency ≤ {}ms",
         metadata.len(),
         candidates.len(),
         target_count,
