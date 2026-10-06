@@ -38,6 +38,8 @@ const RECHECK_FAMILY_DIVERSITY: usize = 3;
 const RECHECK_MAX_PER_ENDPOINT: usize = 2;
 const RECHECK_EXPLORATION_PERCENT: usize = 15;
 const MAX_RECHECK_EXPLORATION: usize = 64;
+const CONSUMER_LEARNING_RESERVE_PERCENT: usize = 25;
+const MAX_CONSUMER_LEARNING_RESERVE: usize = 64;
 const MAX_FINAL_RECHECK_ATTEMPTS: usize = 2;
 const TRANSFER_RESERVE_DEFAULT_PASS_RATE: f64 = 0.80;
 const TRANSFER_RESERVE_SAFETY_FACTOR: f64 = 1.08;
@@ -174,6 +176,7 @@ fn exploration_sort_key(config: &str, seed: u64) -> u64 {
     hash
 }
 
+#[allow(clippy::too_many_arguments)]
 fn select_recheck_candidates(
     model_ranked: &[String],
     untested: &[String],
@@ -181,18 +184,17 @@ fn select_recheck_candidates(
     max_family: usize,
     exploration_limit: usize,
     seed: u64,
-) -> (Vec<String>, usize) {
+    consumer_priority: &HashMap<String, u8>,
+    consumer_learning_limit: usize,
+) -> (Vec<String>, usize, usize) {
     if limit == 0 || model_ranked.is_empty() {
-        return (Vec::new(), 0);
+        return (Vec::new(), 0, 0);
     }
 
     let mut selected = Vec::with_capacity(limit.min(model_ranked.len()));
     let mut selected_set = HashSet::new();
     let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
     let mut family_counts = HashMap::<String, usize>::new();
-
-    let mut exploration_ranked = untested.to_vec();
-    exploration_ranked.sort_unstable_by_key(|config| exploration_sort_key(config, seed));
 
     let try_add = |config: &String,
                    selected: &mut Vec<String>,
@@ -222,6 +224,35 @@ fn select_recheck_candidates(
         selected.push(config.clone());
         true
     };
+
+    let mut consumer_selected = 0usize;
+    for priority in [3_u8, 2_u8, 1_u8] {
+        if consumer_selected >= consumer_learning_limit || selected.len() >= limit {
+            break;
+        }
+
+        for config in model_ranked {
+            if consumer_priority.get(config).copied().unwrap_or(0) != priority {
+                continue;
+            }
+
+            if try_add(
+                config,
+                &mut selected,
+                &mut selected_set,
+                &mut endpoint_counts,
+                &mut family_counts,
+            ) {
+                consumer_selected += 1;
+                if consumer_selected >= consumer_learning_limit || selected.len() >= limit {
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut exploration_ranked = untested.to_vec();
+    exploration_ranked.sort_unstable_by_key(|config| exploration_sort_key(config, seed));
 
     let mut exploration_selected = 0usize;
     for config in exploration_ranked {
@@ -254,7 +285,7 @@ fn select_recheck_candidates(
         );
     }
 
-    (selected, exploration_selected)
+    (selected, consumer_selected, exploration_selected)
 }
 
 fn select_stability_test_batch(
@@ -3250,13 +3281,32 @@ async fn main() -> Result<(), String> {
         );
 
         let exploration_limit = recheck_exploration_limit(dynamic_limit);
-        let (final_candidates, exploration_selected) = select_recheck_candidates(
+        let consumer_priorities = untested
+            .iter()
+            .map(|config| (config.clone(), consumer_evidence.learning_priority(config)))
+            .collect::<HashMap<_, _>>();
+        let consumer_learning_candidates = consumer_priorities
+            .values()
+            .filter(|priority| **priority > 0)
+            .count();
+        let consumer_learning_limit = if consumer_learning_candidates == 0 {
+            0
+        } else {
+            dynamic_limit
+                .saturating_mul(CONSUMER_LEARNING_RESERVE_PERCENT)
+                .div_ceil(100)
+                .clamp(1, MAX_CONSUMER_LEARNING_RESERVE)
+                .min(consumer_learning_candidates)
+        };
+        let (final_candidates, consumer_selected, exploration_selected) = select_recheck_candidates(
             &ai_ranked,
             &untested,
             dynamic_limit,
             RECHECK_FAMILY_DIVERSITY,
             exploration_limit,
             recheck_exploration_seed(wave),
+            &consumer_priorities,
+            consumer_learning_limit,
         );
 
         if final_candidates.is_empty() {
@@ -3268,8 +3318,9 @@ async fn main() -> Result<(), String> {
         }
 
         println!(
-            "[INFO] 🔎 [Light recheck] Wave {wave} | Testing {} candidates | Exploration: {}",
+            "[INFO] 🔎 [Light recheck] Wave {wave} | Testing {} candidates | Learned: {} | Exploration: {}",
             final_candidates.len(),
+            consumer_selected,
             exploration_selected
         );
 
@@ -3728,8 +3779,11 @@ mod tests {
             "vless://00000000-0000-0000-0000-000000000002@example.com:443".to_string(),
         ];
 
-        let (selected, explored) = select_recheck_candidates(&configs, &[], 2, 3, 0, 42);
+        let priorities = HashMap::new();
+        let (selected, learned, explored) =
+            select_recheck_candidates(&configs, &[], 2, 3, 0, 42, &priorities, 0);
 
+        assert_eq!(learned, 0);
         assert_eq!(explored, 0);
         assert_eq!(selected, configs);
     }
@@ -3745,9 +3799,12 @@ mod tests {
             "socks5://f@example.xyz:1080".to_string(),
         ];
 
-        let (selected, explored) = select_recheck_candidates(&configs, &configs, 4, 3, 2, 42);
+        let priorities = HashMap::new();
+        let (selected, learned, explored) =
+            select_recheck_candidates(&configs, &configs, 4, 3, 2, 42, &priorities, 0);
 
         assert_eq!(selected.len(), 4);
+        assert_eq!(learned, 0);
         assert_eq!(explored, 2);
     }
 
@@ -4281,6 +4338,25 @@ mod tests {
 
         assert!(merged.contains_key("xray-only"));
         assert!(merged.contains_key("singbox-only"));
+    }
+
+    #[test]
+    fn learned_consumer_candidates_are_reserved_before_random_exploration() {
+        let configs = vec![
+            "vless://normal@example.com:443?security=reality&type=tcp&sni=other.example"
+                .to_string(),
+            "vless://learned@example.net:443?security=reality&type=tcp&sni=site.example"
+                .to_string(),
+            "trojan://other@example.org:443?security=tls&sni=other.example".to_string(),
+        ];
+        let priorities = HashMap::from([(configs[1].clone(), 3_u8), (configs[2].clone(), 2_u8)]);
+
+        let (selected, learned, exploration) =
+            select_recheck_candidates(&configs, &configs, 2, 3, 2, 123, &priorities, 1);
+
+        assert_eq!(learned, 1);
+        assert!(selected.contains(&configs[1]));
+        assert_eq!(exploration, 1);
     }
 
     #[test]
