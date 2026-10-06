@@ -263,12 +263,12 @@ fn structural_parts(config: &str) -> (String, String) {
         })
         .unwrap_or("unknown");
 
-    let host = parsed
+    let host_value = parsed
         .as_ref()
         .and_then(Url::host_str)
-        .or_else(|| value_string(vmess.as_ref(), "add").as_deref())
-        .map(host_kind)
-        .unwrap_or("unknown");
+        .map(str::to_string)
+        .or_else(|| value_string(vmess.as_ref(), "add"));
+    let host = host_kind(host_value.as_deref());
 
     let sni = parsed
         .as_ref()
@@ -699,7 +699,7 @@ mod tests {
         let tcp = "vless://one@example.com:443?security=reality&type=tcp&sni=site.example";
         let ws = "vless://two@example.com:443?security=reality&type=ws&sni=site.example";
         assert_ne!(family_hash(tcp), family_hash(ws));
-        assert_eq!(archetype_hash(tcp), archetype_hash(ws).replace("never", "never"));
+        assert_ne!(archetype_hash(tcp), archetype_hash(ws));
     }
 
     #[test]
