@@ -427,10 +427,10 @@ impl ConsumerEvidence {
                         .archetypes
                         .entry(archetype.clone())
                         .or_insert_with(|| GroupStats {
-                        protocol: protocol.clone(),
-                        archetype_hash: String::new(),
-                        ..GroupStats::default()
-                    });
+                            protocol: protocol.clone(),
+                            archetype_hash: String::new(),
+                            ..GroupStats::default()
+                        });
                 archetype_entry.stats.add(weight, passed);
                 archetype_entry.last_seen = archetype_entry.last_seen.max(observed_at);
 
@@ -439,10 +439,10 @@ impl ConsumerEvidence {
                         .families
                         .entry(family.clone())
                         .or_insert_with(|| GroupStats {
-                        protocol: protocol.clone(),
-                        archetype_hash: archetype.clone(),
-                        ..GroupStats::default()
-                    });
+                            protocol: protocol.clone(),
+                            archetype_hash: archetype.clone(),
+                            ..GroupStats::default()
+                        });
                 family_entry.stats.add(weight, passed);
                 family_entry.last_seen = family_entry.last_seen.max(observed_at);
             }
@@ -493,7 +493,9 @@ impl ConsumerEvidence {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                evidence.families.insert(hash.clone(), read_group_stats(entry, archetype));
+                evidence
+                    .families
+                    .insert(hash.clone(), read_group_stats(entry, archetype));
             }
         }
 
