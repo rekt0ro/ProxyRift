@@ -3536,13 +3536,12 @@ mod tests {
         adaptive_transfer_test_limit, adjust_transfer_workers, has_disabled_tls_verification,
         history_fingerprint, light_backend, light_training_features, merge_light_metadata,
         normalize_light_config, observation_fingerprint, recheck_exploration_limit,
-        select_recheck_candidates,
-        select_stability_test_batch, select_transfer_target, select_verified_configs,
-        select_verified_configs_with_cohort_floor, selection_additional_potential_count,
-        selection_eligible_count, selection_potential_count, selection_rejection_counts,
-        should_quarantine_transfer_target, strict_validation_target, transfer_reserve_target,
-        transfer_validation_target, update_transfer_target_state, LightBackend, ProxyMetrics,
-        TransferTargetState,
+        select_recheck_candidates, select_stability_test_batch, select_transfer_target,
+        select_verified_configs, select_verified_configs_with_cohort_floor,
+        selection_additional_potential_count, selection_eligible_count, selection_potential_count,
+        selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
+        transfer_reserve_target, transfer_validation_target, update_transfer_target_state,
+        LightBackend, ProxyMetrics, TransferTargetState,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
