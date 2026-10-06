@@ -3281,10 +3281,10 @@ async fn main() -> Result<(), String> {
         let mut ai_ranked = untested.clone();
         let consumer_scores = consumer_evidence.scores(&untested);
         ai_ranked.sort_unstable_by(|a, b| {
-            let a_score =
-                0.60 * light_gbm_scores.score(a) + 0.40 * consumer_scores.get(a).copied().unwrap_or(0.5);
-            let b_score =
-                0.60 * light_gbm_scores.score(b) + 0.40 * consumer_scores.get(b).copied().unwrap_or(0.5);
+            let a_score = 0.60 * light_gbm_scores.score(a)
+                + 0.40 * consumer_scores.get(a).copied().unwrap_or(0.5);
+            let b_score = 0.60 * light_gbm_scores.score(b)
+                + 0.40 * consumer_scores.get(b).copied().unwrap_or(0.5);
 
             b_score
                 .total_cmp(&a_score)
