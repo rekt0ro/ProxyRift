@@ -108,10 +108,7 @@ impl LightGbmScores {
         parameters.push("bagging_freq", 1i32);
         parameters.push("lambda_l1", 0.10);
         parameters.push("lambda_l2", 0.10);
-        parameters.push(
-            "scale_pos_weight",
-            negative as f64 / positive as f64,
-        );
+        parameters.push("scale_pos_weight", negative as f64 / positive as f64);
         parameters.push("seed", 42i32);
         parameters.push("feature_fraction_seed", 42i32);
         parameters.push("bagging_seed", 42i32);
@@ -168,12 +165,7 @@ impl LightGbmScores {
         let scores = candidates
             .iter()
             .zip(prediction.values())
-            .map(|(config, score)| {
-                (
-                    config.clone(),
-                    score.clamp(MIN_SCORE, MAX_SCORE),
-                )
-            })
+            .map(|(config, score)| (config.clone(), score.clamp(MIN_SCORE, MAX_SCORE)))
             .collect::<HashMap<_, _>>();
 
         let result = Self {
@@ -283,7 +275,8 @@ fn load_training(path: &str) -> Result<(Vec<Vec<f64>>, Vec<f32>, usize, usize), 
     let mut negative = 0usize;
 
     for line in reader.lines() {
-        let line = line.map_err(|error| format!("failed to read LightGBM training row: {error}"))?;
+        let line =
+            line.map_err(|error| format!("failed to read LightGBM training row: {error}"))?;
         if line.trim().is_empty() {
             continue;
         }
@@ -415,10 +408,7 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
                 .map(str::to_ascii_lowercase)
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "default".to_string());
-            let tls_enabled = payload
-                .get("tls")
-                .map(value_boolish)
-                .unwrap_or(false);
+            let tls_enabled = payload.get("tls").map(value_boolish).unwrap_or(false);
             let security = if tls_enabled {
                 "tls".to_string()
             } else {
@@ -603,10 +593,7 @@ fn first_query_value(query: &[(String, String)], names: &[&str]) -> Option<Strin
 
 fn has_query_key(query: &[(String, String)], names: &[&str]) -> bool {
     query.iter().any(|(key, value)| {
-        names
-            .iter()
-            .any(|name| key.eq_ignore_ascii_case(name))
-            && !value.trim().is_empty()
+        names.iter().any(|name| key.eq_ignore_ascii_case(name)) && !value.trim().is_empty()
     })
 }
 
