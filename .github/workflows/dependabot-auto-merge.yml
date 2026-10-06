@@ -62,7 +62,7 @@ jobs:
             valid=true
             for path in "${files[@]}"; do
               case "${path}" in
-                .github/workflows/*.yml|.github/workflows/*.yaml|Cargo.toml|Cargo.lock|requirements*.txt)
+                .github/workflows/*.yml|.github/workflows/*.yaml|Cargo.toml|Cargo.lock)
                   ;;
                 *)
                   valid=false
