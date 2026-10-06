@@ -1,0 +1,37 @@
+name: Bootstrap Rust LightGBM Lockfile
+
+on:
+  push:
+    branches:
+      - feat/rust-native-lightgbm
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve native LightGBM
+        run: bash scripts/install_lightgbm.sh
+
+      - name: Resolve and compile Cargo dependencies
+        run: cargo check --all-targets
+
+      - name: Commit generated lockfile
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Cargo.lock; then
+            echo "Cargo.lock already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "chore: refresh Cargo lockfile for native LightGBM"
+          git push origin "HEAD:\${GITHUB_REF_NAME}"
