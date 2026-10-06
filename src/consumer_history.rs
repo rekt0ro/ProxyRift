@@ -734,6 +734,38 @@ impl ConsumerEvidence {
         self.global.observations
     }
 
+    pub fn learning_priority(&self, config: &str) -> u8 {
+        let family = family_hash(config);
+        if self
+            .learned_families
+            .get(&family)
+            .is_some_and(|entry| entry.confirmations > 0)
+        {
+            return 3;
+        }
+
+        let archetype = archetype_hash(config);
+        if self
+            .learned_archetypes
+            .get(&archetype)
+            .is_some_and(|entry| entry.confirmations > 0)
+        {
+            return 2;
+        }
+
+        if self
+            .learned_protocols
+            .get(&protocol(config))
+            .copied()
+            .unwrap_or(0)
+            > 0
+        {
+            return 1;
+        }
+
+        0
+    }
+
     pub fn score(&self, config: &str) -> f64 {
         let learned_global_rate = smoothed_rate(learned_stats(self.learned_global), 0.5, 4.0);
         let global_rate = smoothed_rate(self.global, learned_global_rate, 4.0);
@@ -1014,6 +1046,33 @@ mod tests {
                 .map(|entry| entry.confirmations),
             Some(1)
         );
+    }
+
+    #[test]
+    fn permanent_learning_priority_prefers_family_then_archetype_then_protocol() {
+        let known = "vless://one@example.com:443?security=reality&type=tcp&sni=site.example";
+        let same_family = "vless://two@example.com:443?security=reality&type=tcp&sni=site.example";
+        let same_archetype =
+            "vless://three@example.org:8443?security=reality&type=tcp&sni=other.example";
+        let protocol_only = "vless://four@example.net:443?security=tls&type=ws&sni=other.example";
+
+        let family = family_hash(known);
+        let archetype = archetype_hash(known);
+        let rounds = vec![json!({
+            "observed_at": 1_000_000_u64,
+            "results": [{
+                "protocol": "vless",
+                "family_hash": family,
+                "archetype_hash": archetype,
+                "pass": true
+            }]
+        })];
+
+        let evidence = ConsumerEvidence::from_rounds(&rounds, 1_000_001);
+
+        assert_eq!(evidence.learning_priority(same_family), 3);
+        assert_eq!(evidence.learning_priority(same_archetype), 2);
+        assert_eq!(evidence.learning_priority(protocol_only), 1);
     }
 
     #[test]
