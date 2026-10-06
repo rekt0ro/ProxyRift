@@ -234,7 +234,10 @@ fn wilson_interval(successes: f64, attempts: f64, z: f64) -> (f64, f64) {
 
 fn query_value(url: &Url, keys: &[&str]) -> Option<String> {
     url.query_pairs()
-        .find(|(key, _)| keys.iter().any(|candidate| key.eq_ignore_ascii_case(candidate)))
+        .find(|(key, _)| {
+            keys.iter()
+                .any(|candidate| key.eq_ignore_ascii_case(candidate))
+        })
         .map(|(_, value)| {
             value
                 .to_ascii_lowercase()
