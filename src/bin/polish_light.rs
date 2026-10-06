@@ -176,6 +176,7 @@ fn exploration_sort_key(config: &str, seed: u64) -> u64 {
     hash
 }
 
+#[allow(clippy::too_many_arguments)]
 fn select_recheck_candidates(
     model_ranked: &[String],
     untested: &[String],
