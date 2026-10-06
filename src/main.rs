@@ -884,8 +884,11 @@ fn cap_configs_globally(
     // the whole cap with transport/config variants.
     if selected.len() < target {
         for config in &ranked {
-            if selected.len() >= target || selected_set.contains(config) {
+            if selected.len() >= target {
                 break;
+            }
+            if selected_set.contains(config) {
+                continue;
             }
 
             let new_endpoint = endpoint(config)
