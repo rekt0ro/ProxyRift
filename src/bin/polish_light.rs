@@ -3510,6 +3510,8 @@ async fn main() -> Result<(), String> {
         intelligence_path,
         &transfer_tested,
         &transfer_verified,
+        &stream_tested,
+        &stream_verified,
     )?;
     println!(
         "[INFO] ✅ [Light] Published {} configs | Discovery: {} | Strict checks: {} | Transfer tested: {} | Transfer passes: {}",
