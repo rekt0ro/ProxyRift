@@ -79,6 +79,11 @@ jobs:
       - name: "🔒 Verify dependency lock"
         run: test -s Cargo.lock
 
+      - name: "🧠 Install LightGBM runtime"
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-input "lightgbm==4.7.0"
+          python3 -c 'import lightgbm; print("[INFO] 🧠 [LightGBM] Version | " + lightgbm.__version__)'
+
       - name: "🌐 Resolve pinned validation cores"
         id: validation-cores
         env:
@@ -286,7 +291,7 @@ jobs:
       - name: "💡 Build Light subscription"
         id: build_light
         env:
-          LIGHT_MAX_CANDIDATES: "10000"
+          LIGHT_MAX_CANDIDATES: "15000"
           LIGHT_SELECTION_LIMIT: "200"
           LIGHT_MIN_PUBLISH: "50"
         run: |
@@ -412,9 +417,6 @@ jobs:
             if [ -f "$publish_snapshot/subscriptions/light-training-stats.json" ]; then
               cp -- "$publish_snapshot/subscriptions/light-training-stats.json" subscriptions/light-training-stats.json
             fi
-            if [ -f "$publish_snapshot/subscriptions/light-ai.json" ]; then
-              cp -- "$publish_snapshot/subscriptions/light-ai.json" subscriptions/light-ai.json
-            fi
             if [ -f "$publish_snapshot/subscriptions/source-registry.json" ]; then
               cp -- "$publish_snapshot/subscriptions/source-registry.json" subscriptions/source-registry.json
             fi
@@ -435,9 +437,6 @@ jobs:
             fi
             if [ -f "subscriptions/light-training-stats.json" ]; then
               git add -- subscriptions/light-training-stats.json
-            fi
-            if [ -f "subscriptions/light-ai.json" ]; then
-              git add -- subscriptions/light-ai.json
             fi
             if [ -f "subscriptions/source-registry.json" ]; then
               git add -- subscriptions/source-registry.json

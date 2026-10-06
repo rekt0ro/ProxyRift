@@ -2,6 +2,8 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use futures::stream::{self, StreamExt};
 use percent_encoding::percent_decode_str;
+use proxyrift::consumer_history::ConsumerEvidence;
+use proxyrift::light_gbm::LightGbmScores;
 use proxyrift::source_discovery::CollectionOutcome;
 use proxyrift::validator::{
     config_label, endpoint, is_cheaply_supported_config, is_locally_supported_config, is_public_ip,
@@ -500,6 +502,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let retained_configs = configs.iter().cloned().collect::<HashSet<_>>();
     named_config_sources.retain(|config, _| retained_configs.contains(config));
+    let mut special_hysteria_candidates = special_hysteria_candidates
+        .into_iter()
+        .filter(|config| retained_configs.contains(config))
+        .collect::<Vec<_>>();
 
     if collected_before_global_cap > MAX_COLLECTED_CONFIGS {
         println!(
@@ -513,6 +519,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if configs.is_empty() {
         return Err("no proxy configurations were collected".into());
     }
+
+    let consumer_evidence = ConsumerEvidence::load("subscriptions/light-consumer-evidence.json");
+    let light_gbm = match LightGbmScores::train_and_score(&configs) {
+        Ok(scores) => {
+            println!(
+                "[INFO] 🧠 [LightGBM] Collection model | Trained: {} | Training rows: {} | Scored: {}",
+                scores.trained(),
+                scores.training_rows(),
+                scores.len()
+            );
+            scores
+        }
+        Err(error) => {
+            println!("[WARN] ⚠️ [LightGBM] Collection ranking unavailable: {error}");
+            LightGbmScores::default()
+        }
+    };
+
+    configs.sort_unstable_by(|a, b| {
+        let a_score = 0.60 * light_gbm.score(a) + 0.40 * consumer_evidence.score(a);
+        let b_score = 0.60 * light_gbm.score(b) + 0.40 * consumer_evidence.score(b);
+        b_score
+            .total_cmp(&a_score)
+            .then_with(|| {
+                consumer_evidence
+                    .learning_priority(b)
+                    .cmp(&consumer_evidence.learning_priority(a))
+            })
+            .then_with(|| a.cmp(b))
+    });
+
+    println!(
+        "[INFO] 🧠 [Collection ranking] Ranked {} retained configs | Consumer evidence + LightGBM",
+        configs.len()
+    );
 
     let mut scheme_counts: HashMap<String, usize> = HashMap::new();
 
@@ -620,8 +661,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     ranked_working_configs.sort_unstable_by(|(config_a, latency_a), (config_b, latency_b)| {
-        latency_a
-            .cmp(latency_b)
+        let a_score = 0.60 * light_gbm.score(config_a) + 0.40 * consumer_evidence.score(config_a);
+        let b_score = 0.60 * light_gbm.score(config_b) + 0.40 * consumer_evidence.score(config_b);
+
+        b_score
+            .total_cmp(&a_score)
+            .then_with(|| {
+                consumer_evidence
+                    .learning_priority(config_b)
+                    .cmp(&consumer_evidence.learning_priority(config_a))
+            })
+            .then_with(|| latency_a.cmp(latency_b))
             .then_with(|| config_a.cmp(config_b))
     });
 
@@ -629,58 +679,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut light_candidates = Vec::with_capacity(light_target);
     let mut light_candidate_endpoint_counts = HashMap::<(String, u16), usize>::new();
 
-    if light_target == ranked_working_configs.len() {
-        for (config, _) in &ranked_working_configs {
-            if light_candidates.len() >= MAX_LIGHT_CANDIDATES {
-                break;
-            }
-
-            push_light_candidate(
-                config,
-                &mut light_candidates,
-                &mut light_candidate_endpoint_counts,
-            );
-        }
-    } else if light_target > 0 {
-        let last_index = ranked_working_configs.len() - 1;
-        let last_slot = light_target - 1;
-
-        for slot in 0..light_target {
-            let index = if last_slot == 0 {
-                0
-            } else {
-                slot.saturating_mul(last_index)
-                    .checked_div(last_slot)
-                    .unwrap_or_default()
-            };
-
-            let (config, _) = &ranked_working_configs[index];
-
-            push_light_candidate(
-                config,
-                &mut light_candidates,
-                &mut light_candidate_endpoint_counts,
-            );
+    for (config, _) in &ranked_working_configs {
+        if light_candidates.len() >= light_target || light_candidates.len() >= MAX_LIGHT_CANDIDATES
+        {
+            break;
         }
 
-        if light_candidates.len() < light_target {
-            for (config, _) in &ranked_working_configs {
-                if light_candidates.len() >= light_target
-                    || light_candidates.len() >= MAX_LIGHT_CANDIDATES
-                {
-                    break;
-                }
-
-                push_light_candidate(
-                    config,
-                    &mut light_candidates,
-                    &mut light_candidate_endpoint_counts,
-                );
-            }
-        }
+        push_light_candidate(
+            config,
+            &mut light_candidates,
+            &mut light_candidate_endpoint_counts,
+        );
     }
 
     let sampled_transport_count = light_candidates.len();
+    special_hysteria_candidates.sort_unstable_by(|a, b| {
+        let a_score = 0.60 * light_gbm.score(a) + 0.40 * consumer_evidence.score(a);
+        let b_score = 0.60 * light_gbm.score(b) + 0.40 * consumer_evidence.score(b);
+        b_score
+            .total_cmp(&a_score)
+            .then_with(|| {
+                consumer_evidence
+                    .learning_priority(b)
+                    .cmp(&consumer_evidence.learning_priority(a))
+            })
+            .then_with(|| a.cmp(b))
+    });
 
     for config in &special_hysteria_candidates {
         if light_candidates.len() >= MAX_LIGHT_CANDIDATES {
@@ -2710,7 +2734,13 @@ async fn test_transport_configs(configs: &[String]) -> Vec<Option<u64>> {
         }
     }
 
-    let probe_results = stream::iter(probe_groups)
+    let mut ordered_groups = probe_groups
+        .into_values()
+        .filter_map(|indices| indices.first().copied().map(|first| (first, indices)))
+        .collect::<Vec<_>>();
+    ordered_groups.sort_unstable_by_key(|(first, _)| *first);
+
+    let probe_results = stream::iter(ordered_groups)
         .map(|(_, indices)| {
             let representative = configs[indices[0]].clone();
 
