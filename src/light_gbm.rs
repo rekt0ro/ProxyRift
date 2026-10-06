@@ -61,8 +61,8 @@ impl LightGbmScores {
     pub fn from_file(path: &str) -> Result<Self, String> {
         let content = fs::read_to_string(path)
             .map_err(|error| format!("failed to read LightGBM score file {path}: {error}"))?;
-        let value: Value =
-            serde_json::from_str(&content).map_err(|error| format!("invalid LightGBM score file: {error}"))?;
+        let value: Value = serde_json::from_str(&content)
+            .map_err(|error| format!("invalid LightGBM score file: {error}"))?;
 
         let training_rows = value
             .get("training_rows")
@@ -79,10 +79,7 @@ impl LightGbmScores {
                 let Some(score) = score.as_f64() else {
                     continue;
                 };
-                scores.insert(
-                    config.clone(),
-                    score.clamp(MIN_SCORE, MAX_SCORE),
-                );
+                scores.insert(config.clone(), score.clamp(MIN_SCORE, MAX_SCORE));
             }
         }
 
