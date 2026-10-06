@@ -513,7 +513,7 @@ fn persist_light_result(
     for config in final_attempts.keys() {
         model.update(
             config,
-            global_metadata.get(config),
+            final_metadata.get(config).or_else(|| global_metadata.get(config)),
             1,
             final_metadata.contains_key(config),
         );
@@ -3374,7 +3374,7 @@ async fn main() -> Result<(), String> {
     let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
     sort_ranked(
         &mut stream_ranked,
-        &transfer_verified,
+        &stream_verified,
         &global_positions,
         &history,
     );
