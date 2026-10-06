@@ -459,12 +459,9 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
         })
         .unwrap_or_default();
 
-    let transport = first_query_value(
-        &query,
-        &["type", "network", "transport", "net"],
-    )
-    .filter(|value| !value.is_empty())
-    .unwrap_or_else(|| default_transport(&protocol));
+    let transport = first_query_value(&query, &["type", "network", "transport", "net"])
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default_transport(&protocol));
 
     let security = first_query_value(&query, &["security", "tls"])
         .filter(|value| !value.is_empty())
