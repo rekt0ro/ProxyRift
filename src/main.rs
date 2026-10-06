@@ -17,7 +17,7 @@ use rustls::{DigitallySignedStruct, SignatureScheme};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
