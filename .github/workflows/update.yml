@@ -81,7 +81,7 @@ jobs:
 
       - name: "🧠 Install LightGBM runtime"
         run: |
-          python3 -m pip install --disable-pip-version-check --no-input "lightgbm==4.7.0"
+          python3 -m pip install --disable-pip-version-check --no-input -r requirements.txt
           python3 -c 'import lightgbm; print("[INFO] 🧠 [LightGBM] Version | " + lightgbm.__version__)'
 
       - name: "🌐 Resolve pinned validation cores"
