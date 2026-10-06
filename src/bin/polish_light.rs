@@ -513,7 +513,9 @@ fn persist_light_result(
     for config in final_attempts.keys() {
         model.update(
             config,
-            final_metadata.get(config).or_else(|| global_metadata.get(config)),
+            final_metadata
+                .get(config)
+                .or_else(|| global_metadata.get(config)),
             1,
             final_metadata.contains_key(config),
         );
@@ -2850,7 +2852,10 @@ async fn main() -> Result<(), String> {
         .parse::<usize>()
         .map_err(|_| "invalid --selected-batch-size".to_string())?;
     let primary_target = value(&args, "--primary-target", PRIMARY_TARGET);
-    let early_targets = [primary_target.as_str(), "https://www.cloudflare.com/robots.txt"];
+    let early_targets = [
+        primary_target.as_str(),
+        "https://www.cloudflare.com/robots.txt",
+    ];
     let consumer_targets = {
         let mut targets = LIGHT_CONSUMER_TARGETS.to_vec();
         targets[0] = primary_target.as_str();
