@@ -2103,7 +2103,7 @@ mod tests {
     }
 
     #[test]
-    fn global_collection_cap_is_not_protocol_balanced() {
+    fn global_collection_cap_limits_total_candidates_without_protocol_quotas() {
         let configs = vec![
             "http://http.example.com:80".to_string(),
             "http://http2.example.com:80".to_string(),
@@ -2119,9 +2119,9 @@ mod tests {
         let selected = super::cap_configs_globally(configs.clone(), 5);
 
         assert_eq!(selected.len(), 5);
+        assert!(selected.windows(2).all(|pair| pair[0] <= pair[1]));
         assert!(selected.iter().all(|config| configs.contains(config)));
-        assert!(selected.iter().any(|config| config.starts_with("vless://")));
-        assert!(selected.iter().any(|config| config.starts_with("vmess://")));
+        assert_eq!(selected.iter().collect::<HashSet<_>>().len(), selected.len());
     }
 
     #[test]
