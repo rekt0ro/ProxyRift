@@ -1068,7 +1068,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
             }
 
             println!(
-                "[WARN] 🔭 [DISCOVERY] GitHub search unavailable: {error}; using the persisted registry"
+                "[WARN] 🔭 [Discovery] GitHub search unavailable: {error}; using the persisted registry"
             );
             Vec::new()
         }
@@ -1089,7 +1089,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     if discovered.is_empty() {
         if let Some(active) = persisted_active_sources(&registry) {
             println!(
-                "[WARN] 🔭 [DISCOVERY] no usable GitHub sources discovered; using {} persisted active sources",
+                "[WARN] 🔭 [Discovery] No usable GitHub sources discovered; using {} persisted active sources",
                 active.len()
             );
             write_sources(&sources_path, &active).await?;
@@ -1157,7 +1157,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
         .count();
 
     println!(
-        "[INFO] 🔭 [DISCOVERY] {} repositories searched | {} new sources | {} active sources | {} proven core | {} exploratory | {} registry pruned",
+        "[INFO] 🔭 [Discovery] {} Repositories searched | {} New sources | {} Active sources | {} Proven core | {} Exploratory | {} Registry pruned",
         repos.len(),
         new_candidates.len(),
         ordered.len(),
@@ -1218,7 +1218,7 @@ pub async fn record_collection_results(
             if removed > 0 {
                 write_sources(&sources_path, &active_sources).await?;
                 println!(
-                    "[INFO] 🔭 [DISCOVERY] permanently dead sources retired | removed {} | active {}",
+                    "[INFO] 🔭 [Discovery] Permanently dead sources retired | Removed {} | Active {}",
                     removed,
                     active_sources.len()
                 );
@@ -1227,7 +1227,7 @@ pub async fn record_collection_results(
     }
 
     println!(
-        "[INFO] 🔭 [DISCOVERY] source health updated | checked {} | failed {} | permanent {} | quarantined {}",
+        "[INFO] 🔭 [Discovery] Source health updated | Checked {} | Failed {} | Permanent {} | Quarantined {}",
         results.len(),
         results
             .iter()
@@ -1262,7 +1262,7 @@ async fn discover_from_repos(
                 let _ = error;
             }
             Err(error) => {
-                println!("[WARN] 🔭 [DISCOVERY] repository probe failed: {error}");
+                println!("[WARN] 🔭 [Discovery] Repository probe failed: {error}");
             }
         }
     }
@@ -1330,7 +1330,7 @@ async fn discover_from_repos(
                     }
                 }
                 Err(error) => println!(
-                    "[WARN] 🔭 [DISCOVERY] tree probe failed for {}: {error}",
+                    "[WARN] 🔭 [Discovery] Tree probe failed for {}: {error}",
                     repo.name
                 ),
             }
@@ -1338,7 +1338,7 @@ async fn discover_from_repos(
 
         if tree_404_skipped > 0 || tree_conflict_skipped > 0 || tree_expected_skips > 0 {
             println!(
-                "[INFO] 🔭 [DISCOVERY] tree probes skipped | HTTP 404: {} | HTTP 409: {} | SIZE LIMIT: {}",
+                "[INFO] 🔭 [Discovery] Tree probes skipped | HTTP 404: {} | HTTP 409: {} | Size limit: {}",
                 tree_404_skipped,
                 tree_conflict_skipped,
                 tree_expected_skips
@@ -1527,7 +1527,7 @@ async fn search_repositories(
     let mut stopped_for_rate_limit = false;
 
     println!(
-        "[INFO] 🔭 [DISCOVERY] repository search strategy | sort {} | queries {} | max search requests {} | min interval {}ms",
+        "[INFO] 🔭 [Discovery] Repository search strategy | Sort {} | Queries {} | Max search requests {} | Min interval {}ms",
         sort,
         search_query_count,
         MAX_GITHUB_SEARCH_REQUESTS_PER_RUN,
@@ -1555,7 +1555,7 @@ async fn search_repositories(
         let response = match github_get(client, &url, token).await {
             Ok(response) => response,
             Err(error) => {
-                println!("[WARN] 🔭 [DISCOVERY] GitHub search query failed after retries: {error}");
+                println!("[WARN] 🔭 [Discovery] GitHub search query failed after retries: {error}");
                 continue;
             }
         };
@@ -1566,7 +1566,7 @@ async fn search_repositories(
         if !response.status().is_success() {
             let status = response.status();
             println!(
-                "[WARN] 🔭 [DISCOVERY] GitHub repository search returned HTTP {}{}",
+                "[WARN] 🔭 [Discovery] GitHub repository search returned HTTP {}{}",
                 status,
                 remaining
                     .map(|value| format!(" | search rate remaining {}", value))
@@ -1580,7 +1580,7 @@ async fn search_repositories(
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "unknown".to_string());
                 println!(
-                    "[WARN] 🔭 [DISCOVERY] stopping remaining repository searches after rate-limit response | reset {}",
+                    "[WARN] 🔭 [Discovery] Stopping remaining repository searches after rate-limit response | Reset {}",
                     reset
                 );
                 stopped_for_rate_limit = true;
@@ -1593,7 +1593,7 @@ async fn search_repositories(
             .content_length()
             .is_some_and(|length| length > MAX_SEARCH_RESPONSE_BYTES as u64)
         {
-            println!("[WARN] 🔭 [DISCOVERY] GitHub search response exceeds size limit");
+            println!("[WARN] 🔭 [Discovery] GitHub search response exceeds size limit");
             continue;
         }
 
@@ -1603,7 +1603,7 @@ async fn search_repositories(
             search_rate_remaining = Some(value);
             if value <= GITHUB_SEARCH_MIN_REMAINING + 2 {
                 println!(
-                    "[INFO] 🔭 [DISCOVERY] GitHub search budget low | remaining {}",
+                    "[INFO] 🔭 [Discovery] GitHub search budget low | Remaining {}",
                     value
                 );
             }
@@ -1612,7 +1612,7 @@ async fn search_repositories(
         let body = match read_limited_body(response, MAX_SEARCH_RESPONSE_BYTES).await {
             Ok(body) => body,
             Err(error) => {
-                println!("[WARN] 🔭 [DISCOVERY] GitHub search response read failed: {error}");
+                println!("[WARN] 🔭 [Discovery] GitHub search response read failed: {error}");
                 if stop_after_response {
                     stopped_for_rate_limit = true;
                     break;
@@ -1624,7 +1624,7 @@ async fn search_repositories(
         let payload: Value = match serde_json::from_slice(&body) {
             Ok(payload) => payload,
             Err(error) => {
-                println!("[WARN] 🔭 [DISCOVERY] GitHub search response parse failed: {error}");
+                println!("[WARN] 🔭 [Discovery] GitHub search response parse failed: {error}");
                 if stop_after_response {
                     stopped_for_rate_limit = true;
                     break;
@@ -1680,7 +1680,7 @@ async fn search_repositories(
         if stop_after_response {
             stopped_for_rate_limit = true;
             println!(
-                "[INFO] 🔭 [DISCOVERY] stopping repository searches early to preserve search-rate headroom | remaining {}",
+                "[INFO] 🔭 [Discovery] Stopping repository searches early to preserve search-rate headroom | Remaining {}",
                 remaining.unwrap_or_default()
             );
             break;
@@ -1696,7 +1696,7 @@ async fn search_repositories(
         .count();
 
     println!(
-        "[INFO] 🔭 [DISCOVERY] repository search complete | requests {} | repositories discovered {} | multi-query repos {} | search rate remaining {} | stopped for rate limit {}",
+        "[INFO] 🔭 [Discovery] Repository search complete | Requests {} | Repositories discovered {} | Multi-query repos {} | Search rate remaining {} | Stopped for rate limit {}",
         search_requests_made,
         repos.len(),
         multi_query_repositories,
