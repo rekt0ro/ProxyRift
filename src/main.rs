@@ -834,9 +834,7 @@ fn cap_configs_globally(configs: Vec<String>, cap: usize) -> Vec<String> {
         .collect::<Vec<_>>();
 
     scored.sort_unstable_by(|(score_a, config_a), (score_b, config_b)| {
-        score_a
-            .cmp(score_b)
-            .then_with(|| config_a.cmp(config_b))
+        score_a.cmp(score_b).then_with(|| config_a.cmp(config_b))
     });
     scored.truncate(cap);
 
