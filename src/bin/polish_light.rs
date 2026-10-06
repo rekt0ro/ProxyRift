@@ -181,18 +181,17 @@ fn select_recheck_candidates(
     max_family: usize,
     exploration_limit: usize,
     seed: u64,
-) -> (Vec<String>, usize) {
+    consumer_priority: &HashMap<String, u8>,
+    consumer_learning_limit: usize,
+) -> (Vec<String>, usize, usize) {
     if limit == 0 || model_ranked.is_empty() {
-        return (Vec::new(), 0);
+        return (Vec::new(), 0, 0);
     }
 
     let mut selected = Vec::with_capacity(limit.min(model_ranked.len()));
     let mut selected_set = HashSet::new();
     let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
     let mut family_counts = HashMap::<String, usize>::new();
-
-    let mut exploration_ranked = untested.to_vec();
-    exploration_ranked.sort_unstable_by_key(|config| exploration_sort_key(config, seed));
 
     let try_add = |config: &String,
                    selected: &mut Vec<String>,
@@ -222,6 +221,35 @@ fn select_recheck_candidates(
         selected.push(config.clone());
         true
     };
+
+    let mut consumer_selected = 0usize;
+    for priority in [3_u8, 2_u8, 1_u8] {
+        if consumer_selected >= consumer_learning_limit || selected.len() >= limit {
+            break;
+        }
+
+        for config in model_ranked {
+            if consumer_priority.get(config).copied().unwrap_or(0) != priority {
+                continue;
+            }
+
+            if try_add(
+                config,
+                &mut selected,
+                &mut selected_set,
+                &mut endpoint_counts,
+                &mut family_counts,
+            ) {
+                consumer_selected += 1;
+                if consumer_selected >= consumer_learning_limit || selected.len() >= limit {
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut exploration_ranked = untested.to_vec();
+    exploration_ranked.sort_unstable_by_key(|config| exploration_sort_key(config, seed));
 
     let mut exploration_selected = 0usize;
     for config in exploration_ranked {
@@ -254,45 +282,7 @@ fn select_recheck_candidates(
         );
     }
 
-    (selected, exploration_selected)
-}
-
-fn select_stability_test_batch(
-    ranked: &[String],
-    stable_selected: &[String],
-    limit: usize,
-    selection_target: usize,
-    max_per_endpoint: usize,
-    max_per_family: usize,
-) -> Vec<String> {
-    if limit == 0 || selection_target == 0 || stable_selected.len() >= selection_target {
-        return Vec::new();
-    }
-
-    let mut selected_for_capacity = stable_selected.to_vec();
-    let mut batch = Vec::with_capacity(limit.min(ranked.len()));
-
-    for config in ranked {
-        if batch.len() >= limit {
-            break;
-        }
-
-        if selection_additional_potential_count(
-            &selected_for_capacity,
-            std::slice::from_ref(config),
-            selection_target,
-            max_per_endpoint,
-            max_per_family,
-        ) == 0
-        {
-            continue;
-        }
-
-        selected_for_capacity.push(config.clone());
-        batch.push(config.clone());
-    }
-
-    batch
+    (selected, consumer_selected, exploration_selected)
 }
 
 fn selection_eligible_count(
@@ -3250,14 +3240,34 @@ async fn main() -> Result<(), String> {
         );
 
         let exploration_limit = recheck_exploration_limit(dynamic_limit);
-        let (final_candidates, exploration_selected) = select_recheck_candidates(
-            &ai_ranked,
-            &untested,
-            dynamic_limit,
-            RECHECK_FAMILY_DIVERSITY,
-            exploration_limit,
-            recheck_exploration_seed(wave),
-        );
+        let consumer_priorities = untested
+            .iter()
+            .map(|config| (config.clone(), consumer_evidence.learning_priority(config)))
+            .collect::<HashMap<_, _>>();
+        let consumer_learning_candidates = consumer_priorities
+            .values()
+            .filter(|priority| **priority > 0)
+            .count();
+        let consumer_learning_limit = if consumer_learning_candidates == 0 {
+            0
+        } else {
+            dynamic_limit
+                .saturating_mul(CONSUMER_LEARNING_RESERVE_PERCENT)
+                .div_ceil(100)
+                .clamp(1, MAX_CONSUMER_LEARNING_RESERVE)
+                .min(consumer_learning_candidates)
+        };
+        let (final_candidates, consumer_selected, exploration_selected) =
+            select_recheck_candidates(
+                &ai_ranked,
+                &untested,
+                dynamic_limit,
+                RECHECK_FAMILY_DIVERSITY,
+                exploration_limit,
+                recheck_exploration_seed(wave),
+                &consumer_priorities,
+                consumer_learning_limit,
+            );
 
         if final_candidates.is_empty() {
             continue;
@@ -3268,8 +3278,9 @@ async fn main() -> Result<(), String> {
         }
 
         println!(
-            "[INFO] 🔎 [Light recheck] Wave {wave} | Testing {} candidates | Exploration: {}",
+            "[INFO] 🔎 [Light recheck] Wave {wave} | Testing {} candidates | Learned: {} | Exploration: {}",
             final_candidates.len(),
+            consumer_selected,
             exploration_selected
         );
 
