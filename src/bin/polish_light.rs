@@ -547,18 +547,6 @@ fn persist_light_result(
         println!("[WARN] ⚠️ [Source quality] Failed to persist Light feedback: {error}");
     }
 
-    let mut model = intelligence.clone();
-    for config in final_attempts.keys() {
-        model.update(
-            config,
-            final_metadata
-                .get(config)
-                .or_else(|| global_metadata.get(config)),
-            1,
-            final_metadata.contains_key(config),
-        );
-    }
-    model.save(intelligence_path)?;
     persist_history(history_path, history, final_attempts, final_metadata)
 }
 
