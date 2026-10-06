@@ -16,8 +16,8 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use serde_json::Value;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::env;
+use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -2122,16 +2122,8 @@ mod tests {
 
         assert_eq!(selected.len(), 5);
         assert!(selected.iter().all(|config| configs.contains(config)));
-        assert_ne!(
-            selected,
-            vec![
-                "http://http.example.com:80".to_string(),
-                "hysteria://hy.example.com:443".to_string(),
-                "hysteria2://hy2.example.com:443".to_string(),
-                "socks5://socks.example.com:1080".to_string(),
-                "ss://ss.example.com:443".to_string(),
-            ]
-        );
+        assert!(selected.iter().any(|config| config.starts_with("vless://")));
+        assert!(selected.iter().any(|config| config.starts_with("vmess://")));
     }
 
     #[test]
