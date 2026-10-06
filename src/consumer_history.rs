@@ -6,12 +6,14 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 use url::Url;
 
-const EVIDENCE_VERSION: u64 = 1;
+const EVIDENCE_VERSION: u64 = 2;
 const DECAY_HALF_LIFE_SECS: f64 = 30.0 * 24.0 * 60.0 * 60.0;
 const PROTOCOL_PRIOR_STRENGTH: f64 = 8.0;
 const ARCHETYPE_PRIOR_STRENGTH: f64 = 12.0;
 const FAMILY_PRIOR_STRENGTH: f64 = 16.0;
 const EXPLORATION_BONUS: f64 = 0.03;
+// Keep permanent support bounded so repeated passes strengthen a pattern without growing forever.
+const PERMANENT_SUPPORT_CAP: u32 = 8;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct WeightedStats {
@@ -38,13 +40,32 @@ struct GroupStats {
     last_seen: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct LearnedGroupStats {
+    confirmations: u32,
+}
+
+impl LearnedGroupStats {
+    fn confirm(&mut self) {
+        self.confirmations = self
+            .confirmations
+            .saturating_add(1)
+            .min(PERMANENT_SUPPORT_CAP);
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ConsumerEvidence {
     generated_at: u64,
+    learned_through: u64,
     global: WeightedStats,
     protocols: HashMap<String, WeightedStats>,
     archetypes: HashMap<String, GroupStats>,
     families: HashMap<String, GroupStats>,
+    learned_global: u32,
+    learned_protocols: HashMap<String, u32>,
+    learned_archetypes: HashMap<String, LearnedGroupStats>,
+    learned_families: HashMap<String, LearnedGroupStats>,
 }
 
 pub fn config_hash(config: &str) -> String {
@@ -369,10 +390,18 @@ fn archetype_key(config: &str) -> String {
 
 impl ConsumerEvidence {
     pub fn from_rounds(rounds: &[Value], generated_at: u64) -> Self {
-        let mut evidence = Self {
-            generated_at,
-            ..Self::default()
-        };
+        Self::merge_rounds(&Self::default(), rounds, generated_at)
+    }
+
+    pub fn merge_rounds(existing: &Self, rounds: &[Value], generated_at: u64) -> Self {
+        let mut evidence = existing.clone();
+        evidence.generated_at = generated_at;
+        evidence.global = WeightedStats::default();
+        evidence.protocols.clear();
+        evidence.archetypes.clear();
+        evidence.families.clear();
+
+        let mut newest_learned_round = existing.learned_through;
 
         for round in rounds {
             let observed_at = round
@@ -415,6 +444,28 @@ impl ConsumerEvidence {
 
                 let passed = result.get("pass").and_then(Value::as_bool).unwrap_or(false);
 
+                if passed && observed_at > existing.learned_through {
+                    evidence.learned_global = evidence
+                        .learned_global
+                        .saturating_add(1)
+                        .min(PERMANENT_SUPPORT_CAP);
+                    let count = evidence
+                        .learned_protocols
+                        .entry(protocol.clone())
+                        .or_default();
+                    *count = count.saturating_add(1).min(PERMANENT_SUPPORT_CAP);
+                    evidence
+                        .learned_archetypes
+                        .entry(archetype.clone())
+                        .or_default()
+                        .confirm();
+                    evidence
+                        .learned_families
+                        .entry(family.clone())
+                        .or_default()
+                        .confirm();
+                }
+
                 evidence.global.add(weight, passed);
                 evidence
                     .protocols
@@ -446,8 +497,11 @@ impl ConsumerEvidence {
                 family_entry.stats.add(weight, passed);
                 family_entry.last_seen = family_entry.last_seen.max(observed_at);
             }
+
+            newest_learned_round = newest_learned_round.max(observed_at);
         }
 
+        evidence.learned_through = newest_learned_round;
         evidence
     }
 
@@ -459,7 +513,8 @@ impl ConsumerEvidence {
             return Self::default();
         };
 
-        if value.get("version").and_then(Value::as_u64).unwrap_or(0) != EVIDENCE_VERSION {
+        let version = value.get("version").and_then(Value::as_u64).unwrap_or(0);
+        if version != 1 && version != EVIDENCE_VERSION {
             return Self::default();
         }
 
@@ -499,6 +554,93 @@ impl ConsumerEvidence {
             }
         }
 
+        if version == 1 {
+            evidence.learned_through = evidence.generated_at;
+            evidence.learned_global = permanent_from_weighted(evidence.global.passes);
+            for (protocol, stats) in &evidence.protocols {
+                let confirmations = permanent_from_weighted(stats.passes);
+                if confirmations > 0 {
+                    evidence
+                        .learned_protocols
+                        .insert(protocol.clone(), confirmations);
+                }
+            }
+            for (hash, stats) in &evidence.archetypes {
+                let confirmations = permanent_from_weighted(stats.stats.passes);
+                if confirmations > 0 {
+                    evidence
+                        .learned_archetypes
+                        .insert(hash.clone(), LearnedGroupStats { confirmations });
+                }
+            }
+            for (hash, stats) in &evidence.families {
+                let confirmations = permanent_from_weighted(stats.stats.passes);
+                if confirmations > 0 {
+                    evidence
+                        .learned_families
+                        .insert(hash.clone(), LearnedGroupStats { confirmations });
+                }
+            }
+        } else if let Some(learning) = value.get("permanent_learning").and_then(Value::as_object) {
+            evidence.learned_through = learning
+                .get("learned_through")
+                .and_then(Value::as_u64)
+                .unwrap_or(evidence.generated_at);
+            evidence.learned_global = learning
+                .get("global_confirmations")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .unwrap_or(0)
+                .min(PERMANENT_SUPPORT_CAP);
+
+            if let Some(protocols) = learning.get("protocols").and_then(Value::as_object) {
+                for (protocol, value) in protocols {
+                    let confirmations = value
+                        .as_u64()
+                        .and_then(|value| u32::try_from(value).ok())
+                        .unwrap_or(0)
+                        .min(PERMANENT_SUPPORT_CAP);
+                    if confirmations > 0 {
+                        evidence
+                            .learned_protocols
+                            .insert(protocol.clone(), confirmations);
+                    }
+                }
+            }
+
+            if let Some(archetypes) = learning.get("archetypes").and_then(Value::as_object) {
+                for (hash, entry) in archetypes {
+                    let confirmations = entry
+                        .get("confirmations")
+                        .and_then(Value::as_u64)
+                        .and_then(|value| u32::try_from(value).ok())
+                        .unwrap_or(0)
+                        .min(PERMANENT_SUPPORT_CAP);
+                    if confirmations > 0 {
+                        evidence
+                            .learned_archetypes
+                            .insert(hash.clone(), LearnedGroupStats { confirmations });
+                    }
+                }
+            }
+
+            if let Some(families) = learning.get("families").and_then(Value::as_object) {
+                for (hash, entry) in families {
+                    let confirmations = entry
+                        .get("confirmations")
+                        .and_then(Value::as_u64)
+                        .and_then(|value| u32::try_from(value).ok())
+                        .unwrap_or(0)
+                        .min(PERMANENT_SUPPORT_CAP);
+                    if confirmations > 0 {
+                        evidence
+                            .learned_families
+                            .insert(hash.clone(), LearnedGroupStats { confirmations });
+                    }
+                }
+            }
+        }
+
         evidence
     }
 
@@ -523,10 +665,42 @@ impl ConsumerEvidence {
             families.insert(hash, group_stats_json(stats, Some(&stats.archetype_hash)));
         }
 
+        let mut learned_protocols = BTreeMap::new();
+        for (protocol, confirmations) in &self.learned_protocols {
+            learned_protocols.insert(protocol, *confirmations);
+        }
+
+        let mut learned_archetypes = BTreeMap::new();
+        for (hash, stats) in &self.learned_archetypes {
+            learned_archetypes.insert(
+                hash,
+                serde_json::json!({
+                    "confirmations": stats.confirmations
+                }),
+            );
+        }
+
+        let mut learned_families = BTreeMap::new();
+        for (hash, stats) in &self.learned_families {
+            learned_families.insert(
+                hash,
+                serde_json::json!({
+                    "confirmations": stats.confirmations
+                }),
+            );
+        }
+
         let value = serde_json::json!({
             "version": EVIDENCE_VERSION,
             "generated_at": self.generated_at,
             "decay_half_life_days": 30,
+            "permanent_learning": {
+                "learned_through": self.learned_through,
+                "global_confirmations": self.learned_global,
+                "protocols": learned_protocols,
+                "archetypes": learned_archetypes,
+                "families": learned_families
+            },
             "privacy": {
                 "stores_raw_configs": false,
                 "stores_exact_config_hashes": false,
@@ -561,14 +735,27 @@ impl ConsumerEvidence {
     }
 
     pub fn score(&self, config: &str) -> f64 {
-        let global_rate = smoothed_rate(self.global, 0.5, 4.0);
+        let learned_global_rate = smoothed_rate(learned_stats(self.learned_global), 0.5, 4.0);
+        let global_rate = smoothed_rate(self.global, learned_global_rate, 4.0);
+
         let protocol_name = protocol(config);
         let protocol_stats = self
             .protocols
             .get(&protocol_name)
             .copied()
             .unwrap_or_default();
-        let protocol_rate = smoothed_rate(protocol_stats, global_rate, PROTOCOL_PRIOR_STRENGTH);
+        let learned_protocol_rate = self
+            .learned_protocols
+            .get(&protocol_name)
+            .copied()
+            .map(learned_stats)
+            .map(|stats| smoothed_rate(stats, learned_global_rate, PROTOCOL_PRIOR_STRENGTH))
+            .unwrap_or(learned_global_rate);
+        let protocol_rate = smoothed_rate(
+            protocol_stats,
+            learned_protocol_rate.max(global_rate),
+            PROTOCOL_PRIOR_STRENGTH,
+        );
 
         let archetype = archetype_hash(config);
         let archetype_stats = self
@@ -576,8 +763,18 @@ impl ConsumerEvidence {
             .get(&archetype)
             .map(|entry| entry.stats)
             .unwrap_or_default();
-        let archetype_rate =
-            smoothed_rate(archetype_stats, protocol_rate, ARCHETYPE_PRIOR_STRENGTH);
+        let learned_archetype_rate = self
+            .learned_archetypes
+            .get(&archetype)
+            .map(|entry| entry.confirmations)
+            .map(learned_stats)
+            .map(|stats| smoothed_rate(stats, protocol_rate, ARCHETYPE_PRIOR_STRENGTH))
+            .unwrap_or(protocol_rate);
+        let archetype_rate = smoothed_rate(
+            archetype_stats,
+            learned_archetype_rate,
+            ARCHETYPE_PRIOR_STRENGTH,
+        );
 
         let family = family_hash(config);
         let family_stats = self
@@ -585,9 +782,24 @@ impl ConsumerEvidence {
             .get(&family)
             .map(|entry| entry.stats)
             .unwrap_or_default();
-        let family_rate = smoothed_rate(family_stats, archetype_rate, FAMILY_PRIOR_STRENGTH);
+        let learned_family_rate = self
+            .learned_families
+            .get(&family)
+            .map(|entry| entry.confirmations)
+            .map(learned_stats)
+            .map(|stats| smoothed_rate(stats, archetype_rate, FAMILY_PRIOR_STRENGTH))
+            .unwrap_or(archetype_rate);
+        let family_rate = smoothed_rate(family_stats, learned_family_rate, FAMILY_PRIOR_STRENGTH);
 
-        let exploration = EXPLORATION_BONUS / (family_stats.observations + 1.0).sqrt();
+        let exploration = EXPLORATION_BONUS
+            / (family_stats.observations
+                + self
+                    .learned_families
+                    .get(&family)
+                    .map(|entry| entry.confirmations as f64)
+                    .unwrap_or(0.0)
+                + 1.0)
+                .sqrt();
         (family_rate + exploration).clamp(0.0, 1.0)
     }
 
@@ -597,6 +809,18 @@ impl ConsumerEvidence {
             .map(|config| (config.clone(), self.score(config)))
             .collect()
     }
+}
+
+fn learned_stats(confirmations: u32) -> WeightedStats {
+    let confirmations = confirmations.min(PERMANENT_SUPPORT_CAP) as f64;
+    WeightedStats {
+        observations: confirmations,
+        passes: confirmations,
+    }
+}
+
+fn permanent_from_weighted(passes: f64) -> u32 {
+    passes.ceil().clamp(0.0, PERMANENT_SUPPORT_CAP as f64) as u32
 }
 
 fn smoothed_rate(stats: WeightedStats, prior: f64, strength: f64) -> f64 {
@@ -734,5 +958,80 @@ mod tests {
         let evidence = ConsumerEvidence::from_rounds(&rounds, 1_000_002);
         let unseen = "vless://new@example.org:443?security=reality&type=tcp&sni=another.example";
         assert!(evidence.score(unseen) > 0.55);
+    }
+
+    #[test]
+    fn permanent_consumer_learning_survives_missing_future_observations() {
+        let known = "vless://one@example.com:443?security=reality&type=tcp&sni=site.example";
+        let unseen = "vless://new@example.org:443?security=reality&type=tcp&sni=another.example";
+        let family = family_hash(known);
+        let archetype = archetype_hash(known);
+        let rounds = vec![json!({
+            "observed_at": 1_000_000_u64,
+            "results": [{
+                "protocol": "vless",
+                "family_hash": family,
+                "archetype_hash": archetype,
+                "pass": true
+            }]
+        })];
+
+        let evidence = ConsumerEvidence::from_rounds(&rounds, 1_000_001);
+        let stale = ConsumerEvidence::merge_rounds(&evidence, &[], 1_000_001 + 365 * 24 * 60 * 60);
+
+        assert!(stale.score(unseen) > 0.65);
+        assert_eq!(
+            stale
+                .learned_families
+                .get(&family)
+                .map(|entry| entry.confirmations),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn permanent_learning_does_not_double_count_old_rounds() {
+        let known = "vless://one@example.com:443?security=reality&type=tcp&sni=site.example";
+        let family = family_hash(known);
+        let archetype = archetype_hash(known);
+        let rounds = vec![json!({
+            "observed_at": 1_000_000_u64,
+            "results": [{
+                "protocol": "vless",
+                "family_hash": family,
+                "archetype_hash": archetype,
+                "pass": true
+            }]
+        })];
+
+        let evidence = ConsumerEvidence::from_rounds(&rounds, 1_000_001);
+        let merged = ConsumerEvidence::merge_rounds(&evidence, &rounds, 2_000_000);
+
+        assert_eq!(
+            merged
+                .learned_families
+                .get(&family)
+                .map(|entry| entry.confirmations),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn failed_observation_is_not_permanent_learning() {
+        let known = "vless://one@example.com:443?security=reality&type=tcp&sni=site.example";
+        let family = family_hash(known);
+        let archetype = archetype_hash(known);
+        let rounds = vec![json!({
+            "observed_at": 1_000_000_u64,
+            "results": [{
+                "protocol": "vless",
+                "family_hash": family,
+                "archetype_hash": archetype,
+                "pass": false
+            }]
+        })];
+
+        let evidence = ConsumerEvidence::from_rounds(&rounds, 1_000_001);
+        assert!(!evidence.learned_families.contains_key(&family));
     }
 }
