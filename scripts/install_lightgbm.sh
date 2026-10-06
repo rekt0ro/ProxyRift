@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "[INFO] [LightGBM] Resolving latest stable release"
+
 release_json="$(curl -fsSL \
   --retry 5 \
   --retry-delay 2 \
@@ -8,26 +10,32 @@ release_json="$(curl -fsSL \
   --retry-connrefused \
   -H "Accept: application/vnd.github+json" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
+  -H "User-Agent: ProxyRift" \
   https://api.github.com/repos/lightgbm-org/LightGBM/releases/latest)"
 
 tag="$(jq -r '.tag_name // empty' <<< "$release_json")"
 version="\${tag#v}"
 
-[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "[ERROR] [LightGBM] Invalid latest release tag: $tag" >&2
+  exit 1
+fi
 
 asset_name="lib_lightgbm.so"
-asset_url="$(jq -r --arg name "$asset_name" '.assets[] | select(.name == $name) | .browser_download_url' <<< "$release_json" | head -n 1)"
 asset_digest="$(jq -r --arg name "$asset_name" '.assets[] | select(.name == $name) | .digest // empty' <<< "$release_json" | head -n 1)"
+asset_url="https://github.com/lightgbm-org/LightGBM/releases/download/\${tag}/\${asset_name}"
 
-test -n "$asset_url"
-[[ "$asset_digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]]
+if [[ ! "$asset_digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
+  echo "[ERROR] [LightGBM] Missing SHA-256 digest for \${asset_name}" >&2
+  exit 1
+fi
 
 sha256="\${asset_digest#sha256:}"
-install_dir="\${RUNNER_TEMP:-/tmp}/proxyrift/lightgbm/$version"
+install_dir="\${RUNNER_TEMP:-/tmp}/proxyrift/lightgbm/\${version}"
 mkdir -p "$install_dir"
 
-curl -fsSL \
+echo "[INFO] [LightGBM] Download | \${asset_url}"
+curl -fL \
   --retry 5 \
   --retry-delay 2 \
   --retry-max-time 45 \
