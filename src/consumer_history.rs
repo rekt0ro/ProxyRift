@@ -58,10 +58,15 @@ impl LearnedGroupStats {
 pub struct ConsumerEvidence {
     generated_at: u64,
     learned_through: u64,
+    performance_generated_at: u64,
     global: WeightedStats,
+    performance_global: WeightedStats,
     protocols: HashMap<String, WeightedStats>,
     archetypes: HashMap<String, GroupStats>,
     families: HashMap<String, GroupStats>,
+    performance_protocols: HashMap<String, WeightedStats>,
+    performance_archetypes: HashMap<String, GroupStats>,
+    performance_families: HashMap<String, GroupStats>,
     learned_global: u32,
     learned_protocols: HashMap<String, u32>,
     learned_archetypes: HashMap<String, LearnedGroupStats>,
@@ -527,6 +532,44 @@ impl ConsumerEvidence {
         };
 
         evidence.global = read_stats(value.get("global"));
+        if let Some(performance) = value.get("performance").and_then(Value::as_object) {
+            evidence.performance_generated_at = performance
+                .get("generated_at")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            evidence.performance_global = read_stats(performance.get("global"));
+            if let Some(protocols) = performance.get("protocols").and_then(Value::as_object) {
+                for (protocol, entry) in protocols {
+                    evidence
+                        .performance_protocols
+                        .insert(protocol.clone(), read_stats(Some(entry)));
+                }
+            }
+            if let Some(archetypes) = performance
+                .get("archetypes")
+                .and_then(Value::as_object)
+            {
+                for (hash, entry) in archetypes {
+                    evidence
+                        .performance_archetypes
+                        .insert(hash.clone(), read_group_stats(entry, String::new()));
+                }
+            }
+            if let Some(families) = performance.get("families").and_then(Value::as_object) {
+                for (hash, entry) in families {
+                    let archetype = entry
+                        .get("archetype_hash")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    evidence.performance_families.insert(
+                        hash.clone(),
+                        read_group_stats(entry, archetype),
+                    );
+                }
+            }
+        }
+
         if let Some(protocols) = value.get("protocols").and_then(Value::as_object) {
             for (protocol, entry) in protocols {
                 evidence
@@ -644,6 +687,108 @@ impl ConsumerEvidence {
         evidence
     }
 
+    pub fn record_performance_observations(
+        &mut self,
+        observations: &[(&str, bool)],
+        observed_at: u64,
+    ) {
+        if observed_at < self.performance_generated_at {
+            return;
+        }
+
+        if self.performance_generated_at > 0 && observed_at > self.performance_generated_at {
+            let age = observed_at.saturating_sub(self.performance_generated_at) as f64;
+            let decay = 2.0_f64.powf(-age / DECAY_HALF_LIFE_SECS);
+
+            self.performance_global.observations *= decay;
+            self.performance_global.passes *= decay;
+            for stats in self.performance_protocols.values_mut() {
+                stats.observations *= decay;
+                stats.passes *= decay;
+            }
+            for stats in self.performance_archetypes.values_mut() {
+                stats.stats.observations *= decay;
+                stats.stats.passes *= decay;
+            }
+            for stats in self.performance_families.values_mut() {
+                stats.stats.observations *= decay;
+                stats.stats.passes *= decay;
+            }
+        }
+
+        self.performance_generated_at = observed_at;
+
+        for (config, passed) in observations {
+            let protocol_name = protocol(config);
+            let archetype = archetype_hash(config);
+            let family = family_hash(config);
+
+            self.performance_global.add(1.0, *passed);
+            self.performance_protocols
+                .entry(protocol_name.clone())
+                .or_default()
+                .add(1.0, *passed);
+
+            let archetype_entry = self
+                .performance_archetypes
+                .entry(archetype.clone())
+                .or_insert_with(|| GroupStats {
+                    protocol: protocol_name.clone(),
+                    archetype_hash: String::new(),
+                    ..GroupStats::default()
+                });
+            archetype_entry.stats.add(1.0, *passed);
+            archetype_entry.last_seen = observed_at;
+
+            let family_entry = self
+                .performance_families
+                .entry(family)
+                .or_insert_with(|| GroupStats {
+                    protocol: protocol_name,
+                    archetype_hash: archetype,
+                    ..GroupStats::default()
+                });
+            family_entry.stats.add(1.0, *passed);
+            family_entry.last_seen = observed_at;
+        }
+    }
+
+    pub fn performance_observation_count(&self) -> f64 {
+        self.performance_global.observations
+    }
+
+    pub fn performance_family_score(&self, config: &str) -> Option<f64> {
+        let family = family_hash(config);
+        let family_stats = self
+            .performance_families
+            .get(&family)
+            .map(|entry| entry.stats)?;
+
+        if family_stats.observations <= 0.0 {
+            return None;
+        }
+
+        let protocol_name = protocol(config);
+        let protocol_stats = self
+            .performance_protocols
+            .get(&protocol_name)
+            .copied()
+            .unwrap_or_default();
+
+        let global_rate = smoothed_rate(self.performance_global, 0.5, 4.0);
+        let protocol_rate = smoothed_rate(
+            protocol_stats,
+            global_rate,
+            PROTOCOL_PRIOR_STRENGTH,
+        );
+
+        Some(smoothed_rate(
+            family_stats,
+            protocol_rate,
+            FAMILY_PRIOR_STRENGTH,
+        ))
+    }
+
     pub fn save(&self, path: &str) -> Result<(), String> {
         if let Some(parent) = std::path::Path::new(path).parent() {
             fs::create_dir_all(parent)
@@ -690,6 +835,21 @@ impl ConsumerEvidence {
             );
         }
 
+        let mut performance_protocols = BTreeMap::new();
+        for (protocol, stats) in &self.performance_protocols {
+            performance_protocols.insert(protocol, stats_json(*stats));
+        }
+
+        let mut performance_archetypes = BTreeMap::new();
+        for (hash, stats) in &self.performance_archetypes {
+            performance_archetypes.insert(hash, group_stats_json(stats, None));
+        }
+
+        let mut performance_families = BTreeMap::new();
+        for (hash, stats) in &self.performance_families {
+            performance_families.insert(hash, group_stats_json(stats, Some(&stats.archetype_hash)));
+        }
+
         let value = serde_json::json!({
             "version": EVIDENCE_VERSION,
             "generated_at": self.generated_at,
@@ -708,6 +868,13 @@ impl ConsumerEvidence {
             },
             "global": stats_json(self.global),
             "protocols": protocols,
+            "performance": {
+                "generated_at": self.performance_generated_at,
+                "global": stats_json(self.performance_global),
+                "protocols": performance_protocols,
+                "archetypes": performance_archetypes,
+                "families": performance_families
+            },
             "archetypes": archetypes,
             "families": families
         });
@@ -822,6 +989,11 @@ impl ConsumerEvidence {
             .map(|stats| smoothed_rate(stats, archetype_rate, FAMILY_PRIOR_STRENGTH))
             .unwrap_or(archetype_rate);
         let family_rate = smoothed_rate(family_stats, learned_family_rate, FAMILY_PRIOR_STRENGTH);
+        let consumer_rate = if let Some(performance_rate) = self.performance_family_score(config) {
+            0.60 * family_rate + 0.40 * performance_rate
+        } else {
+            family_rate
+        };
 
         let exploration = EXPLORATION_BONUS
             / (family_stats.observations
@@ -832,7 +1004,7 @@ impl ConsumerEvidence {
                     .unwrap_or(0.0)
                 + 1.0)
                 .sqrt();
-        (family_rate + exploration).clamp(0.0, 1.0)
+        (consumer_rate + exploration).clamp(0.0, 1.0)
     }
 
     pub fn scores(&self, configs: &[String]) -> HashMap<String, f64> {
@@ -990,6 +1162,32 @@ mod tests {
         let evidence = ConsumerEvidence::from_rounds(&rounds, 1_000_002);
         let unseen = "vless://new@example.org:443?security=reality&type=tcp&sni=another.example";
         assert!(evidence.score(unseen) > 0.55);
+    }
+
+    #[test]
+    fn performance_observations_contribute_to_consumer_score() {
+        let config =
+            "vless://one@example.com:443?security=reality&type=tcp&sni=site.example";
+        let mut evidence = ConsumerEvidence::default();
+        let baseline = evidence.score(config);
+
+        evidence.record_performance_observations(&[(config, false)], 1_000);
+        let failed = evidence.score(config);
+        assert!(failed < baseline);
+
+        evidence.record_performance_observations(&[(config, true)], 1_001);
+        let recovered = evidence.score(config);
+        assert!(recovered > failed);
+
+        let path = std::env::temp_dir().join(format!(
+            "proxyrift-performance-evidence-{}.json",
+            std::process::id()
+        ));
+        evidence.save(path.to_str().expect("path")).expect("save evidence");
+        let loaded = ConsumerEvidence::load(path.to_str().expect("path"));
+        assert!(loaded.performance_observation_count() > 0.0);
+        assert!(loaded.performance_family_score(config).is_some());
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
