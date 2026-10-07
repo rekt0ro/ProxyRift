@@ -1529,10 +1529,16 @@ async fn check_batch_targets(
                 active.clear();
             } else {
                 active.retain(|&entry_index| {
-                    successes[entry_index] + remaining >= policy.min_successful_attempts
-                        && (policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
-                            || late_streak[entry_index] + remaining >= STRICT_LATE_SUCCESS_STREAK)
-                });
+                if policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
+                    && successes[entry_index] >= policy.min_successful_attempts
+                {
+                    return false;
+                }
+
+                successes[entry_index] + remaining >= policy.min_successful_attempts
+                    && (policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
+                        || late_streak[entry_index] + remaining >= STRICT_LATE_SUCCESS_STREAK)
+            });
             }
 
             if !active.is_empty()
@@ -1553,7 +1559,8 @@ async fn check_batch_targets(
                 for attempt in 0..policy.secondary_attempts {
                     let eligible = (0..count)
                         .filter(|&entry_index| {
-                            secondary_attempts[entry_index] < policy.secondary_attempts
+                            !secondary_success[entry_index]
+                                && secondary_attempts[entry_index] < policy.secondary_attempts
                                 && successes[entry_index] >= policy.min_successful_attempts
                                 && (policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
                                     || late_streak[entry_index] >= STRICT_LATE_SUCCESS_STREAK)

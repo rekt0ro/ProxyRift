@@ -10,12 +10,16 @@ use std::fs;
 
 const DEFAULT_INPUT: &str = "subscriptions/light.txt";
 const DEFAULT_HISTORY: &str = "subscriptions/light-consumer-results.json";
-const DEFAULT_WORKERS: usize = 8;
-const DEFAULT_BATCH_SIZE: usize = 24;
-const DEFAULT_TIMEOUT_SECONDS: f64 = 15.0;
-const DEFAULT_XRAY_TIMEOUT_SECONDS: f64 = 5.0;
+const DEFAULT_WORKERS: usize = 16;
+const DEFAULT_BATCH_SIZE: usize = 64;
+const DEFAULT_TIMEOUT_SECONDS: f64 = 6.0;
+const DEFAULT_XRAY_TIMEOUT_SECONDS: f64 = 3.0;
 const DEFAULT_MAX_LATENCY_MS: f64 = 800.0;
 const DEFAULT_ROUNDS: usize = 1;
+const DEFAULT_MAX_CANDIDATES: usize = 96;
+const DEFAULT_DEEP_CANDIDATES: usize = 64;
+const DEFAULT_DEEP_ROUNDS: usize = 3;
+const RECENT_CONSUMER_WINDOW_SECS: u64 = 7 * 24 * 60 * 60;
 const MAX_STORED_ROUNDS: usize = 30;
 
 #[derive(Clone, Debug)]
@@ -195,26 +199,138 @@ fn save_history(
 
 fn print_usage() {
     println!(
-        "Usage: light_consumer_test [options]\n\
-         \n\
-         Options:\n\
-           --input FILE          Light subscription input (default: subscriptions/light.txt)\n\
-           --history FILE        Persistent result history (default: subscriptions/light-consumer-results.json)\n\
-           --xray PATH           Xray binary (default: xray)\n\
-           --singbox PATH        sing-box binary (default: sing-box)\n\
-           --workers N           Validation workers (default: 8)\n\
-           --batch-size N        Candidates per core batch (default: 24)\n\
-           --timeout SECONDS     sing-box request timeout (default: 15)\n           --xray-timeout SECONDS Xray fallback request timeout (default: 5)\n\
-           --max-latency-ms N    Maximum accepted latency (default: 800)\n\
-           --rounds N            Consecutive rounds in one invocation (default: 1)\n\
-           --help                Show this help\n\
-         \n\
-         The history stores exact + structural hashes only. Raw proxy URLs are never persisted.
-         The evidence file stores only structural aggregates for reuse by ranking."
+        "Usage: light_consumer_test [options]\n         \n         Options:\n           --input FILE          Light subscription input (default: subscriptions/light.txt)\n           --history FILE        Persistent result history (default: subscriptions/light-consumer-results.json)\n           --xray PATH           Xray binary (default: xray)\n           --singbox PATH        sing-box binary (default: sing-box)\n           --workers N           Validation workers (default: 16)\n           --batch-size N        Candidates per core batch (default: 64)\n           --timeout SECONDS     sing-box request timeout (default: 6)\n           --xray-timeout SECONDS Xray fallback request timeout (default: 3)\n           --max-latency-ms N    Maximum accepted latency (default: 800)\n           --rounds N            Full rounds in standard mode (default: 1)\n           --adaptive            Select a history-aware test pool\n           --max-candidates N    Adaptive pool size (default: 96)\n           --deep-candidates N   Adaptive candidates that get deep rounds (default: 64)\n           --deep-rounds N       Rounds for unseen/stale candidates (default: 3)\n           --help                Show this help\n         \n         The history stores exact + structural hashes only. Raw proxy URLs are never persisted.\n         The evidence file stores only structural aggregates for reuse by ranking."
     );
 }
 
 #[allow(clippy::too_many_arguments)]
+#[derive(Clone, Copy, Debug)]
+struct HistoryStatus {
+    observed_at: u64,
+    pass: bool,
+}
+
+#[derive(Clone, Debug)]
+struct AdaptivePlan {
+    deep: Vec<String>,
+    quick: Vec<String>,
+}
+
+fn latest_history_by_hash(rounds: &[Value]) -> HashMap<String, HistoryStatus> {
+    let mut latest = HashMap::new();
+
+    for round in rounds {
+        let observed_at = round
+            .get("observed_at")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let Some(results) = round.get("results").and_then(Value::as_array) else {
+            continue;
+        };
+
+        for result in results {
+            let Some(config_hash) = result.get("config_hash").and_then(Value::as_str) else {
+                continue;
+            };
+            let status = HistoryStatus {
+                observed_at,
+                pass: result.get("pass").and_then(Value::as_bool).unwrap_or(false),
+            };
+            let replace = latest
+                .get(config_hash)
+                .map(|previous: &HistoryStatus| observed_at >= previous.observed_at)
+                .unwrap_or(true);
+            if replace {
+                latest.insert(config_hash.to_string(), status);
+            }
+        }
+    }
+
+    latest
+}
+
+fn sort_adaptive_candidates(candidates: &mut [(String, u64, bool)], failures_first: bool) {
+    candidates.sort_unstable_by(|left, right| {
+        if failures_first {
+            right
+                .2
+                .cmp(&left.2)
+                .then_with(|| left.1.cmp(&right.1))
+        } else {
+            left.1.cmp(&right.1)
+        }
+        .then_with(|| family_hash(&left.0).cmp(&family_hash(&right.0)))
+        .then_with(|| config_hash(&left.0).cmp(&config_hash(&right.0)))
+    });
+}
+
+fn take_family_diverse(candidates: &[(String, u64, bool)], limit: usize) -> Vec<String> {
+    if limit == 0 {
+        return Vec::new();
+    }
+
+    let mut selected = Vec::with_capacity(limit.min(candidates.len()));
+    let mut selected_hashes = HashSet::new();
+    let mut families = HashSet::new();
+
+    for (config, _, _) in candidates {
+        if selected.len() >= limit {
+            break;
+        }
+        if !families.insert(family_hash(config)) {
+            continue;
+        }
+        if selected_hashes.insert(config_hash(config)) {
+            selected.push(config.clone());
+        }
+    }
+
+    if selected.len() < limit {
+        for (config, _, _) in candidates {
+            if selected.len() >= limit {
+                break;
+            }
+            if selected_hashes.insert(config_hash(config)) {
+                selected.push(config.clone());
+            }
+        }
+    }
+
+    selected
+}
+
+fn build_adaptive_plan(
+    candidates: &[String],
+    history: &[Value],
+    now: u64,
+    max_candidates: usize,
+    deep_candidates: usize,
+) -> AdaptivePlan {
+    let latest = latest_history_by_hash(history);
+    let mut deep_pool = Vec::<(String, u64, bool)>::new();
+    let mut quick_pool = Vec::<(String, u64, bool)>::new();
+
+    for config in candidates {
+        match latest.get(&config_hash(config)).copied() {
+            None => deep_pool.push((config.clone(), 0, false)),
+            Some(status)
+                if now.saturating_sub(status.observed_at) >= RECENT_CONSUMER_WINDOW_SECS =>
+            {
+                deep_pool.push((config.clone(), status.observed_at, status.pass));
+            }
+            Some(status) => quick_pool.push((config.clone(), status.observed_at, status.pass)),
+        }
+    }
+
+    sort_adaptive_candidates(&mut deep_pool, false);
+    sort_adaptive_candidates(&mut quick_pool, true);
+
+    let deep = take_family_diverse(&deep_pool, deep_candidates.min(max_candidates));
+    let quick = take_family_diverse(&quick_pool, max_candidates.saturating_sub(deep.len()));
+
+    AdaptivePlan { deep, quick }
+}
+
 async fn validate_round(
     candidates: &[String],
     xray: &str,
@@ -442,6 +558,9 @@ async fn main() -> Result<(), String> {
     let workers = parse_usize(&args, "--workers", DEFAULT_WORKERS)?;
     let batch_size = parse_usize(&args, "--batch-size", DEFAULT_BATCH_SIZE)?;
     let rounds = parse_usize(&args, "--rounds", DEFAULT_ROUNDS)?;
+    let deep_rounds = parse_usize(&args, "--deep-rounds", DEFAULT_DEEP_ROUNDS)?;
+    let max_candidates = parse_usize(&args, "--max-candidates", DEFAULT_MAX_CANDIDATES)?;
+    let deep_candidates = parse_usize(&args, "--deep-candidates", DEFAULT_DEEP_CANDIDATES)?;
     let timeout = parse_f64(&args, "--timeout", DEFAULT_TIMEOUT_SECONDS)?;
     let xray_timeout = parse_f64(&args, "--xray-timeout", DEFAULT_XRAY_TIMEOUT_SECONDS)?;
     let max_latency_ms = parse_f64(&args, "--max-latency-ms", DEFAULT_MAX_LATENCY_MS)?;
@@ -453,15 +572,11 @@ async fn main() -> Result<(), String> {
 
     let mut history = load_history(&history_path)?;
 
-    println!(
-        "[INFO] 🧪 Light consumer validation | {} candidates | {} rounds",
-        candidates.len(),
-        rounds
-    );
+    println!("[INFO] 🧪 Light consumer validation | {} candidates", candidates.len());
     println!("[INFO] 🎯 Targets: {}", LIGHT_CONSUMER_TARGETS.join(", "));
     println!("[INFO] ⏱️ Timeouts | sing-box: {timeout:.1}s | Xray fallback: {xray_timeout:.1}s");
     println!(
-        "[INFO] 🔐 History stores exact + structural hashes | Raw configs are never persisted"
+        "[INFO] 🔐 History stores exact + structural hashes | Raw proxy URLs are never persisted"
     );
     println!(
         "[INFO] 🧠 Full pass/fail consumer history is authoritative and is reused by update-run ranking"
@@ -469,10 +584,33 @@ async fn main() -> Result<(), String> {
 
     let mut latest_round = Vec::new();
 
-    for round_index in 0..rounds {
-        let started = std::time::Instant::now();
-        let latest = validate_round(
+    if has_flag(&args, "--adaptive") {
+        let now = now_unix()?;
+        let plan = build_adaptive_plan(
             &candidates,
+            &history,
+            now,
+            max_candidates,
+            deep_candidates,
+        );
+        let mut selected = plan.deep.clone();
+        selected.extend(plan.quick.iter().cloned());
+
+        if selected.is_empty() {
+            return Err("adaptive consumer plan selected no candidates".to_string());
+        }
+
+        println!(
+            "[INFO] 🧠 Adaptive pool | {} selected = {} deep + {} quick | Deep rounds: {}",
+            selected.len(),
+            plan.deep.len(),
+            plan.quick.len(),
+            deep_rounds
+        );
+
+        let started = std::time::Instant::now();
+        latest_round = validate_round(
+            &selected,
             &xray,
             &singbox,
             workers,
@@ -486,24 +624,162 @@ async fn main() -> Result<(), String> {
         let observed_at = now_unix()?;
         history.push(json!({
             "observed_at": observed_at,
-            "results": latest.iter().map(result_json).collect::<Vec<_>>()
+            "results": latest_round.iter().map(result_json).collect::<Vec<_>>()
         }));
-
         save_history(&history_path, &history, &input_path, LIGHT_CONSUMER_TARGETS)?;
 
-        latest_round = latest.clone();
-        let passes = latest.iter().filter(|result| result.pass).count();
+        let passes = latest_round.iter().filter(|result| result.pass).count();
         println!(
-            "[INFO] 📊 Consumer round {}/{} complete | {}/{} passed | {:.1}s",
-            round_index + 1,
-            rounds,
+            "[INFO] 📊 Adaptive quick round | {}/{} passed | {:.1}s",
             passes,
-            latest.len(),
+            latest_round.len(),
             started.elapsed().as_secs_f64()
         );
+
+        for round_index in 1..deep_rounds {
+            if plan.deep.is_empty() {
+                break;
+            }
+
+            let started = std::time::Instant::now();
+            latest_round = validate_round(
+                &plan.deep,
+                &xray,
+                &singbox,
+                workers,
+                batch_size,
+                timeout,
+                xray_timeout,
+                max_latency_ms,
+            )
+            .await?;
+
+            let observed_at = now_unix()?;
+            history.push(json!({
+                "observed_at": observed_at,
+                "results": latest_round.iter().map(result_json).collect::<Vec<_>>()
+            }));
+            save_history(&history_path, &history, &input_path, LIGHT_CONSUMER_TARGETS)?;
+
+            let passes = latest_round.iter().filter(|result| result.pass).count();
+            println!(
+                "[INFO] 📊 Adaptive deep round {}/{} | {}/{} passed | {:.1}s",
+                round_index + 1,
+                deep_rounds,
+                passes,
+                latest_round.len(),
+                started.elapsed().as_secs_f64()
+            );
+        }
+    } else {
+        println!(
+            "[INFO] 🧪 Standard consumer validation | {} candidates | {} rounds",
+            candidates.len(),
+            rounds
+        );
+
+        for round_index in 0..rounds {
+            let started = std::time::Instant::now();
+            let latest = validate_round(
+                &candidates,
+                &xray,
+                &singbox,
+                workers,
+                batch_size,
+                timeout,
+                xray_timeout,
+                max_latency_ms,
+            )
+            .await?;
+
+            let observed_at = now_unix()?;
+            history.push(json!({
+                "observed_at": observed_at,
+                "results": latest.iter().map(result_json).collect::<Vec<_>>()
+            }));
+
+            save_history(&history_path, &history, &input_path, LIGHT_CONSUMER_TARGETS)?;
+
+            latest_round = latest.clone();
+            let passes = latest.iter().filter(|result| result.pass).count();
+            println!(
+                "[INFO] 📊 Consumer round {}/{} complete | {}/{} passed | {:.1}s",
+                round_index + 1,
+                rounds,
+                passes,
+                latest.len(),
+                started.elapsed().as_secs_f64()
+            );
+        }
     }
 
     print_summary(&history, &latest_round);
 
     Ok(())
+}
+
+
+#[cfg(test)]
+mod adaptive_tests {
+    use super::{archetype_hash, build_adaptive_plan, config_hash, family_hash, RECENT_CONSUMER_WINDOW_SECS};
+    use serde_json::json;
+
+    fn round(observed_at: u64, configs: &[(&str, bool)]) -> serde_json::Value {
+        json!({
+            "observed_at": observed_at,
+            "results": configs.iter().map(|(config, pass)| json!({
+                "config_hash": config_hash(config),
+                "family_hash": family_hash(config),
+                "archetype_hash": archetype_hash(config),
+                "protocol": "vless",
+                "compatible": true,
+                "pass": pass
+            })).collect::<Vec<_>>()
+        })
+    }
+
+    #[test]
+    fn adaptive_plan_puts_unseen_and_stale_into_deep_pool() {
+        let now = 1_000_000;
+        let recent = "vless://recent@example.com:443?type=tcp";
+        let stale = "vless://stale@example.com:443?type=tcp&sni=stale.example";
+        let unseen = "vless://unseen@example.com:443?type=ws&sni=unseen.example";
+        let history = vec![round(
+            now - RECENT_CONSUMER_WINDOW_SECS - 1,
+            &[(stale, true)],
+        )];
+
+        let plan = build_adaptive_plan(
+            &[recent.to_string(), stale.to_string(), unseen.to_string()],
+            &history,
+            now,
+            3,
+            2,
+        );
+
+        assert!(plan.deep.contains(&stale.to_string()));
+        assert!(plan.deep.contains(&unseen.to_string()));
+        assert!(plan.quick.contains(&recent.to_string()));
+    }
+
+    #[test]
+    fn adaptive_plan_caps_pool_and_keeps_family_diversity() {
+        let configs = vec![
+            "vless://one@example.com:443?type=tcp&sni=one.example",
+            "vless://two@example.com:443?type=tcp&sni=two.example",
+            "vless://three@example.com:443?type=ws&sni=three.example",
+            "trojan://four@example.com:443?type=tcp&sni=four.example",
+            "ss://five@example.com:8388?type=tcp",
+        ];
+        let candidate_strings = configs
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>();
+        let plan = build_adaptive_plan(&candidate_strings, &[], 1_000_000, 3, 2);
+
+        assert_eq!(plan.deep.len(), 2);
+        assert_eq!(plan.quick.len(), 1);
+        assert_eq!(plan.deep.iter().chain(plan.quick.iter()).count(), 3);
+        assert_ne!(family_hash(&plan.deep[0]), family_hash(&plan.deep[1]));
+    }
 }
