@@ -629,7 +629,7 @@ fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
     let (server, port, cipher, password) =
         if let Some((userinfo, remote)) = cleaned.rsplit_once('@') {
             let remote_url =
-                Url::parse(&format!("http://{remote}")).map_err(|error| error.to_string())?;
+                Url::parse(&format!("ss://{remote}")).map_err(|error| error.to_string())?;
             let (server, port) = endpoint_from_url(&remote_url)?;
             let decoded = decode_component(userinfo)?;
             let credentials = b64decode(&decoded)
@@ -848,7 +848,7 @@ fn convert_config(config: &str, index: usize) -> Result<String, String> {
     }
 }
 
-pub fn render(configs: &[String]) -> Result<String, String> {
+fn render_with_count(configs: &[String]) -> Result<(String, usize), String> {
     let mut lines = vec!["proxies:".to_string()];
     let mut rendered = 0usize;
 
@@ -873,7 +873,11 @@ pub fn render(configs: &[String]) -> Result<String, String> {
     }
 
     lines.push(String::new());
-    Ok(lines.join("\n"))
+    Ok((lines.join("\n"), rendered))
+}
+
+pub fn render(configs: &[String]) -> Result<String, String> {
+    render_with_count(configs).map(|(yaml, _)| yaml)
 }
 
 pub fn render_file(input: &str, output: &str) -> Result<usize, String> {
@@ -885,9 +889,9 @@ pub fn render_file(input: &str, output: &str) -> Result<usize, String> {
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
 
-    let yaml = render(&configs)?;
+    let (yaml, rendered) = render_with_count(&configs)?;
     fs::write(output, yaml).map_err(|error| error.to_string())?;
-    Ok(configs.len())
+    Ok(rendered)
 }
 
 #[cfg(test)]
@@ -930,6 +934,14 @@ mod tests {
         assert!(yaml.contains("type: 'ss'"));
         assert!(yaml.contains("cipher: 'aes-128-gcm'"));
         assert!(yaml.contains("password: 'password'"));
+    }
+
+    #[test]
+    fn renders_shadowsocks_explicit_default_port() {
+        let configs =
+            vec!["ss://YWVzLTEyOCg6cGFzc3dvcmQ=@example.com:80#SS%20002".to_string()];
+        let yaml = render(&configs).unwrap();
+        assert!(yaml.contains("port: 80"));
     }
 
     #[test]
