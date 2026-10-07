@@ -22,6 +22,18 @@ https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light.txt
 https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light-base64.txt
 ```
 
+**Light · Clash / Mihomo YAML**
+
+```text
+https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light-clash.yaml
+```
+
+**Light · sing-box JSON**
+
+```text
+https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light-singbox.json
+```
+
 **All**
 
 ```text
@@ -32,6 +44,18 @@ https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt
 
 ```text
 https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all-base64.txt
+```
+
+**All · Clash / Mihomo YAML**
+
+```text
+https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all-clash.yaml
+```
+
+**All · sing-box JSON**
+
+```text
+https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all-singbox.json
 ```
 
 ## ⚙️ Pipeline
@@ -82,7 +106,7 @@ The **Light** list is ranked using native LightGBM scoring combined with learned
 
 ## 🔄 Automatic Updates
 
-ProxyRift regenerates its subscriptions through GitHub Actions.
+ProxyRift regenerates its subscriptions hourly through GitHub Actions.
 
 Each update collects fresh public configurations, screens them, builds the All and Light pools, generates the subscription formats, and publishes the results.
 
