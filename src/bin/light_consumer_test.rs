@@ -739,10 +739,16 @@ mod adaptive_tests {
         let recent = "vless://recent@example.com:443?type=tcp";
         let stale = "vless://stale@example.com:443?type=tcp&sni=stale.example";
         let unseen = "vless://unseen@example.com:443?type=ws&sni=unseen.example";
-        let history = vec![round(
-            now - RECENT_CONSUMER_WINDOW_SECS - 1,
-            &[(stale, true)],
-        )];
+        let history = vec![
+            round(
+                now - RECENT_CONSUMER_WINDOW_SECS - 1,
+                &[(stale, true)],
+            ),
+            round(
+                now - 10,
+                &[(recent, true)],
+            ),
+        ];
 
         let plan = build_adaptive_plan(
             &[recent.to_string(), stale.to_string(), unseen.to_string()],
@@ -773,8 +779,8 @@ mod adaptive_tests {
         let plan = build_adaptive_plan(&candidate_strings, &[], 1_000_000, 3, 2);
 
         assert_eq!(plan.deep.len(), 2);
-        assert_eq!(plan.quick.len(), 1);
-        assert_eq!(plan.deep.iter().chain(plan.quick.iter()).count(), 3);
+        assert_eq!(plan.quick.len(), 0);
+        assert_eq!(plan.deep.iter().chain(plan.quick.iter()).count(), 2);
         assert_ne!(family_hash(&plan.deep[0]), family_hash(&plan.deep[1]));
     }
 }
