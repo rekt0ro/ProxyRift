@@ -3170,7 +3170,8 @@ async fn main() -> Result<(), String> {
         )
         .len();
 
-        if publishable_selected >= selection_limit || discovery_cursor >= discovery_candidates.len() {
+        if publishable_selected >= selection_limit || discovery_cursor >= discovery_candidates.len()
+        {
             break;
         }
 
