@@ -476,7 +476,8 @@ fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
     let tls_enabled = matches!(security.as_str(), "tls" | "true" | "1" | "yes");
     let sni = json_string(object.get("sni"))
         .or_else(|| json_string(object.get("servername")))
-        .or_else(|| host.clone());
+        .or_else(|| host.clone())
+        .or_else(|| Some(server.clone()));
     let client_fingerprint =
         json_string(object.get("fp")).or_else(|| json_string(object.get("clientFingerprint")));
     let skip_cert_verify = json_bool(object.get("skipCertVerify")).unwrap_or(false);
