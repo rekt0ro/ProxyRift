@@ -136,7 +136,7 @@ fn search_strategy_for_run(run_number: Option<u64>, now: u64) -> (&'static str, 
 }
 
 fn unix_days_to_ymd(days_since_epoch: i64) -> (i64, u32, u32) {
-    let mut z = days_since_epoch + 719_468;
+    let z = days_since_epoch + 719_468;
     let era = if z >= 0 {
         z / 146_097
     } else {
