@@ -37,9 +37,7 @@ fn query_any(url: &Url, names: &[&str]) -> Option<String> {
 
 fn query_list(url: &Url, name: &str) -> Vec<String> {
     url.query_pairs()
-        .filter_map(|(key, value)| {
-            key.eq_ignore_ascii_case(name).then_some(value.into_owned())
-        })
+        .filter_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value.into_owned()))
         .flat_map(|value| {
             value
                 .split(',')
@@ -117,7 +115,12 @@ fn yaml_quote(value: &str) -> String {
 }
 
 fn push_field(lines: &mut Vec<String>, indent: usize, key: &str, value: &str) {
-    lines.push(format!("{}{}: {}", " ".repeat(indent), key, yaml_quote(value)));
+    lines.push(format!(
+        "{}{}: {}",
+        " ".repeat(indent),
+        key,
+        yaml_quote(value)
+    ));
 }
 
 fn push_raw_field(lines: &mut Vec<String>, indent: usize, key: &str, value: &str) {
@@ -379,14 +382,19 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
     let path = query(&url, "path");
     let service_name = query_any(&url, &["serviceName", "service-name", "grpc-service-name"]);
     let max_early_data = query_any(&url, &["ed", "maxEarlyData", "max_early_data"]);
-    let early_data_header_name =
-        query_any(&url, &["eh", "earlyDataHeaderName", "early_data_header_name"]);
+    let early_data_header_name = query_any(
+        &url,
+        &["eh", "earlyDataHeaderName", "early_data_header_name"],
+    );
     let alpn = query_list(&url, "alpn");
     let sni = query_any(&url, &["sni", "servername"]);
     let client_fingerprint = query_any(&url, &["fp", "client-fingerprint"]);
-    let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(
-        |value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"),
-    );
+    let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    });
     let flow = query(&url, "flow");
     let encryption = query(&url, "encryption");
     let public_key = query_any(&url, &["pbk", "publicKey", "public-key"]);
@@ -417,8 +425,12 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
         client_fingerprint.as_deref(),
         None,
         skip_cert_verify,
-        (security == "reality").then_some(public_key.as_deref()).flatten(),
-        (security == "reality").then_some(short_id.as_deref()).flatten(),
+        (security == "reality")
+            .then_some(public_key.as_deref())
+            .flatten(),
+        (security == "reality")
+            .then_some(short_id.as_deref())
+            .flatten(),
     );
     push_alpn(&mut lines, 4, &alpn);
     push_transport(
@@ -451,12 +463,12 @@ fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
     let network = json_string(object.get("net")).unwrap_or_else(|| "tcp".to_string());
     let host = json_string(object.get("host"));
     let path = json_string(object.get("path"));
-    let service_name =
-        json_string(object.get("serviceName")).or_else(|| json_string(object.get("service_name")));
-    let max_early_data =
-        json_string(object.get("ed")).or_else(|| json_string(object.get("maxEarlyData")));
-    let early_data_header_name = json_string(object.get("eh"))
-        .or_else(|| json_string(object.get("earlyDataHeaderName")));
+    let service_name = json_string(object.get("serviceName"))
+        .or_else(|| json_string(object.get("service_name")));
+    let max_early_data = json_string(object.get("ed"))
+        .or_else(|| json_string(object.get("maxEarlyData")));
+    let early_data_header_name =
+        json_string(object.get("eh")).or_else(|| json_string(object.get("earlyDataHeaderName")));
     let security = json_string(object.get("tls"))
         .unwrap_or_default()
         .to_ascii_lowercase();
@@ -464,8 +476,8 @@ fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
     let sni = json_string(object.get("sni"))
         .or_else(|| json_string(object.get("servername")))
         .or_else(|| host.clone());
-    let client_fingerprint = json_string(object.get("fp"))
-        .or_else(|| json_string(object.get("clientFingerprint")));
+    let client_fingerprint =
+        json_string(object.get("fp")).or_else(|| json_string(object.get("clientFingerprint")));
     let skip_cert_verify = json_bool(object.get("skipCertVerify")).unwrap_or(false);
     let alpn = match object.get("alpn") {
         Some(Value::Array(values)) => values
@@ -553,15 +565,20 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
     let path = query(&url, "path");
     let service_name = query_any(&url, &["serviceName", "service-name", "grpc-service-name"]);
     let max_early_data = query_any(&url, &["ed", "maxEarlyData", "max_early_data"]);
-    let early_data_header_name =
-        query_any(&url, &["eh", "earlyDataHeaderName", "early_data_header_name"]);
+    let early_data_header_name = query_any(
+        &url,
+        &["eh", "earlyDataHeaderName", "early_data_header_name"],
+    );
     let alpn = query_list(&url, "alpn");
     let sni = query_any(&url, &["sni", "servername"]).or_else(|| Some(server.clone()));
     let client_fingerprint = query_any(&url, &["fp", "clientFingerprint", "client-fingerprint"]);
     let fingerprint = query_any(&url, &["fingerprint", "certFingerprint"]);
-    let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(
-        |value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"),
-    );
+    let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    });
     let public_key = query_any(&url, &["pbk", "publicKey", "public-key"]);
     let short_id = query_any(&url, &["sid", "shortId", "short-id"]);
 
@@ -605,8 +622,8 @@ fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
         .strip_prefix("ss://")
         .ok_or_else(|| "invalid Shadowsocks URL".to_string())?;
 
-    let (server, port, cipher, password) = if let Some((userinfo, remote)) = cleaned.rsplit_once('@')
-    {
+    let (server, port, cipher, password) =
+        if let Some((userinfo, remote)) = cleaned.rsplit_once('@') {
         let remote_url =
             Url::parse(&format!("http://{remote}")).map_err(|error| error.to_string())?;
         let (server, port) = endpoint_from_url(&remote_url)?;
@@ -699,7 +716,8 @@ fn convert_hysteria2(config: &str, index: usize) -> Result<String, String> {
     let alpn = values
         .iter()
         .filter_map(|(key, value)| {
-            key.eq_ignore_ascii_case("alpn").then_some(value.to_string())
+            key.eq_ignore_ascii_case("alpn")
+                .then_some(value.to_string())
         })
         .flat_map(|value| {
             value
@@ -772,7 +790,12 @@ fn convert_socks(config: &str, index: usize) -> Result<String, String> {
     push_raw_field(&mut lines, 4, "udp", "true");
 
     if !url.username().is_empty() {
-        push_field(&mut lines, 4, "username", &decode_component(url.username())?);
+        push_field(
+            &mut lines,
+            4,
+            "username",
+            &decode_component(url.username())?,
+        );
         if let Some(password) = url.password() {
             push_field(&mut lines, 4, "password", &decode_component(password)?);
         }
@@ -794,7 +817,12 @@ fn convert_http(config: &str, index: usize) -> Result<String, String> {
     push_raw_field(&mut lines, 4, "port", &port.to_string());
 
     if !url.username().is_empty() {
-        push_field(&mut lines, 4, "username", &decode_component(url.username())?);
+        push_field(
+            &mut lines,
+            4,
+            "username",
+            &decode_component(url.username())?,
+        );
         if let Some(password) = url.password() {
             push_field(&mut lines, 4, "password", &decode_component(password)?);
         }
