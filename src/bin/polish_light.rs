@@ -3130,8 +3130,12 @@ async fn main() -> Result<(), String> {
     let mut transfer_tested = HashSet::<String>::new();
 
     let discovery_seed = recheck_exploration_seed(0);
-    let discovery_candidates =
-        rank_discovery_candidates(&candidates, &light_gbm_scores, &consumer_evidence, discovery_seed);
+    let discovery_candidates = rank_discovery_candidates(
+        &candidates,
+        &light_gbm_scores,
+        &consumer_evidence,
+        discovery_seed,
+    );
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
 
@@ -3166,9 +3170,7 @@ async fn main() -> Result<(), String> {
         )
         .len();
 
-        if publishable_selected >= selection_limit
-            || discovery_cursor >= discovery_candidates.len()
-        {
+        if publishable_selected >= selection_limit || discovery_cursor >= discovery_candidates.len() {
             break;
         }
 
@@ -3234,7 +3236,8 @@ async fn main() -> Result<(), String> {
             &history,
         );
 
-        let remaining = strict_validation_target(selection_limit).saturating_sub(final_verified.len());
+        let remaining =
+            strict_validation_target(selection_limit).saturating_sub(final_verified.len());
         let dynamic_limit = adaptive_recheck_limit(
             remaining,
             final_recheck_limit,
@@ -3943,7 +3946,10 @@ mod tests {
 
     #[test]
     fn adaptive_discovery_starts_with_small_bootstrap_batch() {
-        assert_eq!(adaptive_discovery_batch_size(200, 0, 0, 0, 0, 0, 0, 0, 500), 300);
+        assert_eq!(
+            adaptive_discovery_batch_size(200, 0, 0, 0, 0, 0, 0, 0, 500),
+            300
+        );
     }
 
     #[test]
