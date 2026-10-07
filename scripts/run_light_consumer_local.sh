@@ -27,9 +27,10 @@ fi
 git pull --ff-only origin main
 
 mkdir -p /tmp/proxyrift
+main_sha="$(git rev-parse HEAD)"
 light_input=/tmp/proxyrift/light-current.txt
 curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 60 \
-  https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light.txt \
+  "https://raw.githubusercontent.com/rekt0ro/ProxyRift/${main_sha}/subscriptions/light.txt" \
   -o "$light_input"
 
 if [[ ! -s "$light_input" ]]; then
