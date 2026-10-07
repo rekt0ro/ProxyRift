@@ -359,7 +359,7 @@ jobs:
       - name: "📦 Prepare published outputs"
         id: prepare_outputs
         run: |
-          for f in subscriptions/all.txt subscriptions/light.txt subscriptions/all-base64.txt subscriptions/light-base64.txt; do
+          for f in subscriptions/all.txt subscriptions/light.txt subscriptions/all-base64.txt subscriptions/light-base64.txt subscriptions/all-clash.yaml subscriptions/light-clash.yaml; do
             test -s "$f"
           done
 
@@ -368,7 +368,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          files="all.txt light.txt all-base64.txt light-base64.txt"
+          files="all.txt light.txt all-base64.txt light-base64.txt all-clash.yaml light-clash.yaml"
           publish_snapshot="$(mktemp -d /tmp/proxyrift-publish.XXXXXX)"
           trap 'rm -rf "$publish_snapshot"' EXIT
 
@@ -427,7 +427,9 @@ jobs:
               subscriptions/all.txt \
               subscriptions/light.txt \
               subscriptions/all-base64.txt \
-              subscriptions/light-base64.txt
+              subscriptions/light-base64.txt \
+              subscriptions/all-clash.yaml \
+              subscriptions/light-clash.yaml
 
             if [ -f "subscriptions/light-history.json" ]; then
               git add -- subscriptions/light-history.json
