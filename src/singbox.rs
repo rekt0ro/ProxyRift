@@ -2231,6 +2231,53 @@ pub async fn validate_candidates(
     .await
 }
 
+
+pub fn render_subscription(configs: &[String]) -> Result<String, String> {
+    let mut outbounds = Vec::with_capacity(configs.len());
+    let mut rendered = 0usize;
+
+    for (index, config) in configs.iter().enumerate() {
+        match singbox_outbound(config) {
+            Ok(mut outbound) => {
+                outbound["tag"] = json!(format!("ProxyRift {:03}", index + 1));
+                outbounds.push(outbound);
+                rendered += 1;
+            }
+            Err(error) => {
+                eprintln!(
+                    "[WARN] ⚠️ [sing-box] Skipping config {} | {}",
+                    index + 1,
+                    error
+                );
+            }
+        }
+    }
+
+    if rendered == 0 {
+        return Err("no configs could be rendered for sing-box".to_string());
+    }
+
+    serde_json::to_string_pretty(&json!({
+        "$schema": "https://sing-box.sagernet.org/schema.json",
+        "outbounds": outbounds,
+    }))
+    .map_err(|error| error.to_string())
+}
+
+pub fn render_subscription_file(input: &str, output: &str) -> Result<usize, String> {
+    let content = fs::read_to_string(input).map_err(|error| error.to_string())?;
+    let configs = content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#') && line.contains("://"))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    let json = render_subscription(&configs)?;
+    fs::write(output, format!("{json}\n")).map_err(|error| error.to_string())?;
+    Ok(configs.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
