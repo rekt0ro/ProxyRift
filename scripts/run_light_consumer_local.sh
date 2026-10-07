@@ -26,19 +26,24 @@ fi
 
 git pull --ff-only origin main
 
-run_id="$(date -u +%Y%m%d-%H%M%S)-$$"
-branch="consumer-evidence/$run_id"
-git switch -c "$branch"
-
-cleanup() {
-  rm -f /tmp/proxyrift-github-env \
-        /tmp/proxyrift/light-local-next.txt \
-        /tmp/proxyrift/light-local-stats.json
-}
-trap cleanup EXIT
+for binary in xray sing-box; do
+  if ! command -v "$binary" >/dev/null 2>&1; then
+    echo "[ERROR] Required binary not found in PATH: $binary" >&2
+    exit 1
+  fi
+done
 
 mkdir -p /tmp/proxyrift
 envfile=/tmp/proxyrift-github-env
+
+cleanup() {
+  git restore --quiet Cargo.lock 2>/dev/null || true
+  git restore --quiet --     subscriptions/light-consumer-evidence.json     subscriptions/light-history.json     subscriptions/light-training-stats.json     subscriptions/light-training.jsonl     2>/dev/null || true
+
+  rm -f /tmp/proxyrift-github-env         /tmp/proxyrift/light-local-next.txt         /tmp/proxyrift/light-local-stats.json
+}
+
+trap cleanup EXIT
 
 env GITHUB_ENV="$envfile" bash scripts/install_lightgbm.sh
 
@@ -52,9 +57,30 @@ export LD_LIBRARY_PATH="$LIGHTGBM_LIB_DIR"
 
 env LIGHTGBM_LIB_DIR="$LIGHTGBM_LIB_DIR" \
     LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
-    cargo build --release --bin polish_light --bin light_consumer_test
+    cargo build --release --bin light_consumer_test --bin polish_light
 
-git restore Cargo.lock
+git restore --quiet Cargo.lock
+
+echo
+echo "[1/2] Consumer test on this network"
+echo "[INFO] Full pass/fail history is kept locally in ignored:"
+echo "       subscriptions/light-consumer-results.json"
+
+env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+    ./target/release/light_consumer_test \
+    --input subscriptions/light.txt \
+    --history subscriptions/light-consumer-results.json \
+    --adaptive \
+    --max-candidates 96 \
+    --deep-candidates 64 \
+    --deep-rounds 3 \
+    --workers 16 \
+    --batch-size 64 \
+    --timeout 6 \
+    --xray-timeout 3
+
+echo
+echo "[2/2] Local Light funnel using the fresh consumer history"
 
 env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     ./target/release/polish_light \
@@ -71,42 +97,29 @@ env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     --stats /tmp/proxyrift/light-local-stats.json \
     --record-performance-consumer-evidence
 
-env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
-    ./target/release/light_consumer_test \
-    --input subscriptions/light.txt \
-    --adaptive \
-    --max-candidates 96 \
-    --deep-candidates 64 \
-    --deep-rounds 3 \
-    --workers 16 \
-    --batch-size 64 \
-    --timeout 6 \
-    --xray-timeout 3
-
-git status
-git diff --stat
-
-git restore -- \
-  subscriptions/light-consumer-evidence.json \
-  subscriptions/light-history.json \
-  subscriptions/light-training-stats.json \
-  subscriptions/light-training.jsonl
-
-git add subscriptions/light-consumer-results.json
-
-if git diff --cached --quiet; then
-  echo "[INFO] No Light evidence changes were produced."
-  exit 0
+echo
+echo "[INFO] Local artifacts produced by polish_light (before cleanup):"
+if [[ -s /tmp/proxyrift/light-local-next.txt ]]; then
+  light_count="$(awk 'NF { count++ } END { print count + 0 }' /tmp/proxyrift/light-local-next.txt)"
+  echo "       Next Light candidate count: $light_count"
+else
+  echo "       No local Light output was produced."
 fi
 
-git diff --cached --check
-git commit -m "Update Light consumer test history"
-
-git push -u origin HEAD
+if [[ -s /tmp/proxyrift/light-local-stats.json ]]; then
+  cat /tmp/proxyrift/light-local-stats.json
+fi
 
 echo
-echo "[OK] Consumer evidence pushed safely to:"
-echo "     $branch"
+echo "[INFO] Git state before cleanup:"
+git status --short
+
+cleanup
+trap - EXIT
+
 echo
-echo "Open a PR into main, or run:"
-echo "     gh pr create --base main --head '$branch' --title 'Update Light consumer evidence' --body 'Local Light validation and consumer evidence update.'"
+echo "[OK] Local test complete. Tracked generated state was restored."
+echo "[OK] Persistent consumer history remains local:"
+echo "     subscriptions/light-consumer-results.json"
+echo
+echo "[INFO] No branch, commit, push, or PR is created by this helper."
