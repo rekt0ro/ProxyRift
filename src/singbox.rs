@@ -2278,9 +2278,9 @@ pub fn render_subscription_file(input: &str, output: &str) -> Result<usize, Stri
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
 
-    let json = render_subscription(&configs)?;
+    let (json, rendered) = render_subscription_with_count(&configs)?;
     fs::write(output, format!("{json}\n")).map_err(|error| error.to_string())?;
-    Ok(configs.len())
+    Ok(rendered)
 }
 
 #[cfg(test)]
