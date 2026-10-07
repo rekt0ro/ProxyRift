@@ -21,7 +21,6 @@ const DEFAULT_ROUNDS: usize = 1;
 const DEFAULT_MAX_CANDIDATES: usize = 96;
 const DEFAULT_DEEP_CANDIDATES: usize = 64;
 const DEFAULT_DEEP_ROUNDS: usize = 3;
-const DEFAULT_EVIDENCE: &str = "subscriptions/light-consumer-evidence.json";
 const RECENT_CONSUMER_WINDOW_SECS: u64 = 7 * 24 * 60 * 60;
 const MAX_STORED_ROUNDS: usize = 30;
 
