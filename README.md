@@ -28,6 +28,12 @@ https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light-bas
 https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light-clash.yaml
 ```
 
+**Light · sing-box JSON**
+
+```text
+https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light-singbox.json
+```
+
 **All**
 
 ```text
@@ -44,6 +50,12 @@ https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all-base6
 
 ```text
 https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all-clash.yaml
+```
+
+**All · sing-box JSON**
+
+```text
+https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all-singbox.json
 ```
 
 ## ⚙️ Pipeline
