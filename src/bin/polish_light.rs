@@ -3016,9 +3016,11 @@ async fn run_stream_continuity_snapshot(
     transfer_verified: HashMap<String, ProxyMetrics>,
     global_positions: HashMap<String, usize>,
     history: HashMap<String, HistoryEntry>,
+    existing_stream_verified: HashMap<String, ProxyMetrics>,
+    existing_stream_tested: HashSet<String>,
 ) -> Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String> {
-    let mut stream_verified = HashMap::<String, ProxyMetrics>::new();
-    let mut stream_tested = HashSet::<String>::new();
+    let mut stream_verified = existing_stream_verified;
+    let mut stream_tested = existing_stream_tested;
 
     fill_stream_continuity_gate(
         &xray,
@@ -3520,6 +3522,8 @@ async fn main() -> Result<(), String> {
                 let transfer_snapshot = transfer_verified.clone();
                 let positions_snapshot = global_positions.clone();
                 let history_snapshot = history.clone();
+                let stream_verified_snapshot = stream_verified.clone();
+                let stream_tested_snapshot = stream_tested.clone();
                 let xray_snapshot = xray.clone();
                 let singbox_snapshot = singbox.clone();
 
@@ -3536,6 +3540,8 @@ async fn main() -> Result<(), String> {
                         transfer_snapshot,
                         positions_snapshot,
                         history_snapshot,
+                        stream_verified_snapshot,
+                        stream_tested_snapshot,
                     )
                     .await
                 }));
