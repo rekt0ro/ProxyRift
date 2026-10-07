@@ -16,6 +16,7 @@ const DEFAULT_EVIDENCE: &str = "subscriptions/light-consumer-evidence.json";
 const DEFAULT_WORKERS: usize = 8;
 const DEFAULT_BATCH_SIZE: usize = 24;
 const DEFAULT_TIMEOUT_SECONDS: f64 = 15.0;
+const DEFAULT_XRAY_TIMEOUT_SECONDS: f64 = 5.0;
 const DEFAULT_MAX_LATENCY_MS: f64 = 800.0;
 const DEFAULT_ROUNDS: usize = 1;
 const MAX_STORED_ROUNDS: usize = 30;
@@ -206,7 +207,7 @@ fn print_usage() {
            --singbox PATH        sing-box binary (default: sing-box)\n\
            --workers N           Validation workers (default: 8)\n\
            --batch-size N        Candidates per core batch (default: 24)\n\
-           --timeout SECONDS     Per-request timeout (default: 15)\n\
+           --timeout SECONDS     sing-box request timeout (default: 15)\n           --xray-timeout SECONDS Xray fallback request timeout (default: 5)\n\
            --max-latency-ms N    Maximum accepted latency (default: 800)\n\
            --rounds N            Consecutive rounds in one invocation (default: 1)\n\
            --help                Show this help\n\
@@ -216,6 +217,7 @@ fn print_usage() {
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn validate_round(
     candidates: &[String],
     xray: &str,
@@ -223,6 +225,7 @@ async fn validate_round(
     workers: usize,
     batch_size: usize,
     timeout: f64,
+    xray_timeout: f64,
     max_latency_ms: f64,
 ) -> Result<Vec<ConfigResult>, String> {
     let compatible = candidates
@@ -288,7 +291,7 @@ async fn validate_round(
             LIGHT_CONSUMER_TARGETS,
             workers.clamp(1, 40),
             batch_size.max(1),
-            timeout,
+            xray_timeout,
             max_latency_ms,
         )
         .await
@@ -467,6 +470,7 @@ async fn main() -> Result<(), String> {
     let batch_size = parse_usize(&args, "--batch-size", DEFAULT_BATCH_SIZE)?;
     let rounds = parse_usize(&args, "--rounds", DEFAULT_ROUNDS)?;
     let timeout = parse_f64(&args, "--timeout", DEFAULT_TIMEOUT_SECONDS)?;
+    let xray_timeout = parse_f64(&args, "--xray-timeout", DEFAULT_XRAY_TIMEOUT_SECONDS)?;
     let max_latency_ms = parse_f64(&args, "--max-latency-ms", DEFAULT_MAX_LATENCY_MS)?;
 
     let candidates = read_candidates(&input_path)?;
@@ -482,6 +486,7 @@ async fn main() -> Result<(), String> {
         rounds
     );
     println!("[INFO] 🎯 Targets: {}", LIGHT_CONSUMER_TARGETS.join(", "));
+    println!("[INFO] ⏱️ Timeouts | sing-box: {timeout:.1}s | Xray fallback: {xray_timeout:.1}s");
     println!(
         "[INFO] 🔐 History stores exact + structural hashes | Raw configs are never persisted"
     );
@@ -500,6 +505,7 @@ async fn main() -> Result<(), String> {
             workers,
             batch_size,
             timeout,
+            xray_timeout,
             max_latency_ms,
         )
         .await?;
