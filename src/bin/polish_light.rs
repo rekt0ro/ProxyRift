@@ -89,10 +89,7 @@ const PREVIOUS_COHORT_MIN_PERCENT: usize = 20;
 const OLDER_COHORT_MIN_PERCENT: usize = 10;
 const MIN_COHORT_RETENTION_COUNT: usize = 4;
 
-type StreamTaskResult = Result<
-    (HashMap<String, ProxyMetrics>, HashSet<String>),
-    String,
->;
+type StreamTaskResult = Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String>;
 type StreamTask = tokio::task::JoinHandle<StreamTaskResult>;
 
 fn transfer_validation_target(selection_limit: usize) -> usize {
