@@ -533,10 +533,7 @@ impl ConsumerEvidence {
                 let Some(config_hash) = result.get("config_hash").and_then(Value::as_str) else {
                     continue;
                 };
-                let pass = result
-                    .get("pass")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
+                let pass = result.get("pass").and_then(Value::as_bool).unwrap_or(false);
                 let replace = self
                     .recent_consumer_results
                     .get(config_hash)
@@ -559,10 +556,7 @@ impl ConsumerEvidence {
         });
 
         if self.recent_consumer_results.len() > MAX_RECENT_CONSUMER_RESULTS {
-            let mut entries = self
-                .recent_consumer_results
-                .drain()
-                .collect::<Vec<_>>();
+            let mut entries = self.recent_consumer_results.drain().collect::<Vec<_>>();
             entries.sort_unstable_by_key(|(_, entry)| std::cmp::Reverse(entry.observed_at));
             entries.truncate(MAX_RECENT_CONSUMER_RESULTS);
             self.recent_consumer_results = entries.into_iter().collect();
