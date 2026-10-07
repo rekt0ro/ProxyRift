@@ -939,7 +939,7 @@ mod tests {
     #[test]
     fn renders_shadowsocks_explicit_default_port() {
         let configs =
-            vec!["ss://YWVzLTEyOCg6cGFzc3dvcmQ=@example.com:80#SS%20002".to_string()];
+            vec!["ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@example.com:80#SS%20002".to_string()];
         let yaml = render(&configs).unwrap();
         assert!(yaml.contains("port: 80"));
     }
