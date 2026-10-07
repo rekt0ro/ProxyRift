@@ -548,12 +548,15 @@ jobs:
           stream_tested="unknown"
           stream_passed="unknown"
           published="unknown"
+          lightgbm_trained="unknown"
+          lightgbm_training_rows="0"
+          lightgbm_feature_count="0"
+          lightgbm_scored="0"
           ml_rows="0"
           ml_strict_passes="0"
           ml_transfer_tests="0"
           ml_transfer_passes="0"
           ml_strict_rate="0.0"
-          ml_feature_count="0"
           if [ -s "subscriptions/light-training.jsonl" ]; then
             ml_stats="$(jq -s '
               {
@@ -572,6 +575,12 @@ jobs:
                 ml_strict_rate="$(awk -v passes="$ml_strict_passes" -v rows="$ml_rows" 'BEGIN { printf "%.1f", (passes / rows) * 100 }')"
               fi
             fi
+          fi
+          if [ -s /tmp/proxyrift/lightgbm-scores.json ]; then
+            lightgbm_trained="$(jq -r 'if .trained == true then "✅ Trained" else "⚪ Not trained" end' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'unknown')"
+            lightgbm_training_rows="$(jq -r '.training_rows // 0' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
+            lightgbm_feature_count="$(jq -r '.feature_count // 0' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
+            lightgbm_scored="$(jq -r '(.scores // {}) | length' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
           fi
           if [ -s /tmp/proxyrift/light-stats.json ]; then
             input_candidates="$(jq -r '.input_candidates // "unknown"' /tmp/proxyrift/light-stats.json)"
@@ -766,6 +775,16 @@ jobs:
               echo "_No preceding completed update run was found._"
             fi
             echo
+            echo "### 🧠 LightGBM ranking"
+            echo
+            echo "| Metric | Value |"
+            echo "|---|---:|"
+            echo "| Model | $lightgbm_trained |"
+            echo "| Training rows | $lightgbm_training_rows |"
+            echo "| Model features | $lightgbm_feature_count |"
+            echo "| Candidates scored | $lightgbm_scored |"
+            echo "| Ranking | Consumer evidence + LightGBM |"
+            echo
             echo "### 🔬 Light validation"
             echo
             echo "| Metric | Count |"
@@ -779,14 +798,14 @@ jobs:
             echo "| Stream continuity passed | $stream_passed |"
             echo "| Published by validator | $published |"
             echo
-            echo "### 🧠 Light ML dataset"
+            echo "### 🧪 ML dataset health"
             echo
             echo "| Metric | Value |"
             echo "|---|---:|"
             echo "| Dataset rows | $ml_rows |"
-            echo "| Features per row | $ml_feature_count |"
             echo "| Strict pass rate | $ml_strict_rate% |"
             echo "| Transfer labels | $ml_transfer_passes/$ml_transfer_tests passed |"
+            echo "| Stream labels | $stream_passed/$stream_tested passed |"
             echo
             echo "### 📦 Published outputs"
             echo
