@@ -106,7 +106,7 @@ The **Light** list is ranked using native LightGBM scoring combined with learned
 
 ## 🔄 Automatic Updates
 
-ProxyRift regenerates its subscriptions through GitHub Actions.
+ProxyRift regenerates its subscriptions hourly through GitHub Actions.
 
 Each update collects fresh public configurations, screens them, builds the All and Light pools, generates the subscription formats, and publishes the results.
 
