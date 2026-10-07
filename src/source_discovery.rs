@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use url::Url;
 
@@ -46,11 +46,71 @@ const MAX_README_CANDIDATES: usize = 150;
 const MAX_README_URLS_SCANNED: usize = 750;
 const MAX_DISCOVERED_CANDIDATES: usize = 12_000;
 const MAX_NEW_ACTIVE_SOURCES_PER_REPO: usize = 8;
-const MAX_GITHUB_SEARCH_REQUESTS_PER_RUN: usize = 24;
-const GITHUB_SEARCH_MIN_INTERVAL_MS: u64 = 2_100;
-const GITHUB_SEARCH_MIN_REMAINING: u64 = 1;
+const MAX_GITHUB_SEARCH_REQUESTS_PER_RUN: usize = 16;
+const GITHUB_SEARCH_MIN_INTERVAL_MS: u64 = 1_200;
+const GITHUB_SEARCH_MAX_INTERVAL_MS: u64 = 8_000;
+const GITHUB_SEARCH_MIN_REMAINING: u64 = 2;
+const GITHUB_SEARCH_FRESH_DAYS: u64 = 120;
 
 const SEARCH_SORTS: [&str; 2] = ["updated", "stars"];
+const SEARCH_QUERY_SET_NAMES: [&str; 3] = ["protocol", "sources", "fresh-low-star"];
+
+const SEARCH_QUERY_SETS: [[&str; 16]; 3] = [
+    [
+        "v2ray subscription",
+        "vless subscription",
+        "vmess subscription",
+        "xray subscription",
+        "sing-box subscription",
+        "mihomo subscription",
+        "clash subscription",
+        "hysteria2 subscription",
+        "tuic subscription",
+        "reality configs",
+        "v2ray nodes",
+        "vless nodes",
+        "vmess nodes",
+        "proxy subscription",
+        "subscription collector",
+        "subscription aggregator",
+    ],
+    [
+        "v2ray configs",
+        "free v2ray configs",
+        "xray configs",
+        "singbox config",
+        "clash config",
+        "mihomo config",
+        "hysteria2 config",
+        "tuic config",
+        "reality config",
+        "proxy list",
+        "node list",
+        "v2ray collector",
+        "proxy collector",
+        "subconverter",
+        "proxy aggregator",
+        "free proxy configs",
+    ],
+    [
+        "v2ray subscription",
+        "vless nodes",
+        "vmess nodes",
+        "xray configs",
+        "sing-box subscription",
+        "mihomo subscription",
+        "clash subscription",
+        "hysteria2 subscription",
+        "tuic subscription",
+        "reality configs",
+        "proxy list",
+        "node list",
+        "v2ray collector",
+        "proxy collector",
+        "public proxy",
+        "free proxy configs",
+    ],
+];
 
 fn search_sort_for_run(run_number: Option<u64>, now: u64) -> &'static str {
     let index = run_number
@@ -59,39 +119,91 @@ fn search_sort_for_run(run_number: Option<u64>, now: u64) -> &'static str {
     SEARCH_SORTS[index]
 }
 
-fn current_search_sort() -> &'static str {
-    let run_number = env::var("GITHUB_RUN_NUMBER")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok());
-    search_sort_for_run(run_number, unix_now())
+fn search_query_set_for_run(run_number: Option<u64>, now: u64) -> usize {
+    run_number
+        .map(|number| number % SEARCH_QUERY_SETS.len() as u64)
+        .unwrap_or((now / 3_600) % SEARCH_QUERY_SETS.len() as u64) as usize
 }
 
-const DEFAULT_QUERIES: [&str; 24] = [
-    "v2ray subscription",
-    "vless subscription",
-    "vmess subscription",
-    "xray subscription",
-    "free v2ray configs",
-    "v2ray configs",
-    "sing-box subscription",
-    "singbox subscription",
-    "mihomo subscription",
-    "clash subscription",
-    "hysteria2 subscription",
-    "tuic subscription",
-    "reality configs",
-    "free v2ray nodes",
-    "vless nodes",
-    "vmess nodes",
-    "proxy subscription",
-    "proxy list",
-    "node list",
-    "v2ray collector",
-    "proxy collector",
-    "subscription collector",
-    "subscription aggregator",
-    "subconverter",
-];
+fn search_strategy_for_run(run_number: Option<u64>, now: u64) -> (&'static str, usize) {
+    let query_set = search_query_set_for_run(run_number, now);
+    let sort = if query_set == 2 {
+        "updated"
+    } else {
+        search_sort_for_run(run_number, now)
+    };
+    (sort, query_set)
+}
+
+fn unix_days_to_ymd(days_since_epoch: i64) -> (i64, u32, u32) {
+    let mut z = days_since_epoch + 719_468;
+    let era = if z >= 0 {
+        z / 146_097
+    } else {
+        (z - 146_096) / 146_097
+    };
+    z -= era * 146_097;
+    let doe = z - z / 1_460 + z / 36_524 - z / 146_096;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    (y + i64::from(m <= 2), m as u32, d as u32)
+}
+
+fn search_fresh_cutoff_date(now: u64) -> String {
+    let days = (now / 86_400) as i64 - GITHUB_SEARCH_FRESH_DAYS as i64;
+    let (year, month, day) = unix_days_to_ymd(days);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+fn build_search_query(query: &str, query_set: usize, now: u64) -> String {
+    let base =
+        format!("{query} archived:false fork:false is:public in:name,description,readme");
+    if query_set == 2 {
+        format!(
+            "{base} stars:0..100 pushed:>{}",
+            search_fresh_cutoff_date(now)
+        )
+    } else {
+        base
+    }
+}
+
+async fn pace_search_request(
+    last_started: &mut Option<Instant>,
+    remaining: Option<u64>,
+    reset_epoch: Option<u64>,
+) {
+    let mut interval_ms = GITHUB_SEARCH_MIN_INTERVAL_MS;
+
+    if let (Some(remaining), Some(reset_epoch)) = (remaining, reset_epoch) {
+        if remaining > GITHUB_SEARCH_MIN_REMAINING && remaining <= 8 {
+            let window_ms = reset_epoch
+                .saturating_sub(unix_now())
+                .saturating_mul(1_000);
+            if window_ms > 0 {
+                interval_ms = interval_ms.max(
+                    (window_ms / remaining).clamp(
+                        GITHUB_SEARCH_MIN_INTERVAL_MS,
+                        GITHUB_SEARCH_MAX_INTERVAL_MS,
+                    ),
+                );
+            }
+        }
+    }
+
+    if let Some(started) = *last_started {
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        if elapsed_ms < interval_ms {
+            tokio::time::sleep(Duration::from_millis(interval_ms - elapsed_ms)).await;
+        }
+    }
+
+    *last_started = Some(Instant::now());
+}
 
 const PATH_HINTS: [&str; 24] = [
     "sub",
@@ -1518,34 +1630,52 @@ async fn search_repositories(
     token: Option<&str>,
 ) -> Result<Vec<Repository>, Box<dyn std::error::Error + Send + Sync>> {
     let mut repos_by_name = HashMap::<String, Repository>::new();
-    let sort = current_search_sort();
-    let search_query_count = DEFAULT_QUERIES
+    let run_number = env::var("GITHUB_RUN_NUMBER")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok());
+    let (sort, query_set) = search_strategy_for_run(run_number, unix_now());
+    let search_queries = &SEARCH_QUERY_SETS[query_set];
+    let search_query_count = search_queries
         .len()
         .min(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
     let mut search_requests_made = 0usize;
     let mut search_rate_remaining = None;
+    let mut search_rate_reset = None;
     let mut stopped_for_rate_limit = false;
+    let mut last_search_started = None;
 
     println!(
-        "[INFO] 🔭 [Discovery] Repository search strategy | Sort {} | Queries {} | Max search requests {} | Min interval {}ms",
+        "[INFO] 🔭 [Discovery] Repository search strategy | Set {} | Sort {} | Queries {} | Max search requests {} | Base interval {}ms",
+        SEARCH_QUERY_SET_NAMES[query_set],
         sort,
         search_query_count,
         MAX_GITHUB_SEARCH_REQUESTS_PER_RUN,
         GITHUB_SEARCH_MIN_INTERVAL_MS
     );
 
-    for (query_index, query) in DEFAULT_QUERIES
+    for query in search_queries
         .iter()
         .copied()
         .take(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN)
-        .enumerate()
     {
-        if query_index > 0 {
-            tokio::time::sleep(Duration::from_millis(GITHUB_SEARCH_MIN_INTERVAL_MS)).await;
+        if search_rate_remaining.is_some_and(|value| value <= GITHUB_SEARCH_MIN_REMAINING) {
+            println!(
+                "[INFO] 🔭 [Discovery] Search budget exhausted for this run | Remaining {}",
+                search_rate_remaining.unwrap_or_default()
+            );
+            stopped_for_rate_limit = true;
+            break;
         }
+
+        pace_search_request(
+            &mut last_search_started,
+            search_rate_remaining,
+            search_rate_reset,
+        )
+        .await;
         search_requests_made += 1;
 
-        let search_query = format!("{query} archived:false fork:false is:public");
+        let search_query = build_search_query(query, query_set, unix_now());
         let url = format!(
             "https://api.github.com/search/repositories?q={}&sort={sort}&order=desc&per_page={}",
             percent_encode(&search_query),
@@ -1561,7 +1691,9 @@ async fn search_repositories(
         };
 
         let remaining = github_search_rate_limit_remaining(&response);
+        let reset = github_search_rate_limit_reset(&response);
         search_rate_remaining = remaining.or(search_rate_remaining);
+        search_rate_reset = reset.or(search_rate_reset);
 
         if !response.status().is_success() {
             let status = response.status();
@@ -1696,7 +1828,8 @@ async fn search_repositories(
         .count();
 
     println!(
-        "[INFO] 🔭 [Discovery] Repository search complete | Requests {} | Repositories discovered {} | Multi-query repos {} | Search rate remaining {} | Stopped for rate limit {}",
+        "[INFO] 🔭 [Discovery] Repository search complete | Set {} | Requests {} | Repositories discovered {} | Multi-query repos {} | Search rate remaining {} | Stopped for rate limit {}",
+        SEARCH_QUERY_SET_NAMES[query_set],
         search_requests_made,
         repos.len(),
         multi_query_repositories,
@@ -2461,6 +2594,9 @@ mod tests {
         assert_eq!(search_sort_for_run(Some(100), 0), "updated");
         assert_eq!(search_sort_for_run(Some(101), 0), "stars");
         assert_eq!(search_sort_for_run(Some(102), 0), "updated");
+        assert_eq!(search_query_set_for_run(Some(100), 0), 1);
+        assert_eq!(search_query_set_for_run(Some(101), 0), 2);
+        assert_eq!(search_query_set_for_run(Some(102), 0), 0);
     }
 
     #[test]
@@ -2470,12 +2606,35 @@ mod tests {
         assert_eq!(search_sort_for_run(None, 7_200), "updated");
     }
 
+    #[test]
+    fn discovery_search_strategy_rotates_query_lenses() {
+        assert_eq!(search_strategy_for_run(Some(100), 0), ("updated", 1));
+        assert_eq!(search_strategy_for_run(Some(101), 0), ("updated", 2));
+        assert_eq!(search_strategy_for_run(Some(102), 0), ("updated", 0));
+        assert_eq!(search_strategy_for_run(Some(103), 0), ("stars", 1));
+    }
+
+    #[test]
+    fn fresh_search_query_targets_recent_low_star_repositories() {
+        assert_eq!(
+            build_search_query("vless nodes", 2, 1_750_000_000),
+            "vless nodes archived:false fork:false is:public in:name,description,readme stars:0..100 pushed:>2025-02-15"
+        );
+    }
+
+    #[test]
+    fn unix_epoch_date_conversion_is_stable() {
+        assert_eq!(unix_days_to_ymd(0), (1970, 1, 1));
+        assert_eq!(unix_days_to_ymd(-1), (1969, 12, 31));
+    }
+
     use super::{
-        extract_source_urls, is_source_path, likely_source_url, normalize_github_source,
-        percent_encode_path, search_sort_for_run, select_new_active_urls, source_path_family,
-        Candidate, CollectionOutcome, Registry, Repository, Value, MAX_ACTIVE_SOURCES,
-        MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK, MAX_KNOWN_REFRESH_SOURCES,
-        MAX_SOURCE_URL_LENGTH, RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
+        build_search_query, extract_source_urls, is_source_path, likely_source_url,
+        normalize_github_source, percent_encode_path, search_query_set_for_run,
+        search_sort_for_run, search_strategy_for_run, select_new_active_urls, source_path_family,
+        unix_days_to_ymd, Candidate, CollectionOutcome, Registry, Repository, Value,
+        MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK,
+        MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH, RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
     };
     use base64::Engine as _;
     use std::collections::HashSet;
