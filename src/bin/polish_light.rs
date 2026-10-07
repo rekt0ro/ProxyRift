@@ -26,7 +26,7 @@ use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use url::Url;
 
-const DISCOVERY_CHUNK_SIZE: usize = 1000;
+const DISCOVERY_CHUNK_SIZE: usize = 300;
 const MAX_DISCOVERY_CANDIDATES: usize = 10000;
 const FINAL_RECHECK_LIMIT: usize = 350;
 const DEFAULT_SELECTION_LIMIT: usize = 200;
@@ -429,14 +429,14 @@ fn transfer_reserve_target(
     }
 
     let observed_rate = if transfer_tested < 16 {
-        TRANSFER_RESERVE_DEFAULT_PASS_RATE
+        1.0
     } else {
         ((transfer_passed as f64 + 2.0) / (transfer_tested as f64 + 4.0)).clamp(0.60, 0.95)
     };
 
     let estimated =
         ((remaining as f64 / observed_rate) * TRANSFER_RESERVE_SAFETY_FACTOR).ceil() as usize;
-    let minimum = remaining.saturating_add(8);
+    let minimum = remaining;
     let maximum = remaining
         .saturating_add(TRANSFER_RESERVE_MAX_HEADROOM)
         .min(strict_validation_target(selection_limit));
@@ -2898,10 +2898,7 @@ async fn main() -> Result<(), String> {
         .parse::<usize>()
         .map_err(|_| "invalid --selected-batch-size".to_string())?;
     let primary_target = value(&args, "--primary-target", PRIMARY_TARGET);
-    let early_targets = [
-        primary_target.as_str(),
-        "https://www.cloudflare.com/robots.txt",
-    ];
+    let early_targets = [primary_target.as_str()];
     let consumer_targets = {
         let mut targets = LIGHT_CONSUMER_TARGETS.to_vec();
         targets[0] = primary_target.as_str();
@@ -3848,8 +3845,8 @@ mod tests {
     }
 
     #[test]
-    fn transfer_reserve_is_conservative_at_start() {
-        assert_eq!(transfer_reserve_target(200, 0, 0, 0), 240);
+    fn transfer_reserve_bootstraps_from_current_demand() {
+        assert_eq!(transfer_reserve_target(200, 0, 0, 0), 200);
         assert_eq!(transfer_reserve_target(200, 190, 200, 160), 18);
     }
 
