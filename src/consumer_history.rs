@@ -740,10 +740,10 @@ impl ConsumerEvidence {
                 self.performance_families
                     .entry(family)
                     .or_insert_with(|| GroupStats {
-                    protocol: protocol_name,
-                    archetype_hash: archetype,
-                    ..GroupStats::default()
-                });
+                        protocol: protocol_name,
+                        archetype_hash: archetype,
+                        ..GroupStats::default()
+                    });
             family_entry.stats.add(1.0, *passed);
             family_entry.last_seen = observed_at;
         }
