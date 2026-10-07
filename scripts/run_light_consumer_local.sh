@@ -159,11 +159,7 @@ git diff --cached --check
 git commit -m "Update Light consumer evidence"
 git push -u origin HEAD
 
-pr_url="$(gh pr create \\
-  --base main \\
-  --head "$branch" \\
-  --title "Update Light consumer evidence" \\
-  --body "Consumer-network validation results from the current main subscriptions/light.txt.\\n\\nThis PR updates only the privacy-safe structural consumer evidence. Private subscriptions/light-consumer-results.json remains local." )"
+pr_url="$(gh pr create --base main --head "$branch" --title "Update Light consumer evidence" --body $'Consumer-network validation results from the current main subscriptions/light.txt.\\n\\nThis PR updates only the privacy-safe structural consumer evidence. Private subscriptions/light-consumer-results.json remains local.')"
 
 echo
 echo "[OK] Consumer evidence pushed to:"
