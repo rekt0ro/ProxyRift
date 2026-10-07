@@ -36,25 +36,20 @@ done
 mkdir -p /tmp/proxyrift
 envfile=/tmp/proxyrift-github-env
 
-cleanup() {
-  local tracked_generated=(
-    subscriptions/light-consumer-evidence.json
-    subscriptions/light-history.json
-    subscriptions/light-training-stats.json
-    subscriptions/light-training.jsonl
-  )
+cleanup_temp() {
   git restore --quiet Cargo.lock 2>/dev/null || true
-  git restore --quiet -- "${tracked_generated[@]}" 2>/dev/null || true
+  git restore --quiet -- \
+    subscriptions/light-history.json \
+    subscriptions/light-training-stats.json \
+    subscriptions/light-training.jsonl \
+    2>/dev/null || true
 
-  local temp_files=(
-    /tmp/proxyrift-github-env
-    /tmp/proxyrift/light-local-next.txt
-    /tmp/proxyrift/light-local-stats.json
-  )
-  rm -f "${temp_files[@]}"
+  rm -f "$envfile" \
+        /tmp/proxyrift/light-local-next.txt \
+        /tmp/proxyrift/light-local-stats.json
 }
 
-trap cleanup EXIT
+trap cleanup_temp EXIT
 
 env GITHUB_ENV="$envfile" bash scripts/install_lightgbm.sh
 
@@ -72,15 +67,11 @@ env LIGHTGBM_LIB_DIR="$LIGHTGBM_LIB_DIR" \
 
 git restore --quiet Cargo.lock
 
-echo
-echo "[1/2] Consumer test on this network"
-echo "[INFO] Full pass/fail history is kept locally in ignored:"
-echo "       subscriptions/light-consumer-results.json"
-
 env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     ./target/release/light_consumer_test \
     --input subscriptions/light.txt \
     --history subscriptions/light-consumer-results.json \
+    --write-evidence subscriptions/light-consumer-evidence.json \
     --adaptive \
     --max-candidates 96 \
     --deep-candidates 64 \
@@ -90,10 +81,8 @@ env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     --timeout 6 \
     --xray-timeout 3
 
-echo
-echo "[2/2] Local Light funnel using the fresh consumer history"
-
-env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+polish_status=0
+if env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     ./target/release/polish_light \
     --candidates subscriptions/light.txt \
     --output /tmp/proxyrift/light-local-next.txt \
@@ -107,30 +96,51 @@ env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     --max-per-family 3 \
     --stats /tmp/proxyrift/light-local-stats.json \
     --record-performance-consumer-evidence
-
-echo
-echo "[INFO] Local artifacts produced by polish_light (before cleanup):"
-if [[ -s /tmp/proxyrift/light-local-next.txt ]]; then
-  light_count="$(awk 'NF { count++ } END { print count + 0 }' /tmp/proxyrift/light-local-next.txt)"
-  echo "       Next Light candidate count: $light_count"
+then
+  :
 else
-  echo "       No local Light output was produced."
-fi
-
-if [[ -s /tmp/proxyrift/light-local-stats.json ]]; then
-  cat /tmp/proxyrift/light-local-stats.json
+  polish_status=$?
+  echo "[WARN] Local polish_light exited with status $polish_status; consumer evidence will still be published." >&2
 fi
 
 echo
-echo "[INFO] Git state before cleanup:"
-git status --short
+echo "===== LOCAL LIGHT RESULT ====="
+if [[ -s /tmp/proxyrift/light-local-next.txt ]]; then
+  awk 'NF { count++ } END { print "Next Light candidates:", count + 0 }' /tmp/proxyrift/light-local-next.txt
+else
+  echo "No local Light output was produced."
+fi
 
-cleanup
+echo
+echo "===== LIGHT STATS ====="
+cat /tmp/proxyrift/light-local-stats.json 2>/dev/null || true
+
+cleanup_temp
 trap - EXIT
 
+if [[ ! -s subscriptions/light-consumer-evidence.json ]]; then
+  echo "[ERROR] No consumer evidence file was produced." >&2
+  exit "${polish_status:-1}"
+fi
+
+if git diff --quiet -- subscriptions/light-consumer-evidence.json; then
+  echo "[INFO] No new consumer evidence changes were produced."
+  exit "$polish_status"
+fi
+
+run_id="$(date -u +%Y%m%d-%H%M%S)-$$"
+branch="consumer-evidence/$run_id"
+git switch -c "$branch"
+
+git add subscriptions/light-consumer-evidence.json
+git diff --cached --check
+git commit -m "Update Light consumer evidence"
+git push -u origin HEAD
+
 echo
-echo "[OK] Local test complete. Tracked generated state was restored."
-echo "[OK] Persistent consumer history remains local:"
-echo "     subscriptions/light-consumer-results.json"
+echo "[OK] Consumer evidence pushed to:"
+echo "     $branch"
 echo
-echo "[INFO] No branch, commit, push, or PR is created by this helper."
+echo "[INFO] Merge the branch/PR into main for future Update Configs runs to consume it."
+echo "       Private results remain local in subscriptions/light-consumer-results.json"
+exit "$polish_status"
