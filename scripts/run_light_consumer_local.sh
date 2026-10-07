@@ -74,9 +74,14 @@ env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
 env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     ./target/release/light_consumer_test \
     --input subscriptions/light.txt \
-    --rounds 3 \
-    --timeout 15 \
-    --xray-timeout 5
+    --adaptive \
+    --max-candidates 96 \
+    --deep-candidates 64 \
+    --deep-rounds 3 \
+    --workers 16 \
+    --batch-size 64 \
+    --timeout 6 \
+    --xray-timeout 3
 
 git status
 git diff --stat
