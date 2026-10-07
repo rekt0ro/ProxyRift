@@ -463,10 +463,10 @@ fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
     let network = json_string(object.get("net")).unwrap_or_else(|| "tcp".to_string());
     let host = json_string(object.get("host"));
     let path = json_string(object.get("path"));
-    let service_name = json_string(object.get("serviceName"))
-        .or_else(|| json_string(object.get("service_name")));
-    let max_early_data = json_string(object.get("ed"))
-        .or_else(|| json_string(object.get("maxEarlyData")));
+    let service_name =
+        json_string(object.get("serviceName")).or_else(|| json_string(object.get("service_name")));
+    let max_early_data =
+        json_string(object.get("ed")).or_else(|| json_string(object.get("maxEarlyData")));
     let early_data_header_name =
         json_string(object.get("eh")).or_else(|| json_string(object.get("earlyDataHeaderName")));
     let security = json_string(object.get("tls"))
@@ -622,8 +622,9 @@ fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
         .strip_prefix("ss://")
         .ok_or_else(|| "invalid Shadowsocks URL".to_string())?;
 
-    let (server, port, cipher, password) =
-        if let Some((userinfo, remote)) = cleaned.rsplit_once('@') {
+    let (server, port, cipher, password) = if let Some((userinfo, remote)) =
+        cleaned.rsplit_once('@')
+    {
         let remote_url =
             Url::parse(&format!("http://{remote}")).map_err(|error| error.to_string())?;
         let (server, port) = endpoint_from_url(&remote_url)?;
