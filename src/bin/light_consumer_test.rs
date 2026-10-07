@@ -4,7 +4,7 @@ use proxyrift::validator::{
     is_light_consumer_compatible, validate_candidates_with_consumer_targets, LIGHT_CONSUMER_TARGETS,
 };
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fs;
 
