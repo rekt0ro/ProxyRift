@@ -586,8 +586,7 @@ async fn main() -> Result<(), String> {
 
     if has_flag(&args, "--adaptive") {
         let now = now_unix()?;
-        let plan =
-            build_adaptive_plan(&candidates, &history, now, max_candidates, deep_candidates);
+        let plan = build_adaptive_plan(&candidates, &history, now, max_candidates, deep_candidates);
         let mut selected = plan.deep.clone();
         selected.extend(plan.quick.iter().cloned());
 
