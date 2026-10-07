@@ -89,6 +89,12 @@ const PREVIOUS_COHORT_MIN_PERCENT: usize = 20;
 const OLDER_COHORT_MIN_PERCENT: usize = 10;
 const MIN_COHORT_RETENTION_COUNT: usize = 4;
 
+type StreamTaskResult = Result<
+    (HashMap<String, ProxyMetrics>, HashSet<String>),
+    String,
+>;
+type StreamTask = tokio::task::JoinHandle<StreamTaskResult>;
+
 fn transfer_validation_target(selection_limit: usize) -> usize {
     if selection_limit == 0 {
         return 0;
@@ -3196,9 +3202,7 @@ async fn main() -> Result<(), String> {
     let mut transfer_tested = HashSet::<String>::new();
     let mut stream_verified = HashMap::<String, ProxyMetrics>::new();
     let mut stream_tested = HashSet::<String>::new();
-    let mut stream_task: Option<
-        tokio::task::JoinHandle<Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String>>,
-    > = None;
+    let mut stream_task: Option<StreamTask> = None;
 
     let discovery_seed = recheck_exploration_seed(0);
     let discovery_candidates = rank_discovery_candidates(
