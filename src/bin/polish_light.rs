@@ -3678,8 +3678,8 @@ mod tests {
         select_verified_configs, select_verified_configs_with_cohort_floor,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
-        transfer_validation_target, update_transfer_target_state, ConsumerEvidence,
-        LightBackend, LightGbmScores, ProxyMetrics, TransferTargetState,
+        transfer_validation_target, update_transfer_target_state, ConsumerEvidence, LightBackend,
+        LightGbmScores, ProxyMetrics, TransferTargetState,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
