@@ -81,11 +81,13 @@ env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
 git status
 git diff --stat
 
-git add \
-    subscriptions/light-consumer-evidence.json \
-    subscriptions/light-history.json \
-    subscriptions/light-training-stats.json \
-    subscriptions/light-training.jsonl
+git restore -- \
+  subscriptions/light-consumer-evidence.json \
+  subscriptions/light-history.json \
+  subscriptions/light-training-stats.json \
+  subscriptions/light-training.jsonl
+
+git add subscriptions/light-consumer-results.json
 
 if git diff --cached --quiet; then
   echo "[INFO] No Light evidence changes were produced."
@@ -93,7 +95,7 @@ if git diff --cached --quiet; then
 fi
 
 git diff --cached --check
-git commit -m "Update Light validation and consumer evidence"
+git commit -m "Update Light consumer test history"
 
 git push -u origin HEAD
 

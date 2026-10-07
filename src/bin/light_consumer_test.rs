@@ -1,5 +1,5 @@
 use proxyrift::consumer_history::{
-    archetype_hash, config_hash, family_hash, now_unix, protocol, ConsumerEvidence,
+    archetype_hash, config_hash, family_hash, now_unix, protocol,
 };
 use proxyrift::singbox::validate_candidates_with_consumer_targets as validate_singbox_consumer_targets;
 use proxyrift::validator::{
@@ -12,7 +12,6 @@ use std::fs;
 
 const DEFAULT_INPUT: &str = "subscriptions/light.txt";
 const DEFAULT_HISTORY: &str = "subscriptions/light-consumer-results.json";
-const DEFAULT_EVIDENCE: &str = "subscriptions/light-consumer-evidence.json";
 const DEFAULT_WORKERS: usize = 8;
 const DEFAULT_BATCH_SIZE: usize = 24;
 const DEFAULT_TIMEOUT_SECONDS: f64 = 15.0;
@@ -349,29 +348,6 @@ async fn validate_round(
     Ok(results)
 }
 
-fn successful_evidence_rounds(rounds: &[Value]) -> Vec<Value> {
-    rounds
-        .iter()
-        .filter_map(|round| {
-            let results = round.get("results")?.as_array()?;
-            let successful = results
-                .iter()
-                .filter(|result| result.get("pass").and_then(Value::as_bool).unwrap_or(false))
-                .cloned()
-                .collect::<Vec<_>>();
-
-            if successful.is_empty() {
-                return None;
-            }
-
-            Some(json!({
-                "observed_at": round.get("observed_at")?.clone(),
-                "results": successful
-            }))
-        })
-        .collect()
-}
-
 fn aggregate_families(rounds: &[Value]) -> BTreeMap<String, (String, usize, usize)> {
     let mut data = BTreeMap::<String, (String, usize, usize)>::new();
 
@@ -463,7 +439,6 @@ async fn main() -> Result<(), String> {
 
     let input_path = value(&args, "--input", DEFAULT_INPUT);
     let history_path = value(&args, "--history", DEFAULT_HISTORY);
-    let evidence_path = value(&args, "--evidence", DEFAULT_EVIDENCE);
     let xray = value(&args, "--xray", "xray");
     let singbox = value(&args, "--singbox", "sing-box");
     let workers = parse_usize(&args, "--workers", DEFAULT_WORKERS)?;
@@ -491,7 +466,7 @@ async fn main() -> Result<(), String> {
         "[INFO] 🔐 History stores exact + structural hashes | Raw configs are never persisted"
     );
     println!(
-        "[INFO] 🧠 Evidence stores successful consumer observations; full pass/fail history stays in the results file"
+        "[INFO] 🧠 Full pass/fail consumer history is authoritative and is reused by update-run ranking"
     );
 
     let mut latest_round = Vec::new();
@@ -517,10 +492,6 @@ async fn main() -> Result<(), String> {
         }));
 
         save_history(&history_path, &history, &input_path, LIGHT_CONSUMER_TARGETS)?;
-        let existing_evidence = ConsumerEvidence::load(&evidence_path);
-        let evidence_rounds = successful_evidence_rounds(&history);
-        ConsumerEvidence::merge_rounds(&existing_evidence, &evidence_rounds, observed_at)
-            .save(&evidence_path)?;
 
         latest_round = latest.clone();
         let passes = latest.iter().filter(|result| result.pass).count();
