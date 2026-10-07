@@ -26,6 +26,7 @@ fi
 
 git pull --ff-only origin main
 
+mkdir -p /tmp/proxyrift
 light_input=/tmp/proxyrift/light-current.txt
 curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 60 \
   https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light.txt \
@@ -53,7 +54,6 @@ if ! gh auth status >/dev/null 2>&1; then
   exit 1
 fi
 
-mkdir -p /tmp/proxyrift
 envfile=/tmp/proxyrift-github-env
 
 cleanup_temp() {
