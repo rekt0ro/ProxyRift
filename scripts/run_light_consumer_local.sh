@@ -134,8 +134,8 @@ if [[ ! -s subscriptions/light-consumer-evidence.json ]]; then
 fi
 
 if git diff --quiet -- subscriptions/light-consumer-evidence.json; then
-  echo "[INFO] No new consumer evidence changes were produced."
-  exit "$polish_status"
+  echo "[INFO] No new consumer evidence changes were produced. Nothing to push or open."
+  exit 0
 fi
 
 run_id="$(date -u +%Y%m%d-%H%M%S)-$$"
