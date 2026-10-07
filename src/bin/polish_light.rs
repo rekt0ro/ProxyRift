@@ -1909,30 +1909,6 @@ async fn fill_transfer_gate(
     let mut target_tested_candidates =
         vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     loop {
-        if let Some(handle) = stream_task.take() {
-            if handle.is_finished() {
-                match handle.await {
-                    Ok(Ok((completed_stream, completed_tested))) => {
-                        stream_verified.extend(completed_stream);
-                        stream_tested.extend(completed_tested);
-                        println!(
-                            "[INFO] 🧵 [Stream] Background batch merged | Tested: {} | Passed: {}",
-                            stream_tested.len(),
-                            stream_verified.len()
-                        );
-                    }
-                    Ok(Err(error)) => {
-                        println!("[WARN] ⚠️ [Stream] Background validation failed | {error}");
-                    }
-                    Err(error) => {
-                        println!("[WARN] ⚠️ [Stream] Background task failed | {error}");
-                    }
-                }
-            } else {
-                stream_task = Some(handle);
-            }
-        }
-
         let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
             &mut transfer_ranked,
@@ -3242,6 +3218,30 @@ async fn main() -> Result<(), String> {
     );
 
     loop {
+        if let Some(handle) = stream_task.take() {
+            if handle.is_finished() {
+                match handle.await {
+                    Ok(Ok((completed_stream, completed_tested))) => {
+                        stream_verified.extend(completed_stream);
+                        stream_tested.extend(completed_tested);
+                        println!(
+                            "[INFO] 🧵 [Stream] Background batch merged | Tested: {} | Passed: {}",
+                            stream_tested.len(),
+                            stream_verified.len()
+                        );
+                    }
+                    Ok(Err(error)) => {
+                        println!("[WARN] ⚠️ [Stream] Background validation failed | {error}");
+                    }
+                    Err(error) => {
+                        println!("[WARN] ⚠️ [Stream] Background task failed | {error}");
+                    }
+                }
+            } else {
+                stream_task = Some(handle);
+            }
+        }
+
         let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
             &mut transfer_ranked,
