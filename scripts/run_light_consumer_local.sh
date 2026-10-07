@@ -37,10 +37,21 @@ mkdir -p /tmp/proxyrift
 envfile=/tmp/proxyrift-github-env
 
 cleanup() {
+  local tracked_generated=(
+    subscriptions/light-consumer-evidence.json
+    subscriptions/light-history.json
+    subscriptions/light-training-stats.json
+    subscriptions/light-training.jsonl
+  )
   git restore --quiet Cargo.lock 2>/dev/null || true
-  git restore --quiet --     subscriptions/light-consumer-evidence.json     subscriptions/light-history.json     subscriptions/light-training-stats.json     subscriptions/light-training.jsonl     2>/dev/null || true
+  git restore --quiet -- "${tracked_generated[@]}" 2>/dev/null || true
 
-  rm -f /tmp/proxyrift-github-env         /tmp/proxyrift/light-local-next.txt         /tmp/proxyrift/light-local-stats.json
+  local temp_files=(
+    /tmp/proxyrift-github-env
+    /tmp/proxyrift/light-local-next.txt
+    /tmp/proxyrift/light-local-stats.json
+  )
+  rm -f "${temp_files[@]}"
 }
 
 trap cleanup EXIT
