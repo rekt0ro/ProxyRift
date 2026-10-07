@@ -2231,7 +2231,6 @@ pub async fn validate_candidates(
     .await
 }
 
-
 pub fn render_subscription(configs: &[String]) -> Result<String, String> {
     let mut outbounds = Vec::with_capacity(configs.len());
     let mut rendered = 0usize;
