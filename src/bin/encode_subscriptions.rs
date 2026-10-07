@@ -68,7 +68,10 @@ fn main() -> Result<(), String> {
     render_clash_file("subscriptions/all.txt", "subscriptions/all-clash.yaml")?;
     render_clash_file("subscriptions/light.txt", "subscriptions/light-clash.yaml")?;
     render_singbox_file("subscriptions/all.txt", "subscriptions/all-singbox.json")?;
-    render_singbox_file("subscriptions/light.txt", "subscriptions/light-singbox.json")?;
+    render_singbox_file(
+        "subscriptions/light.txt",
+        "subscriptions/light-singbox.json",
+    )?;
     Ok(())
 }
 
