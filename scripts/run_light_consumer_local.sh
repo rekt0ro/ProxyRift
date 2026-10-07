@@ -26,19 +26,52 @@ fi
 
 git pull --ff-only origin main
 
-run_id="$(date -u +%Y%m%d-%H%M%S)-$$"
-branch="consumer-evidence/$run_id"
-git switch -c "$branch"
+mkdir -p /tmp/proxyrift
+main_sha="$(git rev-parse HEAD)"
+light_input=/tmp/proxyrift/light-current.txt
+curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 60 \
+  "https://raw.githubusercontent.com/rekt0ro/ProxyRift/${main_sha}/subscriptions/light.txt" \
+  -o "$light_input"
 
-cleanup() {
-  rm -f /tmp/proxyrift-github-env \
+if [[ ! -s "$light_input" ]]; then
+  echo "[ERROR] Current main Light subscription could not be downloaded." >&2
+  exit 1
+fi
+
+for binary in xray sing-box; do
+  if ! command -v "$binary" >/dev/null 2>&1; then
+    echo "[ERROR] Required binary not found in PATH: $binary" >&2
+    exit 1
+  fi
+done
+
+if ! command -v gh >/dev/null 2>&1; then
+  echo "[ERROR] GitHub CLI (gh) is required to open the evidence PR." >&2
+  exit 1
+fi
+
+if ! gh auth status >/dev/null 2>&1; then
+  echo "[ERROR] GitHub CLI is not authenticated. Run: gh auth login" >&2
+  exit 1
+fi
+
+envfile=/tmp/proxyrift-github-env
+
+cleanup_temp() {
+  git restore --quiet Cargo.lock 2>/dev/null || true
+  git restore --quiet -- \
+    subscriptions/light-history.json \
+    subscriptions/light-training-stats.json \
+    subscriptions/light-training.jsonl \
+    2>/dev/null || true
+
+  rm -f "$envfile" \
+        /tmp/proxyrift/light-current.txt \
         /tmp/proxyrift/light-local-next.txt \
         /tmp/proxyrift/light-local-stats.json
 }
-trap cleanup EXIT
 
-mkdir -p /tmp/proxyrift
-envfile=/tmp/proxyrift-github-env
+trap cleanup_temp EXIT
 
 env GITHUB_ENV="$envfile" bash scripts/install_lightgbm.sh
 
@@ -52,13 +85,28 @@ export LD_LIBRARY_PATH="$LIGHTGBM_LIB_DIR"
 
 env LIGHTGBM_LIB_DIR="$LIGHTGBM_LIB_DIR" \
     LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
-    cargo build --release --bin polish_light --bin light_consumer_test
+    cargo build --release --bin light_consumer_test --bin polish_light
 
-git restore Cargo.lock
+git restore --quiet Cargo.lock
 
 env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+    ./target/release/light_consumer_test \
+    --input "$light_input" \
+    --history subscriptions/light-consumer-results.json \
+    --write-evidence subscriptions/light-consumer-evidence.json \
+    --adaptive \
+    --max-candidates 96 \
+    --deep-candidates 64 \
+    --deep-rounds 3 \
+    --workers 16 \
+    --batch-size 64 \
+    --timeout 6 \
+    --xray-timeout 3
+
+polish_status=0
+if env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     ./target/release/polish_light \
-    --candidates subscriptions/light.txt \
+    --candidates "$light_input" \
     --output /tmp/proxyrift/light-local-next.txt \
     --workers 8 \
     --batch-size 24 \
@@ -70,43 +118,59 @@ env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     --max-per-family 3 \
     --stats /tmp/proxyrift/light-local-stats.json \
     --record-performance-consumer-evidence
+then
+  :
+else
+  polish_status=$?
+  echo "[WARN] Local polish_light exited with status $polish_status; consumer evidence will still be published." >&2
+fi
 
-env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
-    ./target/release/light_consumer_test \
-    --input subscriptions/light.txt \
-    --adaptive \
-    --max-candidates 96 \
-    --deep-candidates 64 \
-    --deep-rounds 3 \
-    --workers 16 \
-    --batch-size 64 \
-    --timeout 6 \
-    --xray-timeout 3
+echo
+echo "===== LOCAL LIGHT RESULT ====="
+if [[ -s /tmp/proxyrift/light-local-next.txt ]]; then
+  awk 'NF { count++ } END { print "Next Light candidates:", count + 0 }' /tmp/proxyrift/light-local-next.txt
+else
+  echo "No local Light output was produced."
+fi
 
-git status
-git diff --stat
+echo
+echo "===== LIGHT STATS ====="
+cat /tmp/proxyrift/light-local-stats.json 2>/dev/null || true
 
-git restore -- \
-  subscriptions/light-consumer-evidence.json \
-  subscriptions/light-history.json \
-  subscriptions/light-training-stats.json \
-  subscriptions/light-training.jsonl
+cleanup_temp
+trap - EXIT
 
-git add subscriptions/light-consumer-results.json
+if [[ ! -s subscriptions/light-consumer-evidence.json ]]; then
+  echo "[ERROR] No consumer evidence file was produced." >&2
+  exit "${polish_status:-1}"
+fi
 
-if git diff --cached --quiet; then
-  echo "[INFO] No Light evidence changes were produced."
+if git diff --quiet -- subscriptions/light-consumer-evidence.json; then
+  echo "[INFO] No new consumer evidence changes were produced. Nothing to push or open."
   exit 0
 fi
 
-git diff --cached --check
-git commit -m "Update Light consumer test history"
+run_id="$(date -u +%Y%m%d-%H%M%S)-$$"
+branch="consumer-evidence/$run_id"
+git switch -c "$branch"
 
+git add subscriptions/light-consumer-evidence.json
+git diff --cached --check
+git commit -m "Update Light consumer evidence"
 git push -u origin HEAD
 
+pr_url="$(gh pr create \\
+  --base main \\
+  --head "$branch" \\
+  --title "Update Light consumer evidence" \\
+  --body "Consumer-network validation results from the current main subscriptions/light.txt.\\n\\nThis PR updates only the privacy-safe structural consumer evidence. Private subscriptions/light-consumer-results.json remains local." )"
+
 echo
-echo "[OK] Consumer evidence pushed safely to:"
+echo "[OK] Consumer evidence pushed to:"
 echo "     $branch"
+echo "[OK] Evidence PR opened:"
+echo "     $pr_url"
 echo
-echo "Open a PR into main, or run:"
-echo "     gh pr create --base main --head '$branch' --title 'Update Light consumer evidence' --body 'Local Light validation and consumer evidence update.'"
+echo "[INFO] Merge this PR into main. On the next Update Configs run, main will contain the new evidence; then rerun this same command against the refreshed main Light list."
+echo "       Private results remain local in subscriptions/light-consumer-results.json"
+exit 0
