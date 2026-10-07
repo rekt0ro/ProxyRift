@@ -11,7 +11,7 @@ on:
       - ".github/workflows/**"
       - ".github/dependabot.yml"
       - ".gitignore"
-      - "scripts/install_lightgbm.sh"
+      - "scripts/**"
   pull_request:
     paths:
       - "Cargo.toml"
@@ -58,6 +58,9 @@ jobs:
           key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-
+
+      - name: Shell syntax check
+        run: bash -n scripts/*.sh
 
       - name: Install native LightGBM runtime
         run: bash scripts/install_lightgbm.sh
