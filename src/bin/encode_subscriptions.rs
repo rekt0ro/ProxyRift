@@ -1,6 +1,6 @@
 use base64::engine::general_purpose::STANDARD;
-use proxyrift::clash;
 use base64::Engine;
+use proxyrift::clash;
 use std::fs;
 use std::path::{Path, PathBuf};
 
