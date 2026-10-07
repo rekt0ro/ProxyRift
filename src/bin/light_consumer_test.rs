@@ -759,7 +759,7 @@ mod adaptive_tests {
 
     #[test]
     fn adaptive_plan_caps_pool_and_keeps_family_diversity() {
-        let configs = vec![
+        let configs = [
             "vless://one@example.com:443?type=tcp&sni=one.example",
             "vless://two@example.com:443?type=tcp&sni=two.example",
             "vless://three@example.com:443?type=ws&sni=three.example",
