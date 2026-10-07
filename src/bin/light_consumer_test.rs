@@ -203,7 +203,6 @@ fn print_usage() {
     );
 }
 
-#[allow(clippy::too_many_arguments)]
 #[derive(Clone, Copy, Debug)]
 struct HistoryStatus {
     observed_at: u64,
@@ -331,6 +330,7 @@ fn build_adaptive_plan(
     AdaptivePlan { deep, quick }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn validate_round(
     candidates: &[String],
     xray: &str,
