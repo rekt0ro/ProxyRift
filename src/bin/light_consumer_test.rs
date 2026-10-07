@@ -217,6 +217,7 @@ fn print_usage() {
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn validate_round(
     candidates: &[String],
     xray: &str,
