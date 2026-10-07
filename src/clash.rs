@@ -243,6 +243,7 @@ fn push_xhttp_opts(lines: &mut Vec<String>, indent: usize, path: Option<&str>, h
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_tls(
     lines: &mut Vec<String>,
     indent: usize,
@@ -292,6 +293,7 @@ fn push_tls(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_transport(
     lines: &mut Vec<String>,
     indent: usize,
