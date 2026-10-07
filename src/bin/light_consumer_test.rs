@@ -251,10 +251,7 @@ fn latest_history_by_hash(rounds: &[Value]) -> HashMap<String, HistoryStatus> {
 fn sort_adaptive_candidates(candidates: &mut [(String, u64, bool)], failures_first: bool) {
     candidates.sort_unstable_by(|left, right| {
         if failures_first {
-            right
-                .2
-                .cmp(&left.2)
-                .then_with(|| left.1.cmp(&right.1))
+            right.2.cmp(&left.2).then_with(|| left.1.cmp(&right.1))
         } else {
             left.1.cmp(&right.1)
         }
@@ -572,7 +569,10 @@ async fn main() -> Result<(), String> {
 
     let mut history = load_history(&history_path)?;
 
-    println!("[INFO] 🧪 Light consumer validation | {} candidates", candidates.len());
+    println!(
+        "[INFO] 🧪 Light consumer validation | {} candidates",
+        candidates.len()
+    );
     println!("[INFO] 🎯 Targets: {}", LIGHT_CONSUMER_TARGETS.join(", "));
     println!("[INFO] ⏱️ Timeouts | sing-box: {timeout:.1}s | Xray fallback: {xray_timeout:.1}s");
     println!(
@@ -586,13 +586,8 @@ async fn main() -> Result<(), String> {
 
     if has_flag(&args, "--adaptive") {
         let now = now_unix()?;
-        let plan = build_adaptive_plan(
-            &candidates,
-            &history,
-            now,
-            max_candidates,
-            deep_candidates,
-        );
+        let plan =
+            build_adaptive_plan(&candidates, &history, now, max_candidates, deep_candidates);
         let mut selected = plan.deep.clone();
         selected.extend(plan.quick.iter().cloned());
 
@@ -718,10 +713,11 @@ async fn main() -> Result<(), String> {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod adaptive_tests {
-    use super::{archetype_hash, build_adaptive_plan, config_hash, family_hash, RECENT_CONSUMER_WINDOW_SECS};
+    use super::{
+        archetype_hash, build_adaptive_plan, config_hash, family_hash, RECENT_CONSUMER_WINDOW_SECS,
+    };
     use serde_json::json;
 
     fn round(observed_at: u64, configs: &[(&str, bool)]) -> serde_json::Value {
