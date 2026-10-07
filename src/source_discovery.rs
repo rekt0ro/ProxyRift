@@ -160,8 +160,7 @@ fn search_fresh_cutoff_date(now: u64) -> String {
 }
 
 fn build_search_query(query: &str, query_set: usize, now: u64) -> String {
-    let base =
-        format!("{query} archived:false fork:false is:public in:name,description,readme");
+    let base = format!("{query} archived:false fork:false is:public in:name,description,readme");
     if query_set == 2 {
         format!(
             "{base} stars:0..100 pushed:>{}",
@@ -181,15 +180,11 @@ async fn pace_search_request(
 
     if let (Some(remaining), Some(reset_epoch)) = (remaining, reset_epoch) {
         if remaining > GITHUB_SEARCH_MIN_REMAINING && remaining <= 8 {
-            let window_ms = reset_epoch
-                .saturating_sub(unix_now())
-                .saturating_mul(1_000);
+            let window_ms = reset_epoch.saturating_sub(unix_now()).saturating_mul(1_000);
             if window_ms > 0 {
                 interval_ms = interval_ms.max(
-                    (window_ms / remaining).clamp(
-                        GITHUB_SEARCH_MIN_INTERVAL_MS,
-                        GITHUB_SEARCH_MAX_INTERVAL_MS,
-                    ),
+                    (window_ms / remaining)
+                        .clamp(GITHUB_SEARCH_MIN_INTERVAL_MS, GITHUB_SEARCH_MAX_INTERVAL_MS),
                 );
             }
         }
@@ -1635,9 +1630,7 @@ async fn search_repositories(
         .and_then(|value| value.parse::<u64>().ok());
     let (sort, query_set) = search_strategy_for_run(run_number, unix_now());
     let search_queries = &SEARCH_QUERY_SETS[query_set];
-    let search_query_count = search_queries
-        .len()
-        .min(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
+    let search_query_count = search_queries.len().min(MAX_GITHUB_SEARCH_REQUESTS_PER_RUN);
     let mut search_requests_made = 0usize;
     let mut search_rate_remaining = None;
     let mut search_rate_reset = None;
