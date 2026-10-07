@@ -3495,10 +3495,7 @@ async fn main() -> Result<(), String> {
             })
             .collect::<Vec<_>>();
 
-        consumer_evidence.record_performance_observations(
-            &performance_observations,
-            observed_at,
-        );
+        consumer_evidence.record_performance_observations(&performance_observations, observed_at);
         consumer_evidence.save(&consumer_evidence_path)?;
 
         println!(
