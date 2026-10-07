@@ -2231,7 +2231,7 @@ pub async fn validate_candidates(
     .await
 }
 
-pub fn render_subscription(configs: &[String]) -> Result<String, String> {
+fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize), String> {
     let mut outbounds = Vec::with_capacity(configs.len());
     let mut rendered = 0usize;
 
@@ -2256,11 +2256,17 @@ pub fn render_subscription(configs: &[String]) -> Result<String, String> {
         return Err("no configs could be rendered for sing-box".to_string());
     }
 
-    serde_json::to_string_pretty(&json!({
+    let json = serde_json::to_string_pretty(&json!({
         "$schema": "https://sing-box.sagernet.org/schema.json",
         "outbounds": outbounds,
     }))
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+
+    Ok((json, rendered))
+}
+
+pub fn render_subscription(configs: &[String]) -> Result<String, String> {
+    render_subscription_with_count(configs).map(|(json, _)| json)
 }
 
 pub fn render_subscription_file(input: &str, output: &str) -> Result<usize, String> {
