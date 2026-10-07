@@ -14,6 +14,8 @@ const FAMILY_PRIOR_STRENGTH: f64 = 16.0;
 const EXPLORATION_BONUS: f64 = 0.03;
 // Keep permanent support bounded so repeated passes strengthen a pattern without growing forever.
 const PERMANENT_SUPPORT_CAP: u32 = 8;
+const RECENT_CONSUMER_WINDOW_SECS: u64 = 7 * 24 * 60 * 60;
+const MAX_RECENT_CONSUMER_RESULTS: usize = 5000;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct WeightedStats {
@@ -38,6 +40,12 @@ struct GroupStats {
     archetype_hash: String,
     stats: WeightedStats,
     last_seen: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct RecentConsumerResult {
+    observed_at: u64,
+    pass: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -71,6 +79,7 @@ pub struct ConsumerEvidence {
     learned_protocols: HashMap<String, u32>,
     learned_archetypes: HashMap<String, LearnedGroupStats>,
     learned_families: HashMap<String, LearnedGroupStats>,
+    recent_consumer_results: HashMap<String, RecentConsumerResult>,
 }
 
 pub fn config_hash(config: &str) -> String {
@@ -510,6 +519,82 @@ impl ConsumerEvidence {
         evidence
     }
 
+    fn record_recent_consumer_results(&mut self, rounds: &[Value], now: u64) {
+        for round in rounds {
+            let observed_at = round
+                .get("observed_at")
+                .and_then(Value::as_u64)
+                .unwrap_or(now);
+            let Some(results) = round.get("results").and_then(Value::as_array) else {
+                continue;
+            };
+
+            for result in results {
+                let Some(config_hash) = result.get("config_hash").and_then(Value::as_str) else {
+                    continue;
+                };
+                let pass = result.get("pass").and_then(Value::as_bool).unwrap_or(false);
+                let replace = self
+                    .recent_consumer_results
+                    .get(config_hash)
+                    .map(|entry| observed_at >= entry.observed_at)
+                    .unwrap_or(true);
+                if replace {
+                    self.recent_consumer_results.insert(
+                        config_hash.to_string(),
+                        RecentConsumerResult { observed_at, pass },
+                    );
+                }
+            }
+        }
+
+        self.recent_consumer_results.retain(|_, entry| {
+            entry
+                .observed_at
+                .saturating_add(RECENT_CONSUMER_WINDOW_SECS)
+                >= now
+        });
+
+        if self.recent_consumer_results.len() > MAX_RECENT_CONSUMER_RESULTS {
+            let mut entries = self.recent_consumer_results.drain().collect::<Vec<_>>();
+            entries.sort_unstable_by_key(|(_, entry)| std::cmp::Reverse(entry.observed_at));
+            entries.truncate(MAX_RECENT_CONSUMER_RESULTS);
+            self.recent_consumer_results = entries.into_iter().collect();
+        }
+    }
+
+    pub fn load_with_consumer_history(evidence_path: &str, history_path: &str) -> Self {
+        let mut evidence = Self::load(evidence_path);
+        let Ok(content) = fs::read_to_string(history_path) else {
+            return evidence;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&content) else {
+            return evidence;
+        };
+        let Some(rounds) = value.get("rounds").and_then(Value::as_array) else {
+            return evidence;
+        };
+        let now = now_unix().unwrap_or(evidence.generated_at);
+        evidence = Self::merge_rounds(&evidence, rounds, now);
+        evidence.record_recent_consumer_results(rounds, now);
+        evidence
+    }
+
+    pub fn recent_consumer_priority(&self, config: &str) -> u8 {
+        match self.recent_consumer_results.get(&config_hash(config)) {
+            Some(entry) if entry.pass => 2,
+            Some(_) => 0,
+            None => 1,
+        }
+    }
+
+    pub fn recent_consumer_observed_at(&self, config: &str) -> u64 {
+        self.recent_consumer_results
+            .get(&config_hash(config))
+            .map(|entry| entry.observed_at)
+            .unwrap_or(0)
+    }
+
     pub fn load(path: &str) -> Self {
         let Ok(content) = fs::read_to_string(path) else {
             return Self::default();
@@ -894,6 +979,11 @@ impl ConsumerEvidence {
     }
 
     pub fn learning_priority(&self, config: &str) -> u8 {
+        match self.recent_consumer_priority(config) {
+            2 => return 4,
+            0 => return 0,
+            _ => {}
+        }
         let family = family_hash(config);
         if self
             .learned_families
@@ -1107,8 +1197,29 @@ pub fn now_unix() -> Result<u64, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{archetype_hash, family_hash, ConsumerEvidence};
+    use super::{archetype_hash, config_hash, family_hash, ConsumerEvidence};
     use serde_json::json;
+
+    #[test]
+    fn recent_consumer_results_are_prioritized() {
+        let config = "vless://one@example.com:443?security=reality&type=tcp";
+        let mut evidence = ConsumerEvidence::default();
+        let rounds = vec![serde_json::json!({
+            "observed_at": 2_000_000_u64,
+            "results": [{
+                "config_hash": config_hash(config),
+                "family_hash": family_hash(config),
+                "archetype_hash": archetype_hash(config),
+                "protocol": "vless",
+                "compatible": true,
+                "pass": true
+            }]
+        })];
+        evidence.record_recent_consumer_results(&rounds, 2_000_001);
+        assert_eq!(evidence.recent_consumer_priority(config), 2);
+        assert_eq!(evidence.learning_priority(config), 4);
+        assert_eq!(evidence.recent_consumer_observed_at(config), 2_000_000);
+    }
 
     #[test]
     fn family_hash_ignores_per_config_identity() {

@@ -2995,7 +2995,10 @@ async fn main() -> Result<(), String> {
         cohort_configs_loaded
     );
 
-    let mut consumer_evidence = ConsumerEvidence::load(&consumer_evidence_path);
+    let mut consumer_evidence = ConsumerEvidence::load_with_consumer_history(
+        &consumer_evidence_path,
+        "subscriptions/light-consumer-results.json",
+    );
     let light_gbm_scores =
         LightGbmScores::from_file("/tmp/proxyrift/lightgbm-scores.json").unwrap_or_default();
 
@@ -3278,13 +3281,15 @@ async fn main() -> Result<(), String> {
             let b_score = 0.60 * light_gbm_scores.score(b)
                 + 0.40 * consumer_scores.get(b).copied().unwrap_or(0.5);
 
-            b_score
-                .total_cmp(&a_score)
+            consumer_evidence
+                .recent_consumer_priority(b)
+                .cmp(&consumer_evidence.recent_consumer_priority(a))
                 .then_with(|| {
                     consumer_evidence
-                        .learning_priority(b)
-                        .cmp(&consumer_evidence.learning_priority(a))
+                        .recent_consumer_observed_at(b)
+                        .cmp(&consumer_evidence.recent_consumer_observed_at(a))
                 })
+                .then_with(|| b_score.total_cmp(&a_score))
                 .then_with(|| {
                     global_positions
                         .get(a)

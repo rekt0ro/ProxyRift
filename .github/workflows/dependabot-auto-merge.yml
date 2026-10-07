@@ -1,99 +1,15 @@
-name: Auto-merge Dependabot Actions
+name: Manual PR merge policy
 
 on:
-  pull_request_target:
-    types:
-      - opened
-      - reopened
-      - synchronize
-  check_suite:
-    types:
-      - completed
   workflow_dispatch:
 
-concurrency:
-  group: dependabot-action-auto-merge
-  cancel-in-progress: false
-
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 jobs:
-  merge:
+  policy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Merge ready Dependabot dependency updates
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mapfile -t prs < <(
-            gh pr list \
-              --repo "${GITHUB_REPOSITORY}" \
-              --state open \
-              --json number,author,isDraft \
-              --jq '.[] | select(.author.login == "dependabot[bot]" and .isDraft == false) | .number'
-          )
-
-          if [ "${#prs[@]}" -eq 0 ]; then
-            echo "No open Dependabot dependency-update PRs."
-            exit 0
-          fi
-
-          for pr in "${prs[@]}"; do
-            echo "Inspecting Dependabot PR #${pr}"
-
-            mapfile -t files < <(
-              gh pr view "${pr}" \
-                --repo "${GITHUB_REPOSITORY}" \
-                --json files \
-                --jq '.files[].path'
-            )
-
-            if [ "${#files[@]}" -eq 0 ]; then
-              echo "PR #${pr} has no changed files; skipping."
-              continue
-            fi
-
-            valid=true
-            for path in "${files[@]}"; do
-              case "${path}" in
-                .github/workflows/*.yml|.github/workflows/*.yaml|Cargo.toml|Cargo.lock)
-                  ;;
-                *)
-                  valid=false
-                  echo "PR #${pr} changes an unmanaged file: ${path}"
-                  ;;
-              esac
-            done
-
-            if [ "${valid}" != "true" ]; then
-              continue
-            fi
-
-            checks="$(gh pr checks "${pr}" --repo "${GITHUB_REPOSITORY}" --json bucket 2>/dev/null || true)"
-            if [ -z "${checks}" ]; then
-              echo "No check results for PR #${pr} yet; skipping."
-              continue
-            fi
-
-            if printf '%s' "${checks}" | jq -e 'length == 0' >/dev/null; then
-              echo "No checks for PR #${pr} yet; skipping."
-              continue
-            fi
-
-            if ! printf '%s' "${checks}" | jq -e 'length > 0 and all(.[]; .bucket == "pass")' >/dev/null; then
-              echo "PR #${pr} does not have all checks in a passing state; skipping."
-              continue
-            fi
-
-            echo "All reported checks passed for PR #${pr}; merging."
-            gh pr merge "${pr}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --squash \
-              --delete-branch
-          done
+      - name: Confirm automatic merging is disabled
+        run: echo "Automatic PR merging is intentionally disabled. All PRs require manual review and merge."
