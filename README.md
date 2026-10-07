@@ -50,10 +50,20 @@ Transport Reachability
       │                 ▼
       │              Rank & Limit
       │
-      └──────────────► Light
+      └──────────────► Light candidates
                         │
                         ▼
-                   Deep Validation
+              LightGBM + Consumer Evidence
+                 60%          40%
+                        │
+                        ▼
+                 Candidate Ranking
+                        │
+                        ▼
+                Consumer-like First
+                        │
+                        ▼
+                  Deep Validation
                         │
               ┌─────────┴─────────┐
               ▼                   ▼
@@ -68,7 +78,7 @@ Transport Reachability
 
 The **All** list is built from transport-reachable configurations and limited to 2,000 entries.
 
-The **Light** list goes through deeper validation using multiple targets, endpoint diversity, reliability, latency, jitter, transfer performance, and protocol-specific checks.
+The **Light** list is ranked using native LightGBM scoring combined with learned consumer evidence, with consumer-proven configurations prioritized before deeper validation. Candidates are then validated against multiple targets using endpoint diversity, reliability, latency, jitter, transfer performance, and protocol-specific checks.
 
 ## 🔄 Automatic Updates
 
