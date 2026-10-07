@@ -622,36 +622,35 @@ fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
         .strip_prefix("ss://")
         .ok_or_else(|| "invalid Shadowsocks URL".to_string())?;
 
-    let (server, port, cipher, password) = if let Some((userinfo, remote)) =
-        cleaned.rsplit_once('@')
-    {
-        let remote_url =
-            Url::parse(&format!("http://{remote}")).map_err(|error| error.to_string())?;
-        let (server, port) = endpoint_from_url(&remote_url)?;
-        let decoded = decode_component(userinfo)?;
-        let credentials = b64decode(&decoded)
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .unwrap_or(decoded);
-        let (cipher, password) = credentials
-            .split_once(':')
-            .ok_or_else(|| "invalid Shadowsocks credentials".to_string())?;
-        (server, port, cipher.to_string(), password.to_string())
-    } else {
-        let payload = cleaned.split('#').next().unwrap_or_default();
-        let decoded = b64decode(&decode_component(payload)?)
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .ok_or_else(|| "invalid legacy Shadowsocks base64".to_string())?;
-        let (credentials, remote) = decoded
-            .rsplit_once('@')
-            .ok_or_else(|| "invalid legacy Shadowsocks payload".to_string())?;
-        let (cipher, password) = credentials
-            .split_once(':')
-            .ok_or_else(|| "invalid Shadowsocks credentials".to_string())?;
-        let remote_url =
-            Url::parse(&format!("http://{remote}")).map_err(|error| error.to_string())?;
-        let (server, port) = endpoint_from_url(&remote_url)?;
-        (server, port, cipher.to_string(), password.to_string())
-    };
+    let (server, port, cipher, password) =
+        if let Some((userinfo, remote)) = cleaned.rsplit_once('@') {
+            let remote_url =
+                Url::parse(&format!("http://{remote}")).map_err(|error| error.to_string())?;
+            let (server, port) = endpoint_from_url(&remote_url)?;
+            let decoded = decode_component(userinfo)?;
+            let credentials = b64decode(&decoded)
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .unwrap_or(decoded);
+            let (cipher, password) = credentials
+                .split_once(':')
+                .ok_or_else(|| "invalid Shadowsocks credentials".to_string())?;
+            (server, port, cipher.to_string(), password.to_string())
+        } else {
+            let payload = cleaned.split('#').next().unwrap_or_default();
+            let decoded = b64decode(&decode_component(payload)?)
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .ok_or_else(|| "invalid legacy Shadowsocks base64".to_string())?;
+            let (credentials, remote) = decoded
+                .rsplit_once('@')
+                .ok_or_else(|| "invalid legacy Shadowsocks payload".to_string())?;
+            let (cipher, password) = credentials
+                .split_once(':')
+                .ok_or_else(|| "invalid Shadowsocks credentials".to_string())?;
+            let remote_url =
+                Url::parse(&format!("http://{remote}")).map_err(|error| error.to_string())?;
+            let (server, port) = endpoint_from_url(&remote_url)?;
+            (server, port, cipher.to_string(), password.to_string())
+        };
 
     let mut lines = vec![format!(
         "  - name: {}",
@@ -920,9 +919,8 @@ mod tests {
 
     #[test]
     fn renders_shadowsocks() {
-        let configs = vec![
-            "ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@example.com:443#SS%20001".to_string(),
-        ];
+        let configs =
+            vec!["ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@example.com:443#SS%20001".to_string()];
 
         let yaml = render(&configs).unwrap();
         assert!(yaml.contains("type: 'ss'"));
