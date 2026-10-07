@@ -1,4 +1,6 @@
-use proxyrift::consumer_history::{archetype_hash, config_hash, family_hash, now_unix, protocol};
+use proxyrift::consumer_history::{
+    archetype_hash, config_hash, family_hash, now_unix, protocol, ConsumerEvidence,
+};
 use proxyrift::singbox::validate_candidates_with_consumer_targets as validate_singbox_consumer_targets;
 use proxyrift::validator::{
     is_light_consumer_compatible, validate_candidates_with_consumer_targets, LIGHT_CONSUMER_TARGETS,
@@ -19,6 +21,7 @@ const DEFAULT_ROUNDS: usize = 1;
 const DEFAULT_MAX_CANDIDATES: usize = 96;
 const DEFAULT_DEEP_CANDIDATES: usize = 64;
 const DEFAULT_DEEP_ROUNDS: usize = 3;
+const DEFAULT_EVIDENCE: &str = "subscriptions/light-consumer-evidence.json";
 const RECENT_CONSUMER_WINDOW_SECS: u64 = 7 * 24 * 60 * 60;
 const MAX_STORED_ROUNDS: usize = 30;
 
@@ -550,6 +553,7 @@ async fn main() -> Result<(), String> {
 
     let input_path = value(&args, "--input", DEFAULT_INPUT);
     let history_path = value(&args, "--history", DEFAULT_HISTORY);
+    let evidence_path = value(&args, "--write-evidence", "");
     let xray = value(&args, "--xray", "xray");
     let singbox = value(&args, "--singbox", "sing-box");
     let workers = parse_usize(&args, "--workers", DEFAULT_WORKERS)?;
@@ -705,6 +709,19 @@ async fn main() -> Result<(), String> {
                 started.elapsed().as_secs_f64()
             );
         }
+    }
+
+    if !evidence_path.is_empty() {
+        let now = now_unix()?;
+        let existing = ConsumerEvidence::load(&evidence_path);
+        let merged = ConsumerEvidence::merge_rounds(&existing, &history, now);
+        merged.save(&evidence_path)?;
+        println!(
+            "[INFO] 🧠 Consumer evidence exported | {} | {} structural families | {:.0} weighted observations",
+            evidence_path,
+            merged.family_count(),
+            merged.observation_count()
+        );
     }
 
     print_summary(&history, &latest_round);
