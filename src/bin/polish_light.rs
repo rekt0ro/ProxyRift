@@ -26,8 +26,11 @@ use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use url::Url;
 
-const DISCOVERY_CHUNK_SIZE: usize = 1000;
+const DISCOVERY_BATCH_MIN: usize = 24;
+const DISCOVERY_BATCH_MAX: usize = 300;
 const MAX_DISCOVERY_CANDIDATES: usize = 10000;
+const DISCOVERY_SAFETY_FACTOR: f64 = 1.15;
+const TRANSFER_RESERVE_DEFAULT_PASS_RATE: f64 = 0.80;
 const FINAL_RECHECK_LIMIT: usize = 350;
 const DEFAULT_SELECTION_LIMIT: usize = 200;
 const DEFAULT_MAX_PER_ENDPOINT: usize = 1;
@@ -41,9 +44,6 @@ const MAX_RECHECK_EXPLORATION: usize = 64;
 const CONSUMER_LEARNING_RESERVE_PERCENT: usize = 25;
 const MAX_CONSUMER_LEARNING_RESERVE: usize = 64;
 const MAX_FINAL_RECHECK_ATTEMPTS: usize = 2;
-const TRANSFER_RESERVE_DEFAULT_PASS_RATE: f64 = 0.80;
-const TRANSFER_RESERVE_SAFETY_FACTOR: f64 = 1.08;
-const TRANSFER_RESERVE_MAX_HEADROOM: usize = 120;
 const FINAL_TRANSFER_BATCH_SIZE: usize = 32;
 const FINAL_TRANSFER_WORKERS: usize = 8;
 const FINAL_TRANSFER_INITIAL_WORKERS: usize = 8;
@@ -326,6 +326,7 @@ fn select_stability_test_batch(
     batch
 }
 
+#[cfg(test)]
 fn selection_eligible_count(
     configs: &[String],
     max_per_endpoint: usize,
@@ -381,6 +382,7 @@ fn selection_rejection_counts(
     (selected, endpoint_rejected, family_rejected)
 }
 
+#[cfg(test)]
 fn selection_potential_count(
     transfer_ranked: &[String],
     untested_strict: &[String],
@@ -411,37 +413,6 @@ fn selection_additional_potential_count(
     select_verified_configs(&combined, selection_limit, max_per_endpoint, max_per_family)
         .len()
         .saturating_sub(selected.len())
-}
-
-fn transfer_reserve_target(
-    selection_limit: usize,
-    transfer_selected: usize,
-    transfer_tested: usize,
-    transfer_passed: usize,
-) -> usize {
-    if selection_limit == 0 {
-        return 0;
-    }
-
-    let remaining = selection_limit.saturating_sub(transfer_selected);
-    if remaining == 0 {
-        return 0;
-    }
-
-    let observed_rate = if transfer_tested < 16 {
-        TRANSFER_RESERVE_DEFAULT_PASS_RATE
-    } else {
-        ((transfer_passed as f64 + 2.0) / (transfer_tested as f64 + 4.0)).clamp(0.60, 0.95)
-    };
-
-    let estimated =
-        ((remaining as f64 / observed_rate) * TRANSFER_RESERVE_SAFETY_FACTOR).ceil() as usize;
-    let minimum = remaining.saturating_add(8);
-    let maximum = remaining
-        .saturating_add(TRANSFER_RESERVE_MAX_HEADROOM)
-        .min(strict_validation_target(selection_limit));
-
-    estimated.clamp(minimum, maximum)
 }
 
 fn adaptive_transfer_test_limit(
@@ -850,6 +821,134 @@ fn sort_ranked(
             })
             .then_with(|| a.cmp(b))
     });
+}
+
+fn rank_discovery_candidates(
+    candidates: &[String],
+    light_gbm_scores: &LightGbmScores,
+    consumer_evidence: &ConsumerEvidence,
+    seed: u64,
+) -> Vec<String> {
+    let mut ranked = candidates.to_vec();
+    let consumer_scores = consumer_evidence.scores(candidates);
+
+    ranked.sort_unstable_by(|a, b| {
+        consumer_evidence
+            .recent_consumer_priority(b)
+            .cmp(&consumer_evidence.recent_consumer_priority(a))
+            .then_with(|| {
+                consumer_evidence
+                    .recent_consumer_observed_at(b)
+                    .cmp(&consumer_evidence.recent_consumer_observed_at(a))
+            })
+            .then_with(|| {
+                let a_score = 0.60 * light_gbm_scores.score(a)
+                    + 0.40 * consumer_scores.get(a).copied().unwrap_or(0.5);
+                let b_score = 0.60 * light_gbm_scores.score(b)
+                    + 0.40 * consumer_scores.get(b).copied().unwrap_or(0.5);
+                b_score.total_cmp(&a_score)
+            })
+            .then_with(|| a.cmp(b))
+    });
+
+    let mut exploration = candidates.to_vec();
+    exploration.sort_unstable_by_key(|config| exploration_sort_key(config, seed));
+
+    let exploration_target = candidates
+        .len()
+        .saturating_mul(RECHECK_EXPLORATION_PERCENT)
+        .div_ceil(100)
+        .clamp(1, MAX_RECHECK_EXPLORATION)
+        .min(candidates.len());
+
+    if exploration_target == 0 {
+        return ranked;
+    }
+
+    let mut ordered = Vec::with_capacity(candidates.len());
+    let mut selected = HashSet::with_capacity(candidates.len());
+    let mut ranked_index = 0usize;
+    let mut exploration_index = 0usize;
+    let mut exploration_selected = 0usize;
+
+    for position in 0..candidates.len() {
+        let exploration_due = ((position + 1) * exploration_target) / candidates.len()
+            > (position * exploration_target) / candidates.len();
+
+        if exploration_due && exploration_selected < exploration_target {
+            while exploration_index < exploration.len()
+                && selected.contains(&exploration[exploration_index])
+            {
+                exploration_index += 1;
+            }
+
+            if let Some(config) = exploration.get(exploration_index) {
+                selected.insert(config.clone());
+                ordered.push(config.clone());
+                exploration_selected += 1;
+                exploration_index += 1;
+                continue;
+            }
+        }
+
+        while ranked_index < ranked.len() && selected.contains(&ranked[ranked_index]) {
+            ranked_index += 1;
+        }
+
+        if let Some(config) = ranked.get(ranked_index) {
+            selected.insert(config.clone());
+            ordered.push(config.clone());
+            ranked_index += 1;
+        }
+    }
+
+    ordered
+}
+
+#[allow(clippy::too_many_arguments)]
+fn adaptive_discovery_batch_size(
+    selection_limit: usize,
+    publishable_selected: usize,
+    stability_tested: usize,
+    stability_passed: usize,
+    transfer_tested: usize,
+    transfer_passed: usize,
+    stream_tested: usize,
+    stream_passed: usize,
+    available_candidates: usize,
+) -> usize {
+    if selection_limit == 0 || available_candidates == 0 {
+        return 0;
+    }
+
+    let remaining = selection_limit.saturating_sub(publishable_selected);
+    if remaining == 0 {
+        return 0;
+    }
+
+    let stability_rate = if stability_tested < 16 {
+        0.75
+    } else {
+        ((stability_passed as f64 + 2.0) / (stability_tested as f64 + 4.0)).clamp(0.50, 0.95)
+    };
+    let transfer_rate = if transfer_tested < 16 {
+        0.80
+    } else {
+        ((transfer_passed as f64 + 2.0) / (transfer_tested as f64 + 4.0)).clamp(0.35, 0.95)
+    };
+    let stream_rate = if stream_tested < 16 {
+        1.0
+    } else {
+        ((stream_passed as f64 + 2.0) / (stream_tested as f64 + 4.0)).clamp(0.50, 0.98)
+    };
+
+    let observed_funnel_rate = (stability_rate * transfer_rate * stream_rate).clamp(0.08, 0.95);
+    let estimated =
+        ((remaining as f64 / observed_funnel_rate) * DISCOVERY_SAFETY_FACTOR).ceil() as usize;
+
+    estimated
+        .clamp(DISCOVERY_BATCH_MIN, DISCOVERY_BATCH_MAX)
+        .min(available_candidates)
 }
 
 fn family_key(config: &str) -> String {
@@ -2898,10 +2997,7 @@ async fn main() -> Result<(), String> {
         .parse::<usize>()
         .map_err(|_| "invalid --selected-batch-size".to_string())?;
     let primary_target = value(&args, "--primary-target", PRIMARY_TARGET);
-    let early_targets = [
-        primary_target.as_str(),
-        "https://www.cloudflare.com/robots.txt",
-    ];
+    let early_targets = [primary_target.as_str()];
     let consumer_targets = {
         let mut targets = LIGHT_CONSUMER_TARGETS.to_vec();
         targets[0] = primary_target.as_str();
@@ -3035,90 +3131,27 @@ async fn main() -> Result<(), String> {
     let mut stability_tested = HashSet::<String>::new();
     let mut transfer_verified = HashMap::<String, ProxyMetrics>::new();
     let mut transfer_tested = HashSet::<String>::new();
+    let mut stream_verified = HashMap::<String, ProxyMetrics>::new();
+    let mut stream_tested = HashSet::<String>::new();
 
-    let chunk_count = candidates.len().div_ceil(DISCOVERY_CHUNK_SIZE);
+    let discovery_seed = recheck_exploration_seed(0);
+    let discovery_candidates = rank_discovery_candidates(
+        &candidates,
+        &light_gbm_scores,
+        &consumer_evidence,
+        discovery_seed,
+    );
+    let mut discovery_cursor = 0usize;
+    let mut wave = 0usize;
 
     println!(
-        "[INFO] 🔬 [Light] Validation started | {} Candidates | Targets: {}",
-        candidates.len(),
-        early_targets.len()
+        "[INFO] 🔬 [Light] Validation started | {} Candidates | Targets: {} | ML/history ranked with {}% exploration",
+        discovery_candidates.len(),
+        early_targets.len(),
+        RECHECK_EXPLORATION_PERCENT
     );
 
-    for (chunk_index, chunk) in candidates.chunks(DISCOVERY_CHUNK_SIZE).enumerate() {
-        let wave = chunk_index + 1;
-
-        println!(
-            "[INFO] 🔎 [Light discovery] Wave {wave}/{chunk_count} | Testing {} candidates | Verified so far: {}",
-            chunk.len(),
-            global_verified.len()
-        );
-
-        let mut chunk_metadata = HashMap::new();
-        let mut remaining_candidates = chunk.to_vec();
-
-        for (target_index, target) in early_targets.iter().enumerate() {
-            if remaining_candidates.is_empty() {
-                break;
-            }
-
-            println!(
-                "[INFO] 🔎 [Light discovery] Wave {wave}/{chunk_count} | Early target {}/{} | Testing {} remaining",
-                target_index + 1,
-                early_targets.len(),
-                remaining_candidates.len()
-            );
-
-            let target_metadata = validate_light_batch(
-                &xray,
-                &singbox,
-                &remaining_candidates,
-                &[*target],
-                ValidationSettings {
-                    workers,
-                    batch_size,
-                    timeout_seconds: timeout,
-                    strict: false,
-                },
-            )
-            .await?;
-
-            remaining_candidates.retain(|config| !target_metadata.contains_key(config));
-            chunk_metadata.extend(target_metadata);
-
-            println!(
-                "[INFO] 📊 [Light discovery] Wave {wave}/{chunk_count} | Early target {}/{} complete | Verified: {} | Remaining: {} | Global verified: {}",
-                target_index + 1,
-                early_targets.len(),
-                chunk_metadata.len(),
-                remaining_candidates.len(),
-                global_verified.len() + chunk_metadata.len()
-            );
-        }
-
-        let chunk_verified_count = chunk_metadata.len();
-
-        for config in chunk_metadata.keys() {
-            if !global_positions.contains_key(config) {
-                let position = global_verified.len();
-                global_verified.push(config.clone());
-                global_positions.insert(config.clone(), position);
-            }
-        }
-        global_metadata.extend(chunk_metadata);
-
-        sort_ranked(
-            &mut global_verified,
-            &global_metadata,
-            &global_positions,
-            &history,
-        );
-        sort_ranked(
-            &mut final_verified,
-            &final_metadata,
-            &global_positions,
-            &history,
-        );
-
+    loop {
         let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
             &mut transfer_ranked,
@@ -3126,140 +3159,95 @@ async fn main() -> Result<(), String> {
             &global_positions,
             &history,
         );
-        let transfer_selected_configs = select_verified_configs(
+        let transfer_selected = select_verified_configs(
             &transfer_ranked,
             selection_limit,
             max_per_endpoint,
             max_per_family,
-        );
-        let mut transfer_selected = transfer_selected_configs.len();
+        )
+        .len();
 
-        let strict_untested = final_verified
-            .iter()
-            .filter(|config| !transfer_tested.contains(*config))
-            .cloned()
-            .collect::<Vec<_>>();
-        let strict_untested_additional_potential = selection_additional_potential_count(
-            &transfer_selected_configs,
-            &strict_untested,
-            strict_validation_target(selection_limit),
+        let publishable_selected = select_verified_configs(
+            &stream_verified.keys().cloned().collect::<Vec<_>>(),
+            selection_limit,
             max_per_endpoint,
             max_per_family,
-        );
-        let reserve_target = transfer_reserve_target(
-            selection_limit,
-            transfer_selected,
-            transfer_tested.len(),
-            transfer_verified.len(),
-        );
+        )
+        .len();
 
-        if transfer_selected >= selection_limit {
-            println!(
-                "[INFO] ✅ [Light] Transfer-qualified {}/{} | Publish ready",
-                transfer_selected, selection_limit
-            );
-
-            println!(
-                "[INFO] ✅ [Light] Transfer-qualified {}/{} | Stopping discovery for stream continuity",
-                transfer_selected, selection_limit
-            );
+        if publishable_selected >= selection_limit || discovery_cursor >= discovery_candidates.len()
+        {
             break;
         }
 
-        if strict_untested_additional_potential >= reserve_target {
-            println!(
-                "[INFO] 🎯 [Light] Transfer reserve ready | Additional strict potential: {} | Reserve target: {} | Transfer qualified: {}",
-                strict_untested_additional_potential, reserve_target, transfer_selected
-            );
-
-            transfer_selected = fill_transfer_gate(
-                &xray,
-                &singbox,
-                &final_verified,
-                &final_metadata,
-                &mut stability_verified,
-                &mut stability_tested,
-                &mut transfer_verified,
-                &mut transfer_tested,
-                &global_positions,
-                &history,
-                selection_limit,
-                max_per_endpoint,
-                max_per_family,
-            )
-            .await?;
-
-            if transfer_selected >= selection_limit {
-                let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
-                sort_ranked(
-                    &mut transfer_ranked,
-                    &transfer_verified,
-                    &global_positions,
-                    &history,
-                );
-                println!(
-                    "[INFO] ✅ [Light] Transfer-qualified {}/{} | Stopping discovery for stream continuity",
-                    transfer_selected, selection_limit
-                );
-                break;
-            }
-
-            let mut transfer_ranked_after = transfer_verified.keys().cloned().collect::<Vec<_>>();
-            sort_ranked(
-                &mut transfer_ranked_after,
-                &transfer_verified,
-                &global_positions,
-                &history,
-            );
-            let strict_untested_after = final_verified
-                .iter()
-                .filter(|config| !transfer_tested.contains(*config))
-                .cloned()
-                .collect::<Vec<_>>();
-            let potential_selected = selection_potential_count(
-                &transfer_ranked_after,
-                &strict_untested_after,
-                max_per_endpoint,
-                max_per_family,
-            );
-
-            let stability_pool_target = adaptive_stability_pool_target(
-                selection_limit,
-                stability_tested.len(),
-                stability_verified.len(),
-            )
-            .min(strict_validation_target(selection_limit));
-            let stability_reserve_ready = final_verified.len() >= stability_pool_target;
-
-            if potential_selected >= strict_validation_target(selection_limit)
-                && stability_reserve_ready
-            {
-                println!(
-                    "[INFO] 🎯 [Light] Transfer-first | Current strict pool can reach {} and sustains 1 MiB reserve {} | Skipping more discovery",
-                    selection_limit, stability_pool_target
-                );
-                break;
-            }
-
-            if potential_selected >= selection_limit {
-                println!(
-                    "[INFO] 🔁 [Light] Expanding strict reserve for 1 MiB | Current strict pool: {} | Stability reserve target: {} | Stability tested: {} | Stability passed: {} | Continuing discovery",
-                    final_verified.len(),
-                    stability_pool_target,
-                    stability_tested.len(),
-                    stability_verified.len()
-                );
-            }
+        let discovery_batch_size = adaptive_discovery_batch_size(
+            selection_limit,
+            publishable_selected,
+            stability_tested.len(),
+            stability_verified.len(),
+            transfer_tested.len(),
+            transfer_verified.len(),
+            stream_tested.len(),
+            stream_verified.len(),
+            discovery_candidates.len().saturating_sub(discovery_cursor),
+        );
+        if discovery_batch_size == 0 {
+            break;
         }
+
+        wave += 1;
+        let batch_start = discovery_cursor;
+        let batch_end = batch_start + discovery_batch_size;
+        discovery_cursor = batch_end;
+        let chunk = &discovery_candidates[batch_start..batch_end];
+
+        println!(
+            "[INFO] 🔎 [Light discovery] Wave {wave} | Testing {} candidates | Ordered cursor: {}/{} | Transfer qualified: {} | Publishable: {}",
+            chunk.len(),
+            discovery_cursor,
+            discovery_candidates.len(),
+            transfer_selected,
+            publishable_selected
+        );
+
+        let target = early_targets[0];
+        let target_metadata = validate_light_batch(
+            &xray,
+            &singbox,
+            chunk,
+            &[target],
+            ValidationSettings {
+                workers,
+                batch_size,
+                timeout_seconds: timeout,
+                strict: false,
+            },
+        )
+        .await?;
+        let chunk_verified_count = target_metadata.len();
+
+        for (config, metrics) in target_metadata {
+            if !global_positions.contains_key(&config) {
+                let position = global_verified.len();
+                global_verified.push(config.clone());
+                global_positions.insert(config.clone(), position);
+            }
+            global_metadata.insert(config, metrics);
+        }
+
+        sort_ranked(
+            &mut global_verified,
+            &global_metadata,
+            &global_positions,
+            &history,
+        );
 
         let remaining =
             strict_validation_target(selection_limit).saturating_sub(final_verified.len());
-
-        let checked_candidates = final_attempts.len();
         let dynamic_limit = adaptive_recheck_limit(
             remaining,
             final_recheck_limit,
-            checked_candidates,
+            final_attempts.len(),
             final_metadata.len(),
         );
 
@@ -3329,53 +3317,44 @@ async fn main() -> Result<(), String> {
             consumer_learning_limit,
         );
 
-        if final_candidates.is_empty() {
-            continue;
-        }
+        if !final_candidates.is_empty() {
+            for config in &final_candidates {
+                *final_attempts.entry(config.clone()).or_default() += 1;
+            }
 
-        for config in &final_candidates {
-            *final_attempts.entry(config.clone()).or_default() += 1;
-        }
+            println!(
+                "[INFO] 🔎 [Light recheck] Wave {wave} | Testing {} candidates | Learned: {} | Exploration: {}",
+                final_candidates.len(),
+                consumer_selected,
+                exploration_selected
+            );
 
-        println!(
-            "[INFO] 🔎 [Light recheck] Wave {wave} | Testing {} candidates | Learned: {} | Exploration: {}",
-            final_candidates.len(),
-            consumer_selected,
-            exploration_selected
-        );
+            let primary_metadata = validate_light_batch(
+                &xray,
+                &singbox,
+                &final_candidates,
+                &consumer_targets,
+                ValidationSettings {
+                    workers: final_workers,
+                    batch_size: final_batch_size,
+                    timeout_seconds: timeout,
+                    strict: true,
+                },
+            )
+            .await?;
 
-        let primary_metadata = validate_light_batch(
-            &xray,
-            &singbox,
-            &final_candidates,
-            &consumer_targets,
-            ValidationSettings {
-                workers: final_workers,
-                batch_size: final_batch_size,
-                timeout_seconds: timeout,
-                strict: true,
-            },
-        )
-        .await?;
-
-        for (config, mut metrics) in primary_metadata {
-            if metrics.throughput_kbps <= 0.0 {
-                if let Some(early) = global_metadata.get(&config) {
-                    metrics.throughput_kbps = early.throughput_kbps;
+            for (config, mut metrics) in primary_metadata {
+                if metrics.throughput_kbps <= 0.0 {
+                    if let Some(early) = global_metadata.get(&config) {
+                        metrics.throughput_kbps = early.throughput_kbps;
+                    }
                 }
+                if !final_metadata.contains_key(&config) {
+                    final_verified.push(config.clone());
+                }
+                final_metadata.insert(config, metrics);
             }
-            if !final_metadata.contains_key(&config) {
-                final_verified.push(config.clone());
-            }
-            final_metadata.insert(config, metrics);
         }
-
-        println!(
-            "[INFO] 🧭 [Light discovery] Wave {wave}/{chunk_count} complete | Prefilter verified: {} | Global verified: {} | Strict verified: {}",
-            chunk_verified_count,
-            global_verified.len(),
-            final_metadata.len()
-        );
 
         sort_ranked(
             &mut final_verified,
@@ -3383,69 +3362,118 @@ async fn main() -> Result<(), String> {
             &global_positions,
             &history,
         );
-        let selected = select_verified_configs(
+        let strict_selected = select_verified_configs(
             &final_verified,
             selection_limit,
             max_per_endpoint,
             max_per_family,
         );
 
-        let strict_untested = final_verified
-            .iter()
-            .filter(|config| !transfer_tested.contains(*config))
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut transfer_ranked_after = transfer_verified.keys().cloned().collect::<Vec<_>>();
-        sort_ranked(
-            &mut transfer_ranked_after,
-            &transfer_verified,
-            &global_positions,
-            &history,
-        );
-        let transfer_selected_configs_after = select_verified_configs(
-            &transfer_ranked_after,
-            selection_limit,
-            max_per_endpoint,
-            max_per_family,
-        );
-        let strict_untested_additional_potential = selection_additional_potential_count(
-            &transfer_selected_configs_after,
-            &strict_untested,
-            strict_validation_target(selection_limit),
-            max_per_endpoint,
-            max_per_family,
-        );
-        let reserve_target = transfer_reserve_target(
-            selection_limit,
-            transfer_selected,
-            transfer_tested.len(),
-            transfer_verified.len(),
-        );
-        let transfer_eligible = transfer_selected_configs_after.len();
-        let transfer_slots_remaining = selection_limit.saturating_sub(transfer_eligible);
-
         println!(
-            "[INFO] 📈 [Light fill] Strict pool: {}/{} | Additional strict potential: {} | Transfer qualified: {} | Transfer slots remaining: {} | Reserve target: {} | Strict checks: {}",
-            selected.len(),
-            selection_limit,
-            strict_untested_additional_potential,
-            transfer_eligible,
-            transfer_slots_remaining,
-            reserve_target,
-            final_attempts.values().copied().sum::<usize>()
+            "[INFO] 🧭 [Light discovery] Wave {wave} complete | Prefilter verified: {} | Global verified: {} | Strict verified: {} | Publish-selectable strict: {}",
+            chunk_verified_count,
+            global_verified.len(),
+            final_metadata.len(),
+            strict_selected.len()
         );
 
-        if strict_untested_additional_potential >= reserve_target {
+        if strict_selected.len() >= selection_limit {
             println!(
-                "[INFO] 🎯 [Light] Transfer reserve ready | Additional strict potential: {} | Reserve target: {}",
-                strict_untested_additional_potential, reserve_target
+                "[INFO] 🚀 [Light] Strict pool reached {} | Starting downstream funnel immediately",
+                selection_limit
             );
-        } else {
+
+            let _ = fill_transfer_gate(
+                &xray,
+                &singbox,
+                &final_verified,
+                &final_metadata,
+                &mut stability_verified,
+                &mut stability_tested,
+                &mut transfer_verified,
+                &mut transfer_tested,
+                &global_positions,
+                &history,
+                selection_limit,
+                max_per_endpoint,
+                max_per_family,
+            )
+            .await?;
+
+            let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
+            sort_ranked(
+                &mut transfer_ranked,
+                &transfer_verified,
+                &global_positions,
+                &history,
+            );
+            let transfer_selected = select_verified_configs(
+                &transfer_ranked,
+                selection_limit,
+                max_per_endpoint,
+                max_per_family,
+            )
+            .len();
+
+            if transfer_selected >= selection_limit {
+                let _ = fill_stream_continuity_gate(
+                    &xray,
+                    &singbox,
+                    &transfer_verified,
+                    &mut stream_verified,
+                    &mut stream_tested,
+                    &global_positions,
+                    &history,
+                )
+                .await?;
+
+                let publishable_selected = select_verified_configs(
+                    &stream_verified.keys().cloned().collect::<Vec<_>>(),
+                    selection_limit,
+                    max_per_endpoint,
+                    max_per_family,
+                )
+                .len();
+
+                println!(
+                    "[INFO] 📈 [Light adaptive funnel] Strict: {} | 1 MiB: {}/{} | 10 MiB: {}/{} | Stream: {}/{} | Publishable: {}/{}",
+                    final_metadata.len(),
+                    stability_verified.len(),
+                    stability_tested.len(),
+                    transfer_verified.len(),
+                    transfer_tested.len(),
+                    stream_verified.len(),
+                    stream_tested.len(),
+                    publishable_selected,
+                    selection_limit
+                );
+
+                if publishable_selected >= selection_limit {
+                    break;
+                }
+            }
+
+            let next_batch = adaptive_discovery_batch_size(
+                selection_limit,
+                select_verified_configs(
+                    &stream_verified.keys().cloned().collect::<Vec<_>>(),
+                    selection_limit,
+                    max_per_endpoint,
+                    max_per_family,
+                )
+                .len(),
+                stability_tested.len(),
+                stability_verified.len(),
+                transfer_tested.len(),
+                transfer_verified.len(),
+                stream_tested.len(),
+                stream_verified.len(),
+                discovery_candidates.len().saturating_sub(discovery_cursor),
+            );
             println!(
-                "[INFO] ⏭️ [Light] Discover more | Additional strict potential: {} | Reserve target: {} | Need {} more",
-                strict_untested_additional_potential,
-                reserve_target,
-                reserve_target.saturating_sub(strict_untested_additional_potential)
+                "[INFO] 🔁 [Light adaptive funnel] Downstream yield measured | Next discovery batch: {} | Candidates remaining: {}",
+                next_batch,
+                discovery_candidates.len().saturating_sub(discovery_cursor)
             );
         }
     }
@@ -3644,20 +3672,21 @@ async fn main() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_recheck_limit, adaptive_stability_pool_target, adaptive_stability_target,
-        adaptive_transfer_test_limit, adjust_transfer_workers, has_disabled_tls_verification,
-        history_fingerprint, light_backend, light_training_features, merge_light_metadata,
-        normalize_light_config, observation_fingerprint, recheck_exploration_limit,
-        select_recheck_candidates, select_stability_test_batch, select_transfer_target,
-        select_verified_configs, select_verified_configs_with_cohort_floor,
-        selection_additional_potential_count, selection_eligible_count, selection_potential_count,
-        selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
-        transfer_reserve_target, transfer_validation_target, update_transfer_target_state,
-        LightBackend, ProxyMetrics, TransferTargetState,
+        adaptive_discovery_batch_size, adaptive_recheck_limit, adaptive_stability_pool_target,
+        adaptive_stability_target, adaptive_transfer_test_limit, adjust_transfer_workers,
+        has_disabled_tls_verification, history_fingerprint, light_backend, light_training_features,
+        merge_light_metadata, normalize_light_config, observation_fingerprint,
+        rank_discovery_candidates, recheck_exploration_limit, select_recheck_candidates,
+        select_stability_test_batch, select_transfer_target, select_verified_configs,
+        select_verified_configs_with_cohort_floor, selection_additional_potential_count,
+        selection_eligible_count, selection_potential_count, selection_rejection_counts,
+        should_quarantine_transfer_target, strict_validation_target, transfer_validation_target,
+        update_transfer_target_state, ConsumerEvidence, LightBackend, LightGbmScores, ProxyMetrics,
+        TransferTargetState,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn cohort_floor_retains_previous_and_older_candidates() {
@@ -3848,18 +3877,6 @@ mod tests {
     }
 
     #[test]
-    fn transfer_reserve_is_conservative_at_start() {
-        assert_eq!(transfer_reserve_target(200, 0, 0, 0), 240);
-        assert_eq!(transfer_reserve_target(200, 190, 200, 160), 18);
-    }
-
-    #[test]
-    fn transfer_reserve_scales_with_low_pass_rate_and_is_capped() {
-        assert_eq!(transfer_reserve_target(200, 0, 200, 160), 240);
-        assert_eq!(transfer_reserve_target(200, 0, 200, 100), 240);
-    }
-
-    #[test]
     fn stability_batch_preserves_global_selection_capacity() {
         let stable_selected = vec![
             "vless://a@example.com:443".to_string(),
@@ -3908,6 +3925,38 @@ mod tests {
         assert_eq!(adjust_transfer_workers(2, 0, 8, 0), (2, 1));
         assert_eq!(adjust_transfer_workers(2, 0, 8, 1), (3, 0));
         assert_eq!(adjust_transfer_workers(8, 0, 8, 1), (8, 0));
+    }
+
+    #[test]
+    fn discovery_ranking_uses_ml_and_history_with_exploration() {
+        let configs = (0..20)
+            .map(|index| format!("vless://{index}@example.com:443"))
+            .collect::<Vec<_>>();
+        let light_gbm = LightGbmScores::default();
+        let evidence = ConsumerEvidence::default();
+        let ranked = rank_discovery_candidates(&configs, &light_gbm, &evidence, 123);
+
+        assert_eq!(ranked.len(), configs.len());
+        assert_eq!(
+            ranked.iter().collect::<HashSet<_>>(),
+            configs.iter().collect::<HashSet<_>>()
+        );
+        assert_ne!(ranked, configs);
+    }
+
+    #[test]
+    fn adaptive_discovery_uses_measured_downstream_yield() {
+        let batch = adaptive_discovery_batch_size(200, 155, 240, 226, 182, 160, 160, 155, 500);
+        assert!(batch >= 24);
+        assert!(batch < 100);
+    }
+
+    #[test]
+    fn adaptive_discovery_starts_with_small_bootstrap_batch() {
+        assert_eq!(
+            adaptive_discovery_batch_size(200, 0, 0, 0, 0, 0, 0, 0, 500),
+            300
+        );
     }
 
     #[test]
