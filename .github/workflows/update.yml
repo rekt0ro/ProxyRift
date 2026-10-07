@@ -471,6 +471,19 @@ jobs:
               continue
             fi
 
+            if grep -Eiq 'internal server error|http/2.*(500|502|503|504)| (500|502|503|504) |temporarily unavailable|service unavailable|bad gateway|gateway timeout' <<< "$push_output"; then
+              if [ "$attempt" -lt 5 ]; then
+                retry_delay=$((attempt * 2))
+                echo "[WARN] ⚠️ [Publish] Transient GitHub server error | Retrying in ${retry_delay}s"
+                git reset --hard
+                sleep "$retry_delay"
+                continue
+              fi
+
+              echo "[ERROR] ❌ [Publish] GitHub server error persisted after 5 attempts" >&2
+              exit "$push_status"
+            fi
+
             echo "[ERROR] ❌ [Publish] Push failed for a non-race reason" >&2
             exit "$push_status"
           done
