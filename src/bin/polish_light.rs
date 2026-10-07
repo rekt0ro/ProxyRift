@@ -30,6 +30,7 @@ const DISCOVERY_BATCH_MIN: usize = 24;
 const DISCOVERY_BATCH_MAX: usize = 300;
 const MAX_DISCOVERY_CANDIDATES: usize = 10000;
 const DISCOVERY_SAFETY_FACTOR: f64 = 1.15;
+const TRANSFER_RESERVE_DEFAULT_PASS_RATE: f64 = 0.80;
 const FINAL_RECHECK_LIMIT: usize = 350;
 const DEFAULT_SELECTION_LIMIT: usize = 200;
 const DEFAULT_MAX_PER_ENDPOINT: usize = 1;
@@ -3128,6 +3129,8 @@ async fn main() -> Result<(), String> {
     let mut stability_tested = HashSet::<String>::new();
     let mut transfer_verified = HashMap::<String, ProxyMetrics>::new();
     let mut transfer_tested = HashSet::<String>::new();
+    let mut stream_verified = HashMap::<String, ProxyMetrics>::new();
+    let mut stream_tested = HashSet::<String>::new();
 
     let discovery_seed = recheck_exploration_seed(0);
     let discovery_candidates = rank_discovery_candidates(
@@ -3675,8 +3678,8 @@ mod tests {
         select_verified_configs, select_verified_configs_with_cohort_floor,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
-        transfer_reserve_target, transfer_validation_target, update_transfer_target_state,
-        LightBackend, ProxyMetrics, TransferTargetState,
+        transfer_validation_target, update_transfer_target_state, ConsumerEvidence,
+        LightBackend, LightGbmScores, ProxyMetrics, TransferTargetState,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
