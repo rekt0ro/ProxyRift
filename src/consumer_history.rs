@@ -1199,7 +1199,7 @@ pub fn now_unix() -> Result<u64, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{archetype_hash, family_hash, ConsumerEvidence};
+    use super::{archetype_hash, config_hash, family_hash, ConsumerEvidence};
     use serde_json::json;
 
     #[test]
