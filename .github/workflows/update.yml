@@ -235,7 +235,7 @@ jobs:
           key: ${{ steps.keys.outputs.singbox }}
 
       - name: "✨ Validate Rust formatting"
-        run: cargo fmt --all
+        run: cargo fmt --all -- --check
 
       - name: "🌍 Check runner network"
         run: |
@@ -297,6 +297,7 @@ jobs:
           LIGHT_MIN_PUBLISH: "50"
         run: |
           mkdir -p /tmp/proxyrift
+          light_started_epoch="$(date +%s)"
           set +e
           ./target/release/polish_light \
             --candidates subscriptions/.light-candidates.txt \
@@ -316,7 +317,8 @@ jobs:
             --stats /tmp/proxyrift/light-stats.json
           status=$?
           set -e
-          echo "[INFO] ✅ [Light] Validation complete | $light_elapsed"
+          light_elapsed="$(( $(date +%s) - light_started_epoch ))s"
+          echo "[INFO] ✅ [Light] Validation complete | ${light_elapsed}"
 
           if [ "$status" -ne 0 ]; then
             echo "[WARN] ⚠️ [Light] Validation failed | Preserving previous subscription" >&2
