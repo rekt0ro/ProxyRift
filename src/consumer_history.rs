@@ -551,8 +551,12 @@ impl ConsumerEvidence {
             }
         }
 
-        self.recent_consumer_results
-            .retain(|_, entry| entry.observed_at.saturating_add(RECENT_CONSUMER_WINDOW_SECS) >= now);
+        self.recent_consumer_results.retain(|_, entry| {
+            entry
+                .observed_at
+                .saturating_add(RECENT_CONSUMER_WINDOW_SECS)
+                >= now
+        });
 
         if self.recent_consumer_results.len() > MAX_RECENT_CONSUMER_RESULTS {
             let mut entries = self
