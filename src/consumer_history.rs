@@ -545,10 +545,7 @@ impl ConsumerEvidence {
                         .insert(protocol.clone(), read_stats(Some(entry)));
                 }
             }
-            if let Some(archetypes) = performance
-                .get("archetypes")
-                .and_then(Value::as_object)
-            {
+            if let Some(archetypes) = performance.get("archetypes").and_then(Value::as_object) {
                 for (hash, entry) in archetypes {
                     evidence
                         .performance_archetypes
@@ -562,10 +559,9 @@ impl ConsumerEvidence {
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string();
-                    evidence.performance_families.insert(
-                        hash.clone(),
-                        read_group_stats(entry, archetype),
-                    );
+                    evidence
+                        .performance_families
+                        .insert(hash.clone(), read_group_stats(entry, archetype));
                 }
             }
         }
@@ -740,10 +736,10 @@ impl ConsumerEvidence {
             archetype_entry.stats.add(1.0, *passed);
             archetype_entry.last_seen = observed_at;
 
-            let family_entry = self
-                .performance_families
-                .entry(family)
-                .or_insert_with(|| GroupStats {
+            let family_entry =
+                self.performance_families
+                    .entry(family)
+                    .or_insert_with(|| GroupStats {
                     protocol: protocol_name,
                     archetype_hash: archetype,
                     ..GroupStats::default()
@@ -776,11 +772,7 @@ impl ConsumerEvidence {
             .unwrap_or_default();
 
         let global_rate = smoothed_rate(self.performance_global, 0.5, 4.0);
-        let protocol_rate = smoothed_rate(
-            protocol_stats,
-            global_rate,
-            PROTOCOL_PRIOR_STRENGTH,
-        );
+        let protocol_rate = smoothed_rate(protocol_stats, global_rate, PROTOCOL_PRIOR_STRENGTH);
 
         Some(smoothed_rate(
             family_stats,
@@ -1166,8 +1158,7 @@ mod tests {
 
     #[test]
     fn performance_observations_contribute_to_consumer_score() {
-        let config =
-            "vless://one@example.com:443?security=reality&type=tcp&sni=site.example";
+        let config = "vless://one@example.com:443?security=reality&type=tcp&sni=site.example";
         let mut evidence = ConsumerEvidence::default();
         let baseline = evidence.score(config);
 
@@ -1183,7 +1174,9 @@ mod tests {
             "proxyrift-performance-evidence-{}.json",
             std::process::id()
         ));
-        evidence.save(path.to_str().expect("path")).expect("save evidence");
+        evidence
+            .save(path.to_str().expect("path"))
+            .expect("save evidence");
         let loaded = ConsumerEvidence::load(path.to_str().expect("path"));
         assert!(loaded.performance_observation_count() > 0.0);
         assert!(loaded.performance_family_score(config).is_some());
