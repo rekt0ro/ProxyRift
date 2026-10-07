@@ -110,4 +110,4 @@ ProxyRift regenerates its subscriptions hourly through GitHub Actions.
 
 Each update collects fresh public configurations, screens them, builds the All and Light pools, generates the subscription formats, and publishes the results.
 
-[![Update Configs](https://github.com/rekt0ro/ProxyRift/actions/workflows/update.yml/badge.svg?branch=main)](https://github.com/rekt0ro/ProxyRift/actions/workflows/update.yml) [![Dependabot Updates](https://github.com/rekt0ro/ProxyRift/actions/workflows/dependabot/dependabot-updates/badge.svg?branch=main)](https://github.com/rekt0ro/ProxyRift/actions/workflows/dependabot/dependabot-updates) [![Auto-merge Dependabot Actions](https://github.com/rekt0ro/ProxyRift/actions/workflows/dependabot-auto-merge.yml/badge.svg?branch=main)](https://github.com/rekt0ro/ProxyRift/actions/workflows/dependabot-auto-merge.yml)
+[![Update Configs](https://github.com/rekt0ro/ProxyRift/actions/workflows/update.yml/badge.svg?branch=main)](https://github.com/rekt0ro/ProxyRift/actions/workflows/update.yml)
