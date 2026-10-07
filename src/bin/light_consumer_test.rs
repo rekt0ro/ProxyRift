@@ -740,14 +740,8 @@ mod adaptive_tests {
         let stale = "vless://stale@example.com:443?type=tcp&sni=stale.example";
         let unseen = "vless://unseen@example.com:443?type=ws&sni=unseen.example";
         let history = vec![
-            round(
-                now - RECENT_CONSUMER_WINDOW_SECS - 1,
-                &[(stale, true)],
-            ),
-            round(
-                now - 10,
-                &[(recent, true)],
-            ),
+            round(now - RECENT_CONSUMER_WINDOW_SECS - 1, &[(stale, true)]),
+            round(now - 10, &[(recent, true)]),
         ];
 
         let plan = build_adaptive_plan(
