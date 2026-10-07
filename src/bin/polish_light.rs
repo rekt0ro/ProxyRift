@@ -557,6 +557,10 @@ fn value(args: &[String], name: &str, default: &str) -> String {
         .unwrap_or_else(|| default.to_string())
 }
 
+fn has_flag(args: &[String], name: &str) -> bool {
+    args.iter().any(|arg| arg == name)
+}
+
 fn required(args: &[String], name: &str) -> Result<String, String> {
     let result = value(args, name, "");
     if result.is_empty() {
