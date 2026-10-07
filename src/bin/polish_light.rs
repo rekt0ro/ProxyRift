@@ -326,6 +326,7 @@ fn select_stability_test_batch(
     batch
 }
 
+#[cfg(test)]
 fn selection_eligible_count(
     configs: &[String],
     max_per_endpoint: usize,
@@ -381,6 +382,7 @@ fn selection_rejection_counts(
     (selected, endpoint_rejected, family_rejected)
 }
 
+#[cfg(test)]
 fn selection_potential_count(
     transfer_ranked: &[String],
     untested_strict: &[String],
@@ -903,6 +905,7 @@ fn rank_discovery_candidates(
     ordered
 }
 
+#[allow(clippy::too_many_arguments)]
 fn adaptive_discovery_batch_size(
     selection_limit: usize,
     publishable_selected: usize,
@@ -944,8 +947,7 @@ fn adaptive_discovery_batch_size(
         ((remaining as f64 / observed_funnel_rate) * DISCOVERY_SAFETY_FACTOR).ceil() as usize;
 
     estimated
-        .max(DISCOVERY_BATCH_MIN)
-        .min(DISCOVERY_BATCH_MAX)
+        .clamp(DISCOVERY_BATCH_MIN, DISCOVERY_BATCH_MAX)
         .min(available_candidates)
 }
 
