@@ -33,6 +33,16 @@ for binary in xray sing-box; do
   fi
 done
 
+if ! command -v gh >/dev/null 2>&1; then
+  echo "[ERROR] GitHub CLI (gh) is required to open the evidence PR." >&2
+  exit 1
+fi
+
+if ! gh auth status >/dev/null 2>&1; then
+  echo "[ERROR] GitHub CLI is not authenticated. Run: gh auth login" >&2
+  exit 1
+fi
+
 mkdir -p /tmp/proxyrift
 envfile=/tmp/proxyrift-github-env
 
@@ -137,10 +147,18 @@ git diff --cached --check
 git commit -m "Update Light consumer evidence"
 git push -u origin HEAD
 
+pr_url="$(gh pr create \\
+  --base main \\
+  --head "$branch" \\
+  --title "Update Light consumer evidence" \\
+  --body "Consumer-network validation results from the current main subscriptions/light.txt.\\n\\nThis PR updates only the privacy-safe structural consumer evidence. Private subscriptions/light-consumer-results.json remains local." )"
+
 echo
 echo "[OK] Consumer evidence pushed to:"
 echo "     $branch"
+echo "[OK] Evidence PR opened:"
+echo "     $pr_url"
 echo
-echo "[INFO] Merge the branch/PR into main for future Update Configs runs to consume it."
+echo "[INFO] Merge this PR into main. On the next Update Configs run, main will contain the new evidence; then rerun this same command against the refreshed main Light list."
 echo "       Private results remain local in subscriptions/light-consumer-results.json"
-exit "$polish_status"
+exit 0
