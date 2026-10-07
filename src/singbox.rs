@@ -1529,16 +1529,16 @@ async fn check_batch_targets(
                 active.clear();
             } else {
                 active.retain(|&entry_index| {
-                if policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
-                    && successes[entry_index] >= policy.min_successful_attempts
-                {
-                    return false;
-                }
+                    if policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
+                        && successes[entry_index] >= policy.min_successful_attempts
+                    {
+                        return false;
+                    }
 
-                successes[entry_index] + remaining >= policy.min_successful_attempts
-                    && (policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
-                        || late_streak[entry_index] + remaining >= STRICT_LATE_SUCCESS_STREAK)
-            });
+                    successes[entry_index] + remaining >= policy.min_successful_attempts
+                        && (policy.stability_attempts < STRICT_STABILITY_ATTEMPTS
+                            || late_streak[entry_index] + remaining >= STRICT_LATE_SUCCESS_STREAK)
+                });
             }
 
             if !active.is_empty()
