@@ -3221,9 +3221,7 @@ async fn main() -> Result<(), String> {
     let mut stream_verified = HashMap::<String, ProxyMetrics>::new();
     let mut stream_tested = HashSet::<String>::new();
     let mut stream_task: Option<
-        tokio::task::JoinHandle<
-            Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String>,
-        >,
+        tokio::task::JoinHandle<Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String>>,
     > = None;
 
     let discovery_seed = recheck_exploration_seed(0);
@@ -3334,9 +3332,7 @@ async fn main() -> Result<(), String> {
             &history,
         );
 
-        let available_for_strict = discovery_candidates
-            .len()
-            .saturating_sub(discovery_cursor);
+        let available_for_strict = discovery_candidates.len().saturating_sub(discovery_cursor);
         let desired_strict = adaptive_strict_validation_target(
             selection_limit,
             final_verified.len(),
@@ -3807,17 +3803,16 @@ async fn main() -> Result<(), String> {
 mod tests {
     use super::{
         adaptive_discovery_batch_size, adaptive_recheck_limit, adaptive_stability_pool_target,
-        adaptive_strict_validation_target,
-        adaptive_stability_target, adaptive_transfer_test_limit, adjust_transfer_workers,
-        has_disabled_tls_verification, history_fingerprint, light_backend, light_training_features,
-        merge_light_metadata, normalize_light_config, observation_fingerprint,
-        rank_discovery_candidates, recheck_exploration_limit, select_recheck_candidates,
-        select_stability_test_batch, select_transfer_target, select_verified_configs,
-        select_verified_configs_with_cohort_floor, selection_additional_potential_count,
-        selection_eligible_count, selection_potential_count, selection_rejection_counts,
-        should_quarantine_transfer_target, strict_validation_target, transfer_validation_target,
-        update_transfer_target_state, ConsumerEvidence, LightBackend, LightGbmScores, ProxyMetrics,
-        TransferTargetState,
+        adaptive_stability_target, adaptive_strict_validation_target, adaptive_transfer_test_limit,
+        adjust_transfer_workers, has_disabled_tls_verification, history_fingerprint, light_backend,
+        light_training_features, merge_light_metadata, normalize_light_config,
+        observation_fingerprint, rank_discovery_candidates, recheck_exploration_limit,
+        select_recheck_candidates, select_stability_test_batch, select_transfer_target,
+        select_verified_configs, select_verified_configs_with_cohort_floor,
+        selection_additional_potential_count, selection_eligible_count, selection_potential_count,
+        selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
+        transfer_validation_target, update_transfer_target_state, ConsumerEvidence, LightBackend,
+        LightGbmScores, ProxyMetrics, TransferTargetState,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
