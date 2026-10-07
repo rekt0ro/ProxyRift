@@ -1,6 +1,4 @@
-use proxyrift::consumer_history::{
-    archetype_hash, config_hash, family_hash, now_unix, protocol,
-};
+use proxyrift::consumer_history::{archetype_hash, config_hash, family_hash, now_unix, protocol};
 use proxyrift::singbox::validate_candidates_with_consumer_targets as validate_singbox_consumer_targets;
 use proxyrift::validator::{
     is_light_consumer_compatible, validate_candidates_with_consumer_targets, LIGHT_CONSUMER_TARGETS,
