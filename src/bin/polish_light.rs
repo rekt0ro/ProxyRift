@@ -2852,7 +2852,7 @@ async fn main() -> Result<(), String> {
 
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "Usage: polish_light --candidates FILE --output FILE [--workers N]              [--batch-size N] [--timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--selected-workers N] [--selected-batch-size N]              [--primary-target URL] [--selection-limit N] [--max-per-endpoint N]              [--max-per-family N] [--consumer-evidence FILE] [--xray PATH] [--singbox PATH] [--stats PATH]"
+            "Usage: polish_light --candidates FILE --output FILE [--workers N]              [--batch-size N] [--timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--selected-workers N] [--selected-batch-size N]              [--primary-target URL] [--selection-limit N] [--max-per-endpoint N]              [--max-per-family N] [--consumer-evidence FILE] [--record-performance-consumer-evidence]              [--xray PATH] [--singbox PATH] [--stats PATH]"
         );
         return Ok(());
     }
@@ -2904,6 +2904,8 @@ async fn main() -> Result<(), String> {
         targets
     };
     let consumer_evidence_path = value(&args, "--consumer-evidence", LIGHT_CONSUMER_EVIDENCE_PATH);
+    let record_performance_consumer_evidence =
+        has_flag(&args, "--record-performance-consumer-evidence");
     let xray = value(&args, "--xray", "xray");
     let selection_limit = value(
         &args,
@@ -2989,7 +2991,7 @@ async fn main() -> Result<(), String> {
         cohort_configs_loaded
     );
 
-    let consumer_evidence = ConsumerEvidence::load(&consumer_evidence_path);
+    let mut consumer_evidence = ConsumerEvidence::load(&consumer_evidence_path);
     let light_gbm_scores =
         LightGbmScores::from_file("/tmp/proxyrift/lightgbm-scores.json").unwrap_or_default();
 
@@ -3474,6 +3476,36 @@ async fn main() -> Result<(), String> {
         &history,
     )
     .await?;
+
+    if record_performance_consumer_evidence && !transfer_tested.is_empty() {
+        let observed_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("system clock error: {error}"))?
+            .as_secs();
+
+        let performance_observations = transfer_tested
+            .iter()
+            .map(|config| {
+                let passed = if stream_tested.contains(config) {
+                    stream_verified.contains_key(config)
+                } else {
+                    transfer_verified.contains_key(config)
+                };
+                (config.as_str(), passed)
+            })
+            .collect::<Vec<_>>();
+
+        consumer_evidence.record_performance_observations(
+            &performance_observations,
+            observed_at,
+        );
+        consumer_evidence.save(&consumer_evidence_path)?;
+
+        println!(
+            "[INFO] 🧠 [Consumer performance] Recorded {} observations | Highest available stage: 10 MiB/stream",
+            performance_observations.len()
+        );
+    }
 
     let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
     sort_ranked(
