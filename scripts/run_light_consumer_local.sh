@@ -26,6 +26,16 @@ fi
 
 git pull --ff-only origin main
 
+light_input=/tmp/proxyrift/light-current.txt
+curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 60 \
+  https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light.txt \
+  -o "$light_input"
+
+if [[ ! -s "$light_input" ]]; then
+  echo "[ERROR] Current main Light subscription could not be downloaded." >&2
+  exit 1
+fi
+
 for binary in xray sing-box; do
   if ! command -v "$binary" >/dev/null 2>&1; then
     echo "[ERROR] Required binary not found in PATH: $binary" >&2
@@ -55,6 +65,7 @@ cleanup_temp() {
     2>/dev/null || true
 
   rm -f "$envfile" \
+        /tmp/proxyrift/light-current.txt \
         /tmp/proxyrift/light-local-next.txt \
         /tmp/proxyrift/light-local-stats.json
 }
@@ -79,7 +90,7 @@ git restore --quiet Cargo.lock
 
 env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     ./target/release/light_consumer_test \
-    --input subscriptions/light.txt \
+    --input "$light_input" \
     --history subscriptions/light-consumer-results.json \
     --write-evidence subscriptions/light-consumer-evidence.json \
     --adaptive \
@@ -94,7 +105,7 @@ env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
 polish_status=0
 if env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     ./target/release/polish_light \
-    --candidates subscriptions/light.txt \
+    --candidates "$light_input" \
     --output /tmp/proxyrift/light-local-next.txt \
     --workers 8 \
     --batch-size 24 \
