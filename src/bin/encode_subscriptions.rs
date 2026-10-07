@@ -1,6 +1,6 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use proxyrift::clash;
+use proxyrift::{clash, singbox};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -53,11 +53,22 @@ fn render_clash_file(input: &str, output: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn render_singbox_file(input: &str, output: &str) -> Result<(), String> {
+    let count = singbox::render_subscription_file(input, output)?;
+    println!(
+        "[INFO] 🧩 [sing-box] Rendered {} configs | {}",
+        count, output
+    );
+    Ok(())
+}
+
 fn main() -> Result<(), String> {
     encode_file("subscriptions/all.txt")?;
     encode_file("subscriptions/light.txt")?;
     render_clash_file("subscriptions/all.txt", "subscriptions/all-clash.yaml")?;
     render_clash_file("subscriptions/light.txt", "subscriptions/light-clash.yaml")?;
+    render_singbox_file("subscriptions/all.txt", "subscriptions/all-singbox.json")?;
+    render_singbox_file("subscriptions/light.txt", "subscriptions/light-singbox.json")?;
     Ok(())
 }
 
