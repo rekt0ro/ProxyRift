@@ -77,7 +77,7 @@ fn b64decode(value: &str) -> Option<Vec<u8>> {
         padded.push('=');
     }
 
-    [value, padded.as_str()]
+    let decoded = [value, padded.as_str()]
         .into_iter()
         .flat_map(|candidate| {
             [
@@ -86,7 +86,8 @@ fn b64decode(value: &str) -> Option<Vec<u8>> {
                 URL_SAFE_NO_PAD.decode(candidate),
             ]
         })
-        .find_map(Result::ok)
+        .find_map(Result::ok);
+    decoded
 }
 
 fn vmess_json(config: &str) -> Result<Value, String> {
@@ -411,10 +412,10 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
     push_field(&mut lines, 4, "uuid", &uuid);
 
     if let Some(flow) = flow.filter(|value| !value.is_empty()) {
-        push_field(&mut lines, 4, "flow", flow);
+        push_field(&mut lines, 4, "flow", &flow);
     }
     if let Some(encryption) = encryption.filter(|value| !value.is_empty()) {
-        push_field(&mut lines, 4, "encryption", encryption);
+        push_field(&mut lines, 4, "encryption", &encryption);
     }
 
     push_tls(
@@ -546,7 +547,7 @@ fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
     )?;
 
     if let Some(flow) = flow.filter(|value| !value.is_empty()) {
-        push_field(&mut lines, 4, "flow", flow);
+        push_field(&mut lines, 4, "flow", &flow);
     }
 
     Ok(lines.join("\n"))
@@ -744,16 +745,16 @@ fn convert_hysteria2(config: &str, index: usize) -> Result<String, String> {
     push_field(&mut lines, 4, "password", &password);
 
     if let Some(up) = up.filter(|value| !value.is_empty()) {
-        push_field(&mut lines, 4, "up", up);
+        push_field(&mut lines, 4, "up", &up);
     }
     if let Some(down) = down.filter(|value| !value.is_empty()) {
-        push_field(&mut lines, 4, "down", down);
+        push_field(&mut lines, 4, "down", &down);
     }
     if let Some(obfs) = obfs.filter(|value| !value.is_empty()) {
-        push_field(&mut lines, 4, "obfs", obfs);
+        push_field(&mut lines, 4, "obfs", &obfs);
     }
     if let Some(password) = obfs_password.filter(|value| !value.is_empty()) {
-        push_field(&mut lines, 4, "obfs-password", password);
+        push_field(&mut lines, 4, "obfs-password", &password);
     }
 
     push_tls(
