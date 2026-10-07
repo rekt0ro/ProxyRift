@@ -3678,12 +3678,13 @@ mod tests {
         select_verified_configs, select_verified_configs_with_cohort_floor,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
+        adaptive_discovery_batch_size, rank_discovery_candidates,
         transfer_validation_target, update_transfer_target_state, ConsumerEvidence, LightBackend,
         LightGbmScores, ProxyMetrics, TransferTargetState,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn cohort_floor_retains_previous_and_older_candidates() {
