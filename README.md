@@ -22,6 +22,12 @@ https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light.txt
 https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light-base64.txt
 ```
 
+**Light · Clash / Mihomo YAML**
+
+```text
+https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/light-clash.yaml
+```
+
 **All**
 
 ```text
@@ -32,6 +38,12 @@ https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt
 
 ```text
 https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all-base64.txt
+```
+
+**All · Clash / Mihomo YAML**
+
+```text
+https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all-clash.yaml
 ```
 
 ## ⚙️ Pipeline
