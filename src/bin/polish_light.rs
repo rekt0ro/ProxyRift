@@ -3703,9 +3703,7 @@ async fn main() -> Result<(), String> {
 
         let performance_observations = stream_tested
             .iter()
-            .map(|config| {
-                (config.as_str(), stream_verified.contains_key(config))
-            })
+            .map(|config| (config.as_str(), stream_verified.contains_key(config)))
             .collect::<Vec<_>>();
 
         consumer_evidence.record_performance_observations(&performance_observations, observed_at);
