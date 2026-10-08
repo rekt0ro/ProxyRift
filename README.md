@@ -6,12 +6,12 @@ Public proxy collector and validator.
 
 ## 📡 Subscriptions
 
-Subscriptions are **updated hourly** with freshly collected and validated configurations.
+Subscriptions are **updated hourly** with newly collected and validated configurations.
 
-| List      | Description                              |
-| --------- | ---------------------------------------- |
-| **Light** | Up to 200 configs, deeply validated      |
-| **All**   | Up to 2,000 configs, transport-reachable |
+| List      | Description                                             |
+| --------- | ------------------------------------------------------- |
+| **Light** | Up to 200 configs, deeply tested                        |
+| **All**   | Up to 2,000 configs that pass transport-level screening |
 
 ### Light
 
@@ -61,62 +61,13 @@ sing-box:
 https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all-singbox.json
 ```
 
-## ⚙️ How It Works
-
-```text
-Public Sources
-      │
-      ▼
-Normalize & Deduplicate
-      │
-      ▼
-Transport Reachability
-      │
-      ├──────────────► All
-      │                 │
-      │                 ▼
-      │              Rank & Limit
-      │
-      └──────────────► Light candidates
-                        │
-                        ▼
-              LightGBM + Historical Evidence
-                        │
-                        ▼
-                 Candidate Ranking
-                        │
-                        ▼
-              Promising Candidates First
-                        │
-                        ▼
-                  Deep Validation
-                        │
-              ┌─────────┴─────────┐
-              ▼                   ▼
-        Xray Validation     sing-box Validation
-              └─────────┬─────────┘
-                        ▼
-              Quality & Diversity
-                        │
-                        ▼
-                     Publish
-```
-
-ProxyRift collects public proxy configurations, normalizes and deduplicates them, then checks whether they are reachable.
-
-From there, the pipeline builds two lists:
-
-**All** is a larger pool of configurations that passed transport-level screening.
-
-**Light** is a smaller quality-focused pool. Candidates are ranked using LightGBM together with historical validation evidence before going through deeper validation.
-
-Deep validation can include real HTTP requests, repeated checks, endpoint diversity, latency, jitter, transfer performance, and protocol-specific checks.
-
-## 🎯 What the Lists Mean
+## 🎯 Subscription Lists
 
 ### Light
 
-Light is intended to contain the better-performing configurations found during each update.
+Light is intended to contain the higher-quality configurations found during each update.
+
+Candidates are ranked using LightGBM together with historical validation evidence before undergoing deeper validation.
 
 A configuration must pass the current validation pipeline before it can be published to Light.
 
@@ -124,19 +75,19 @@ Passing validation does **not** mean that a proxy will remain available or conti
 
 ### All
 
-All is a larger transport-reachable pool.
+All is a larger pool of configurations that pass the initial transport-level screening.
 
-A configuration appearing in All means it passed the initial transport screening at collection time. It is not a guarantee of speed, stability, or long-term usability.
+A configuration appearing in All means it passed transport screening at collection time. It is not a guarantee of speed, stability, or long-term usability.
 
 ## 🧠 LightGBM
 
 The Light pool uses LightGBM as a ranking aid.
 
-The model is trained from historical validation data and uses structural characteristics of proxy configurations together with previous validation outcomes to estimate which candidates are more likely to be useful.
+The model is trained from historical validation data and uses structural characteristics of proxy configurations together with previous validation outcomes to estimate which candidates are more likely to perform well.
 
-It is not intended to predict proxy quality perfectly. Its main purpose is to reduce unnecessary deep validation work and prioritize promising candidates.
+It is not intended to predict proxy quality perfectly. Its main purpose is to reduce the amount of deep validation required and prioritize promising candidates.
 
-When there is not enough training data, ProxyRift falls back to a neutral score instead of pretending the model is confident.
+When there is not enough training data, ProxyRift falls back to a neutral score instead of assigning confidence where insufficient training data exists.
 
 ## 🔒 Security
 
@@ -146,7 +97,7 @@ During Light validation, supported proxy URI formats are parsed and constrained 
 
 The All list does not go through the same deep Xray/sing-box validation. It is based on transport-level screening and should be treated accordingly.
 
-These checks reduce the attack surface, but they do not make third-party proxy endpoints trustworthy. Run ProxyRift in an isolated or sandboxed environment when operating it yourself.
+These checks reduce the attack surface, but they do not make third-party proxy endpoints trustworthy. Run ProxyRift in an isolated or sandboxed environment when operating it locally.
 
 ## 🧪 Validation Notes
 
@@ -156,7 +107,7 @@ A proxy can pass every check during one run and fail later. Network conditions, 
 
 ProxyRift publishes the results of those validation runs as subscription lists. Passing validation means that a configuration met the relevant checks at the time it was tested, not that it will remain available or performant indefinitely.
 
-Independent testing of the published subscriptions is encouraged. The most useful way to evaluate the lists is to sample nodes and test them from your own environment against real-world usability, stability, latency, and transfer performance.
+Independent testing of the published subscriptions is encouraged. The best way to evaluate the lists is to sample nodes and test them from your own environment against real-world usability, stability, latency, and transfer performance.
 
 ## 🔄 Updates
 
@@ -172,6 +123,6 @@ Each update:
 6. Generates the subscription formats
 7. Publishes the updated results
 
-The GitHub Actions workflow is manually dispatched by an external scheduler on the hourly cadence.
+The GitHub Actions workflow is triggered hourly by an external scheduler.
 
 [![Update Configs](https://github.com/rekt0ro/ProxyRift/actions/workflows/update.yml/badge.svg?branch=main)](https://github.com/rekt0ro/ProxyRift/actions/workflows/update.yml)
