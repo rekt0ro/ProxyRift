@@ -28,6 +28,8 @@ use url::Url;
 
 const DISCOVERY_BATCH_MIN: usize = 24;
 const DISCOVERY_BATCH_MAX: usize = 300;
+const DISCOVERY_STALL_BATCH_SIZE: usize = DISCOVERY_BATCH_MAX;
+const DISCOVERY_STAGNATION_WAVES: usize = 4;
 const MAX_DISCOVERY_CANDIDATES: usize = 10000;
 const DISCOVERY_SAFETY_FACTOR: f64 = 1.15;
 const TRANSFER_RESERVE_DEFAULT_PASS_RATE: f64 = 0.80;
@@ -3210,6 +3212,7 @@ async fn main() -> Result<(), String> {
     );
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
+    let mut stagnant_waves = 0usize;
 
     println!(
         "[INFO] 🔬 [Light] Validation started | {} Candidates | Targets: {} | ML/history ranked with {}% exploration",
@@ -3271,7 +3274,7 @@ async fn main() -> Result<(), String> {
             break;
         }
 
-        let discovery_batch_size = adaptive_discovery_batch_size(
+        let mut discovery_batch_size = adaptive_discovery_batch_size(
             selection_limit,
             publishable_selected,
             stability_tested.len(),
@@ -3286,9 +3289,27 @@ async fn main() -> Result<(), String> {
             break;
         }
 
+        if stagnant_waves > 0 && publishable_selected < selection_limit {
+            let boosted_batch = discovery_batch_size
+                .max(DISCOVERY_STALL_BATCH_SIZE)
+                .min(discovery_candidates.len().saturating_sub(discovery_cursor));
+            if boosted_batch > discovery_batch_size {
+                println!(
+                    "[INFO] 🚀 [Light discovery] Stalled funnel | No downstream growth for {} wave(s) | Expanding next batch: {} -> {}",
+                    stagnant_waves,
+                    discovery_batch_size,
+                    boosted_batch
+                );
+                discovery_batch_size = boosted_batch;
+            }
+        }
+
         wave += 1;
         let batch_start = discovery_cursor;
         let batch_end = batch_start + discovery_batch_size;
+        let progress_before_final = final_metadata.len();
+        let progress_before_transfer = transfer_verified.len();
+        let progress_before_stream = stream_verified.len();
         discovery_cursor = batch_end;
         let chunk = &discovery_candidates[batch_start..batch_end];
 
@@ -3515,7 +3536,10 @@ async fn main() -> Result<(), String> {
             )
             .len();
 
-            if transfer_selected >= STREAM_START_TRANSFER_THRESHOLD && stream_task.is_none() {
+            if transfer_selected >= STREAM_START_TRANSFER_THRESHOLD
+                && stream_task.is_none()
+                && stream_tested.len() < STREAM_CONTINUITY_TEST_LIMIT.min(transfer_verified.len())
+            {
                 let transfer_snapshot = transfer_verified.clone();
                 let positions_snapshot = global_positions.clone();
                 let history_snapshot = history.clone();
@@ -3592,6 +3616,32 @@ async fn main() -> Result<(), String> {
                 next_batch,
                 discovery_candidates.len().saturating_sub(discovery_cursor)
             );
+
+            let progressed = final_metadata.len() > progress_before_final
+                || transfer_verified.len() > progress_before_transfer
+                || stream_verified.len() > progress_before_stream;
+
+            if strict_selected.len() >= selection_limit {
+                if progressed || stream_task.is_some() {
+                    stagnant_waves = 0;
+                } else {
+                    stagnant_waves = stagnant_waves.saturating_add(1);
+                }
+
+                if stagnant_waves >= DISCOVERY_STAGNATION_WAVES {
+                    println!(
+                        "[INFO] 🛑 [Light discovery] Funnel stalled | No strict/transfer/stream growth for {} consecutive waves | Strict selectable: {} | Transfer selectable: {} | Stream passed: {} | Remaining candidates: {} | Stopping best-effort discovery",
+                        stagnant_waves,
+                        strict_selected.len(),
+                        transfer_selected,
+                        stream_verified.len(),
+                        discovery_candidates.len().saturating_sub(discovery_cursor)
+                    );
+                    break;
+                }
+            } else {
+                stagnant_waves = 0;
+            }
         }
     }
 

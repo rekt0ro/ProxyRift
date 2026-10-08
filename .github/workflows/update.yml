@@ -353,7 +353,7 @@ jobs:
             test "$(grep -Ec '^#profile-update-interval:' "$f")" -eq 1
           done
 
-      - name: "🧬 Generate Base64 subscriptions"
+      - name: "🧬 Generate subscriptions"
         id: generate_base64
         run: |
           ./target/release/encode_subscriptions

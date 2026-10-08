@@ -13,7 +13,7 @@ use futures::stream::{self, StreamExt};
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File};
 use std::net::IpAddr;
 use std::process::{Child, Command, Stdio};
@@ -2241,6 +2241,7 @@ pub async fn validate_candidates(
 fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize), String> {
     let mut outbounds = Vec::with_capacity(configs.len());
     let mut rendered = 0usize;
+    let mut skipped_by_reason = BTreeMap::<String, Vec<usize>>::new();
 
     for (index, config) in configs.iter().enumerate() {
         match singbox_outbound(config) {
@@ -2250,17 +2251,39 @@ fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize),
                 rendered += 1;
             }
             Err(error) => {
-                eprintln!(
-                    "[WARN] ⚠️ [sing-box] Skipping config {} | {}",
-                    index + 1,
-                    error
-                );
+                skipped_by_reason.entry(error).or_default().push(index + 1);
             }
         }
     }
 
     if rendered == 0 {
         return Err("no configs could be rendered for sing-box".to_string());
+    }
+
+    if !skipped_by_reason.is_empty() {
+        let skipped_total: usize = skipped_by_reason.values().map(Vec::len).sum();
+        println!(
+            "[INFO] 🧹 [sing-box] Omitted {} configs unsupported by the standard build",
+            skipped_total
+        );
+
+        for (reason, indices) in skipped_by_reason {
+            let shown = indices
+                .iter()
+                .take(8)
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let suffix = if indices.len() > 8 { ", ..." } else { "" };
+
+            println!(
+                "[INFO]    {} config(s) | {} | indices: {}{}",
+                indices.len(),
+                reason,
+                shown,
+                suffix
+            );
+        }
     }
 
     let json = serde_json::to_string_pretty(&json!({
