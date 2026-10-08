@@ -2251,10 +2251,7 @@ fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize),
                 rendered += 1;
             }
             Err(error) => {
-                skipped_by_reason
-                    .entry(error)
-                    .or_default()
-                    .push(index + 1);
+                skipped_by_reason.entry(error).or_default().push(index + 1);
             }
         }
     }
