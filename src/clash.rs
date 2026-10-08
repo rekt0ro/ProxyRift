@@ -104,7 +104,15 @@ fn endpoint_from_url(url: &Url) -> Result<(String, u16), String> {
         .host_str()
         .ok_or_else(|| "missing server".to_string())?
         .to_string();
-    let port = url.port().ok_or_else(|| "missing port".to_string())?;
+    let default_port = match url.scheme() {
+        "http" => Some(80),
+        "socks" | "socks5" | "socks5h" => Some(1080),
+        _ => None,
+    };
+    let port = url
+        .port()
+        .or(default_port)
+        .ok_or_else(|| "missing port".to_string())?;
     if port == 0 {
         return Err("invalid port".to_string());
     }
@@ -952,6 +960,25 @@ mod tests {
         let configs = vec!["ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@example.com:80#SS%20002".to_string()];
         let yaml = render(&configs).unwrap();
         assert!(yaml.contains("port: 80"));
+    }
+
+    #[test]
+    fn defaults_ports_only_for_http_and_socks5() {
+        let configs = vec![
+            "http://proxy.example.com".to_string(),
+            "socks5://proxy.example.com".to_string(),
+            "vless://00000000-0000-0000-0000-000000000001@proxy.example.com?security=none"
+                .to_string(),
+        ];
+
+        let (yaml, rendered) = super::render_with_count(&configs).unwrap();
+
+        assert_eq!(rendered, 2);
+        assert_eq!(yaml.matches("  - name:").count(), 2);
+        assert!(yaml.contains("type: 'http'"));
+        assert!(yaml.contains("type: 'socks5'"));
+        assert!(yaml.contains("port: 80"));
+        assert!(yaml.contains("port: 1080"));
     }
 
     #[test]
