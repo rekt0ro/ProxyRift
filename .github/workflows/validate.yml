@@ -64,6 +64,8 @@ jobs:
         run: bash -n scripts/*.sh
 
       - name: Install native LightGBM runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/install_lightgbm.sh
 
       - name: Format check
