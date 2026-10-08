@@ -150,19 +150,35 @@ if git diff --quiet -- subscriptions/light-consumer-evidence.json; then
   exit 0
 fi
 
-run_id="$(date -u +%Y%m%d-%H%M%S)-$$"
+run_id="$(date -u +%Y%m%d-%H%M%S)-$"
 branch="consumer-evidence/$run_id"
-git switch -c "$branch"
+repo="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')"
 
-git add subscriptions/light-consumer-evidence.json
-git diff --cached --check
-git commit -m "Update Light consumer evidence"
-git push -u origin HEAD
+echo "[INFO] Creating evidence branch via GitHub API (no git push pack)."
+gh api --method POST "repos/$repo/git/refs" \
+  -f "ref=refs/heads/$branch" \
+  -f "sha=$main_sha" >/dev/null
 
-pr_url="$(gh pr create --base main --head "$branch" --title "Update Light consumer evidence" --body $'Consumer-network validation results from the current main subscriptions/light.txt.\\n\\nThis PR updates only the privacy-safe structural consumer evidence. Private subscriptions/light-consumer-results.json remains local.')"
+evidence_sha="$(gh api \
+  "repos/$repo/contents/subscriptions/light-consumer-evidence.json?ref=$main_sha" \
+  --jq '.sha')"
+
+evidence_content="$(base64 -w0 subscriptions/light-consumer-evidence.json)"
+gh api --method PUT "repos/$repo/contents/subscriptions/light-consumer-evidence.json" \
+  -f "message=Update Light consumer evidence" \
+  -f "content=$evidence_content" \
+  -f "sha=$evidence_sha" \
+  -f "branch=$branch" >/dev/null
+
+git restore --quiet -- subscriptions/light-consumer-evidence.json
+
+pr_url="$(gh pr create --base main --head "$branch" --title "Update Light consumer evidence" --body echo "[INFO] Merge this PR into main. On the next Update Configs run, main will contain the new evidence; then rerun this same command against the refreshed main Light list."
+echo "       Private results remain local in subscriptions/light-consumer-results.json"
+exit 0
+Consumer-network validation results from the current main subscriptions/light.txt.\\n\\nThis PR updates only the privacy-safe structural consumer evidence. Private subscriptions/light-consumer-results.json remains local.')"
 
 echo
-echo "[OK] Consumer evidence pushed to:"
+echo "[OK] Consumer evidence committed to:"
 echo "     $branch"
 echo "[OK] Evidence PR opened:"
 echo "     $pr_url"
