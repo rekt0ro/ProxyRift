@@ -1,36 +1,34 @@
 proxies:
-  - name: 'Shadowsocks 9604'
+  - name: 'Shadowsocks 10744'
     type: 'ss'
-    server: '149.102.149.207'
-    port: 443
+    server: '213.202.208.199'
+    port: 5000
     cipher: 'aes-256-gcm'
-    password: 'LXchLsIwtCeUAUgu'
+    password: 'Y6R9pAtvxxzmGC'
     udp: true
-  - name: 'VLESS 90339'
-    type: 'vless'
-    server: '177.3.218.181'
-    port: 2053
-    udp: true
-    uuid: 'ae1612f8-6e01-48d6-b4f7-502f233dfb33'
-    encryption: 'none'
-    tls: true
-    servername: '177.3.218.181'
-    client-fingerprint: 'firefox'
-  - name: 'Shadowsocks 5825'
+  - name: 'Shadowsocks 5865'
     type: 'ss'
     server: '140.82.63.79'
     port: 8388
     cipher: 'chacha20-ietf-poly1305'
     password: 'ZoZtfPOyVvmKARUN'
     udp: true
-  - name: 'Shadowsocks 8594'
-    type: 'ss'
-    server: '37.19.198.244'
-    port: 443
-    cipher: 'aes-128-gcm'
-    password: 'shadowsocks'
+  - name: 'VMess 12730'
+    type: 'vmess'
+    server: '67.220.95.3'
+    port: 18000
     udp: true
-  - name: 'VLESS 126005'
+    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
+    alterId: 0
+    cipher: 'auto'
+  - name: 'Shadowsocks 8021'
+    type: 'ss'
+    server: '64.74.161.147'
+    port: 17200
+    cipher: 'aes-128-gcm'
+    password: '1cbb3e347ee86e1980a7c731e9dd00a0'
+    udp: true
+  - name: 'VLESS 134321'
     type: 'vless'
     server: '66.70.179.198'
     port: 2053
@@ -42,34 +40,38 @@ proxies:
     reality-opts:
       public-key: 'k4l6TxwkBbx9DhZAFpByq5rfCWFSgyOex3f_eFe9CWU'
       short-id: '83f8317a948bb769'
-  - name: 'VLESS 114934'
-    type: 'vless'
-    server: '137.184.218.169'
-    port: 36925
-    udp: true
-    uuid: 'c9fd0fb1-8251-4106-b09a-f4b426736f67'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'www.cloudflare.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'lJ9INPpO4rdnm2Tek_yg0PGFyUrBB6MoKyvqt_Mfqm0'
-  - name: 'Shadowsocks 8046'
+  - name: 'Shadowsocks 8106'
     type: 'ss'
     server: '64.74.163.69'
     port: 18766
     cipher: 'aes-128-gcm'
     password: '4efe1af272e7292139b889f6a63ee071'
     udp: true
-  - name: 'Shadowsocks 7962'
-    type: 'ss'
-    server: '64.74.161.147'
-    port: 17200
-    cipher: 'aes-128-gcm'
-    password: '1cbb3e347ee86e1980a7c731e9dd00a0'
+  - name: 'HTTP 5798'
+    type: 'http'
+    server: '34.43.46.91'
+    port: 443
+  - name: 'VLESS 132405'
+    type: 'vless'
+    server: '207.246.75.174'
+    port: 443
     udp: true
-  - name: 'VLESS 114957'
+    uuid: 'd90087c3-54f5-4283-a13f-615260c8b0c7'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'googleapis.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'hTweFDvbSucrGERtiiwDfoqD3vo_Z9cuaqboff3FTXQ'
+  - name: 'VMess 30741'
+    type: 'vmess'
+    server: '38.110.1.246'
+    port: 18000
+    udp: true
+    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
+    alterId: 0
+    cipher: 'auto'
+  - name: 'VLESS 122520'
     type: 'vless'
     server: 'ww9.levikogjgfdd.ir'
     port: 36925
@@ -82,54 +84,65 @@ proxies:
     client-fingerprint: 'chrome'
     reality-opts:
       public-key: 'lJ9INPpO4rdnm2Tek_yg0PGFyUrBB6MoKyvqt_Mfqm0'
-  - name: 'VLESS 124246'
-    type: 'vless'
-    server: '207.246.75.174'
-    port: 443
-    udp: true
-    uuid: 'd90087c3-54f5-4283-a13f-615260c8b0c7'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'googleapis.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'hTweFDvbSucrGERtiiwDfoqD3vo_Z9cuaqboff3FTXQ'
-  - name: 'VMess 29756'
-    type: 'vmess'
-    server: '38.110.1.246'
-    port: 18000
-    udp: true
-    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
-    alterId: 0
-    cipher: 'auto'
-  - name: 'Shadowsocks 12091'
+  - name: 'Shadowsocks 12246'
     type: 'ss'
     server: '15.204.247.206'
     port: 4444
     cipher: 'aes-256-gcm'
     password: 'pKEW8JPByTVTLtM'
     udp: true
-  - name: 'Shadowsocks 8170'
+  - name: 'VMess 7542'
+    type: 'vmess'
+    server: '23.162.200.198'
+    port: 18000
+    udp: true
+    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
+    alterId: 0
+    cipher: 'auto'
+  - name: 'Shadowsocks 8230'
     type: 'ss'
     server: '216.52.183.174'
     port: 17036
     cipher: 'aes-128-gcm'
     password: '9fbcf342cc8d6993ef6faf9ed65f8943'
     udp: true
-  - name: 'VLESS 112273'
-    type: 'vless'
-    server: '198.251.78.29'
-    port: 2053
+  - name: 'Shadowsocks 8206'
+    type: 'ss'
+    server: '66.23.204.214'
+    port: 16999
+    cipher: 'aes-128-gcm'
+    password: '89d3a0375a279f6e743fea76e72952a8'
     udp: true
-    uuid: 'c423cc1b-f88e-421c-9a16-c480d84da20f'
+  - name: 'Shadowsocks 8626'
+    type: 'ss'
+    server: '156.146.38.170'
+    port: 443
+    cipher: 'aes-128-gcm'
+    password: 'shadowsocks'
+    udp: true
+  - name: 'Shadowsocks 8625'
+    type: 'ss'
+    server: '156.146.38.169'
+    port: 443
+    cipher: 'aes-128-gcm'
+    password: 'shadowsocks'
+    udp: true
+  - name: 'Shadowsocks 11953'
+    type: 'ss'
+    server: '15.204.233.41'
+    port: 8882
+    cipher: 'aes-256-gcm'
+    password: 'kDWvXYZoTBcGkC4'
+    udp: true
+  - name: 'VLESS 23518'
+    type: 'vless'
+    server: '104.243.33.154'
+    port: 45299
+    udp: true
+    uuid: '261f011c-e97a-4d72-b596-e6329b50b47b'
     encryption: 'none'
-    tls: true
-    servername: 'www.cloudflare.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'Uk5b-Wh_uxeCc7R8NS9iWE40xc0h9wWC04rSB9yhgAw'
-      short-id: 'b5d625695ec82c7e'
-  - name: 'VMess 21023'
+    servername: '104.243.33.154'
+  - name: 'VMess 21997'
     type: 'vmess'
     server: '134.195.196.211'
     port: 18000
@@ -137,37 +150,22 @@ proxies:
     uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
     alterId: 0
     cipher: 'auto'
-  - name: 'Shadowsocks 8564'
-    type: 'ss'
-    server: '156.146.38.169'
+  - name: 'VLESS 94048'
+    type: 'vless'
+    server: 'us-1.srv.dvzh.net'
     port: 443
-    cipher: 'aes-128-gcm'
-    password: 'shadowsocks'
     udp: true
-  - name: 'Shadowsocks 8146'
+    uuid: '91344c03-b37f-42c5-90f1-cbb95c5cf256'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'us-1.srv.dvzh.net'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: '9GEc6lOjnGQyyE1951OZSBMWt4uCXsOjKyj9fysxHH0'
+      short-id: 'e4e77e76e6e49da7'
+  - name: 'Shadowsocks 4414'
     type: 'ss'
-    server: '66.23.204.214'
-    port: 16999
-    cipher: 'aes-128-gcm'
-    password: '89d3a0375a279f6e743fea76e72952a8'
-    udp: true
-  - name: 'Shadowsocks 8565'
-    type: 'ss'
-    server: '156.146.38.170'
-    port: 443
-    cipher: 'aes-128-gcm'
-    password: 'shadowsocks'
-    udp: true
-  - name: 'Shadowsocks 11811'
-    type: 'ss'
-    server: '15.204.233.41'
-    port: 8882
-    cipher: 'aes-256-gcm'
-    password: 'kDWvXYZoTBcGkC4'
-    udp: true
-  - name: 'Shadowsocks 4390'
-    type: 'ss'
-    server: '108.181.0.177'
+    server: '108.181.118.10'
     port: 8388
     cipher: 'chacha20-ietf-poly1305'
     password: 'G5p6ww4o67HB'
@@ -177,21 +175,21 @@ proxies:
     server: '107.167.18.122'
     port: 443
     udp: true
-  - name: 'Shadowsocks 10269'
-    type: 'ss'
-    server: '15.204.247.175'
-    port: 8008
-    cipher: 'aes-256-gcm'
-    password: 'XKFKl2rULjIp74'
+  - name: 'VLESS 46450'
+    type: 'vless'
+    server: '15.204.97.206'
+    port: 23576
     udp: true
-  - name: 'Shadowsocks 4392'
-    type: 'ss'
-    server: '108.181.118.10'
-    port: 8388
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'G5p6ww4o67HB'
-    udp: true
-  - name: 'VMess 12944'
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+      short-id: '01'
+  - name: 'VMess 13896'
     type: 'vmess'
     server: '84.17.41.2'
     port: 18000
@@ -200,7 +198,45 @@ proxies:
     alterId: 0
     cipher: 'auto'
     servername: '84.17.41.2'
-  - name: 'VLESS 43782'
+  - name: 'VLESS 19290'
+    type: 'vless'
+    server: '107.173.237.146'
+    port: 8443
+    udp: true
+    uuid: '1d39f715-2740-4d99-bc3b-197cc48dcee7'
+    encryption: 'none'
+    tls: true
+    servername: 'updates.cdn-apple.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'D3ojIs3AUKP_tV0E4TEjh90HBVJp24Nq3qMfdxD30kc'
+      short-id: 'df8611c07d'
+  - name: 'VLESS 46541'
+    type: 'vless'
+    server: '15.204.97.219'
+    port: 23576
+    udp: true
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+  - name: 'VLESS 84404'
+    type: 'vless'
+    server: '67.220.73.204'
+    port: 16016
+    udp: true
+    uuid: '814bd064-544d-4255-a070-5705c03f6da9'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'k2hPp0tTW0Da-HK94wYpSCLbuK44LfGqC2MSJIM1Ti0'
+      short-id: '48050fab'
+  - name: 'VLESS 46378'
     type: 'vless'
     server: '15.204.97.195'
     port: 23576
@@ -214,7 +250,21 @@ proxies:
     reality-opts:
       public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
       short-id: '01'
-  - name: 'VMess 24176'
+  - name: 'Shadowsocks 4412'
+    type: 'ss'
+    server: '108.181.0.177'
+    port: 8388
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'G5p6ww4o67HB'
+    udp: true
+  - name: 'Shadowsocks 1609'
+    type: 'ss'
+    server: '5.78.51.123'
+    port: 1080
+    cipher: 'chacha20-ietf-poly1305'
+    password: '8tmnvX5zYuWGVIDP2jglZw'
+    udp: true
+  - name: 'VMess 25126'
     type: 'vmess'
     server: '169.197.142.22'
     port: 18000
@@ -223,29 +273,14 @@ proxies:
     alterId: 0
     cipher: 'auto'
     servername: '169.197.142.22'
-  - name: 'VLESS 43915'
-    type: 'vless'
-    server: '15.204.97.216'
-    port: 23576
+  - name: 'Shadowsocks 5127'
+    type: 'ss'
+    server: '108.181.57.93'
+    port: 8388
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'RSo52SbxW40r'
     udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'Hysteria2 1768'
-    type: 'hysteria2'
-    server: 'us1.xiaoliyu.us'
-    port: 19512
-    udp: true
-    password: 'b8949dae-cb53-4b5a-ad9c-50f58c4656fb'
-    tls: true
-    servername: 'us1.xiaoliyu.us'
-  - name: 'Hysteria2 3010'
+  - name: 'Hysteria2 3172'
     type: 'hysteria2'
     server: '109.235.49.234'
     port: 443
@@ -253,30 +288,9 @@ proxies:
     password: '529f1911-04d5-4427-94b9-c851fd459a27'
     tls: true
     servername: 'tcp-reset-club.net'
-  - name: 'Trojan 29408'
-    type: 'trojan'
-    server: 'sacred-anemone.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'sacred-anemone.rooster465.autos'
-  - name: 'VLESS 44135'
+  - name: 'VLESS 46611'
     type: 'vless'
-    server: '51.158.206.34'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'VLESS 43973'
-    type: 'vless'
-    server: '51.158.206.103'
+    server: '51.158.206.12'
     port: 23576
     udp: true
     uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
@@ -288,57 +302,14 @@ proxies:
     reality-opts:
       public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
       short-id: '01'
-  - name: 'Shadowsocks 3014'
+  - name: 'Shadowsocks 8634'
     type: 'ss'
-    server: 'c3.nastuh.link'
+    server: '173.244.56.6'
     port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'y7KeRTzmH0vXT2kp'
-    udp: true
-  - name: 'Shadowsocks 1600'
-    type: 'ss'
-    server: '5.78.51.123'
-    port: 1080
-    cipher: 'chacha20-ietf-poly1305'
-    password: '8tmnvX5zYuWGVIDP2jglZw'
-    udp: true
-  - name: 'Hysteria2 4115'
-    type: 'hysteria2'
-    server: '45.192.12.93'
-    port: 443
-    udp: true
-    password: 'YutbgyXL1mGaSlBXDoEucWvYbrDCINgUcQ6R6_At5Pjr2xCc'
-    tls: true
-    servername: 'admin.wwwinternetvideo.click'
-  - name: 'Shadowsocks 8081'
-    type: 'ss'
-    server: '185.212.171.202'
-    port: 18670
     cipher: 'aes-128-gcm'
-    password: '59ded1591b0b45f0b1e9361334c0f7d9'
+    password: 'shadowsocks'
     udp: true
-  - name: 'Hysteria2 4121'
-    type: 'hysteria2'
-    server: 'admin.wwwinternetvideo.click'
-    port: 443
-    udp: true
-    password: 'YutbgyXL1mGaSlBXDoEucWvYbrDCINgUcQ6R6_At5Pjr2xCc'
-    tls: true
-    servername: 'admin.wwwinternetvideo.click'
-  - name: 'VLESS 44031'
-    type: 'vless'
-    server: '51.158.206.19'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'VLESS 44050'
+  - name: 'VLESS 46651'
     type: 'vless'
     server: '51.158.206.20'
     port: 23576
@@ -351,7 +322,15 @@ proxies:
     reality-opts:
       public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
       short-id: '01'
-  - name: 'VLESS 77175'
+  - name: 'Hysteria2 5827'
+    type: 'hysteria2'
+    server: '82.38.64.229'
+    port: 8443
+    udp: true
+    password: 'we9_I1893UFj3149xbr1_k8qvJ8734ic_Mx82gH'
+    tls: true
+    servername: 'hopp-swizland-new.mysynology.net'
+  - name: 'VLESS 82099'
     type: 'vless'
     server: '51.15.16.68'
     port: 2053
@@ -364,28 +343,167 @@ proxies:
     reality-opts:
       public-key: 'Zotx4F9CI6_q9yeKCKIHDjwzCv_Aq7WSo7N0Zc1A6Sc'
       short-id: '3c99c85cbb6b3b44'
-  - name: 'Shadowsocks 11793'
-    type: 'ss'
-    server: '149.102.132.184'
-    port: 443
-    cipher: 'aes-256-gcm'
-    password: 'g5h5jleTRSyO3Rk4'
+  - name: 'VLESS 46820'
+    type: 'vless'
+    server: '51.158.206.87'
+    port: 23576
     udp: true
-  - name: 'Shadowsocks 3107'
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+      short-id: '01'
+  - name: 'Hysteria2 5840'
+    type: 'hysteria2'
+    server: '82.38.64.239'
+    port: 8443
+    udp: true
+    password: 'we9_I1893UFj3149xbr1_k8qvJ8734ic_Mx82gH'
+    tls: true
+    servername: 'hopp-swizland-new.mysynology.net'
+  - name: 'Shadowsocks 3128'
     type: 'ss'
     server: '51.77.225.200'
     port: 8388
     cipher: 'chacha20-ietf-poly1305'
     password: 'zRZNBszYyWo5'
     udp: true
-  - name: 'Shadowsocks 2022'
+  - name: 'Hysteria2 1769'
+    type: 'hysteria2'
+    server: 'us1.xiaoliyu.us'
+    port: 19512
+    udp: true
+    password: 'b8949dae-cb53-4b5a-ad9c-50f58c4656fb'
+    tls: true
+    servername: 'us1.xiaoliyu.us'
+  - name: 'Shadowsocks 8141'
     type: 'ss'
-    server: '209.46.102.22'
+    server: '185.212.171.202'
+    port: 18670
+    cipher: 'aes-128-gcm'
+    password: '59ded1591b0b45f0b1e9361334c0f7d9'
+    udp: true
+  - name: 'VLESS 100508'
+    type: 'vless'
+    server: '194.76.154.31'
+    port: 40443
+    udp: true
+    uuid: '9f0baff8-bdee-4de9-9515-bcc4932b41fa'
+    encryption: 'none'
+    tls: true
+    servername: 'deepl.com'
+    reality-opts:
+      public-key: 'MN6QjUHDUXyteMdR-cDna89fq4X3qgQhLnNqTtRUbBQ'
+      short-id: 'a8ae'
+  - name: 'VLESS 88194'
+    type: 'vless'
+    server: 'nl5.freekeysh110.online'
+    port: 443
+    udp: true
+    uuid: '89041d8a-0357-4342-b32f-f791c03048d2'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'nl5.freekeysh110.online'
+    client-fingerprint: 'edge'
+    reality-opts:
+      public-key: 'sgPREsDFJUchKawgXgFGEM4YBjTDur0rgD2GuQmZXzA'
+      short-id: '04b9f0b2470fae16'
+  - name: 'Shadowsocks 11933'
+    type: 'ss'
+    server: '149.102.132.184'
+    port: 443
+    cipher: 'aes-256-gcm'
+    password: 'g5h5jleTRSyO3Rk4'
+    udp: true
+  - name: 'VLESS 84578'
+    type: 'vless'
+    server: '45.141.118.232'
+    port: 7443
+    udp: true
+    uuid: '81a227e3-cb97-40fe-b7b6-45a60ed065cf'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'node.remnagecsp.ru'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: '0BVxZKOt6wO0jIB1xRkAAtaFUkmyFAbVWfkkKSJBfEI'
+      short-id: '570ffeb12f6e4635'
+  - name: 'Trojan 29456'
+    type: 'trojan'
+    server: 'guided-ferret.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'guided-ferret.rooster465.autos'
+  - name: 'Shadowsocks 7486'
+    type: 'ss'
+    server: '82.38.31.159'
+    port: 443
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'oZIoA69Q8yhcQV8ka3Pa3A'
+    udp: true
+  - name: 'Hysteria2 4480'
+    type: 'hysteria2'
+    server: '45.192.12.93'
+    port: 443
+    udp: true
+    password: 'YutbgyXL1mGaSlBXDoEucWvYbrDCINgUcQ6R6_At5Pjr2xCc'
+    tls: true
+    servername: 'admin.wwwinternetvideo.click'
+  - name: 'Shadowsocks 10017'
+    type: 'ss'
+    server: '213.202.208.199'
+    port: 7001
+    cipher: 'aes-256-gcm'
+    password: 'RexnBgU7EV5ADxG'
+    udp: true
+  - name: 'Shadowsocks 5034'
+    type: 'ss'
+    server: '193.29.139.168'
+    port: 8080
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'QCXDxuDlTTMD7jtgHUjIoj'
+    udp: true
+  - name: 'Shadowsocks 2184'
+    type: 'ss'
+    server: '51.195.126.38'
     port: 8388
     cipher: 'chacha20-ietf-poly1305'
-    password: '1hhrqrokj3ag'
+    password: '2YdE4lFOid5a'
     udp: true
-  - name: 'VLESS 97333'
+  - name: 'Shadowsocks 7548'
+    type: 'ss'
+    server: '82.38.31.47'
+    port: 8080
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'oZIoA69Q8yhcQV8ka3Pa3A'
+    udp: true
+  - name: 'Shadowsocks 7475'
+    type: 'ss'
+    server: '82.38.31.149'
+    port: 443
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'oZIoA69Q8yhcQV8ka3Pa3A'
+    udp: true
+  - name: 'VLESS 46672'
+    type: 'vless'
+    server: '51.158.206.25'
+    port: 23576
+    udp: true
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+      short-id: '01'
+  - name: 'VLESS 103594'
     type: 'vless'
     server: '138.16.141.59'
     port: 7443
@@ -398,98 +516,55 @@ proxies:
     reality-opts:
       public-key: 'RY7zkFQ01lI92jxNAyCa8T33UBW1fgpJgg8ZEqMA10k'
       short-id: 'a09ff9f8'
-  - name: 'Shadowsocks 11792'
+  - name: 'Shadowsocks 10381'
     type: 'ss'
-    server: '149.102.132.184'
-    port: 80
+    server: '185.226.172.8'
+    port: 8008
     cipher: 'aes-256-gcm'
-    password: 'g5h5jleTRSyO3Rk4'
+    password: 'XKFKl2rULjIp74'
     udp: true
-  - name: 'VLESS 79536'
-    type: 'vless'
-    server: 'node.remnagecsp.ru'
-    port: 7443
-    udp: true
-    uuid: '81a227e3-cb97-40fe-b7b6-45a60ed065cf'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'node.remnagecsp.ru'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: '0BVxZKOt6wO0jIB1xRkAAtaFUkmyFAbVWfkkKSJBfEI'
-      short-id: '570ffeb12f6e4635'
-  - name: 'Shadowsocks 10792'
-    type: 'ss'
-    server: '213.202.208.199'
-    port: 5000
-    cipher: 'aes-256-gcm'
-    password: 'Y6R9pAtvxxzmGC'
-    udp: true
-  - name: 'Trojan 29058'
-    type: 'trojan'
-    server: 'guided-ferret.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'guided-ferret.rooster465.autos'
-  - name: 'Shadowsocks 7419'
-    type: 'ss'
-    server: '82.38.31.149'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'oZIoA69Q8yhcQV8ka3Pa3A'
-    udp: true
-  - name: 'Shadowsocks 7430'
-    type: 'ss'
-    server: '82.38.31.159'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'oZIoA69Q8yhcQV8ka3Pa3A'
-    udp: true
-  - name: 'Shadowsocks 7433'
-    type: 'ss'
-    server: '82.38.31.162'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'oZIoA69Q8yhcQV8ka3Pa3A'
-    udp: true
-  - name: 'Shadowsocks 3504'
-    type: 'ss'
-    server: '51.255.13.232'
-    port: 8388
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'BqnqToih0PbU'
-    udp: true
-  - name: 'Shadowsocks 4948'
+  - name: 'Shadowsocks 4976'
     type: 'ss'
     server: '8.209.74.72'
     port: 20001
     cipher: 'chacha20-ietf-poly1305'
     password: 'PWpjPo3tqhPN4yRZ'
     udp: true
-  - name: 'VLESS 121078'
-    type: 'vless'
-    server: '57.131.38.163'
-    port: 2053
+  - name: 'Shadowsocks 2034'
+    type: 'ss'
+    server: '209.46.102.22'
+    port: 8388
+    cipher: 'chacha20-ietf-poly1305'
+    password: '1hhrqrokj3ag'
     udp: true
-    uuid: 'd4b08cd6-0903-411a-9dac-45dbdf5c9712'
+  - name: 'VLESS 5288'
+    type: 'vless'
+    server: '178.105.168.171'
+    port: 1817
+    udp: true
+    uuid: '06d4d001-4168-4876-9416-7caecf578f40'
     encryption: 'none'
     tls: true
-    servername: 'www.apple.com'
+    servername: 'qodsna.ir'
     client-fingerprint: 'chrome'
     reality-opts:
-      public-key: 'Ej2H5ucT7qKegYcT8wODdlxa-cLHr7F4hDVUHzAhcnc'
-      short-id: '5b8a942318178e7b'
-  - name: 'Shadowsocks 11004'
+      public-key: '0y65_371gTbns64BuUH59N9RoNAE3A9u7UZ0IuoqtHQ'
+      short-id: '7f3a00717d'
+  - name: 'Shadowsocks 8690'
+    type: 'ss'
+    server: '158.173.20.208'
+    port: 443
+    cipher: 'aes-128-gcm'
+    password: 'shadowsocks'
+    udp: true
+  - name: 'Shadowsocks 11130'
     type: 'ss'
     server: '82.110.60.9'
     port: 19999
     cipher: 'aes-256-gcm'
     password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
     udp: true
-  - name: 'VLESS 42135'
+  - name: 'VLESS 44711'
     type: 'vless'
     server: '64.188.126.56'
     port: 43000
@@ -502,7 +577,32 @@ proxies:
     reality-opts:
       public-key: 'jjbMUO41S9JE7ou_zbbDStzSYLzJVN_0O-j0f6b380E'
       short-id: 'bf4e20af99d3042d'
-  - name: 'VLESS 73011'
+  - name: 'VLESS 5297'
+    type: 'vless'
+    server: '178.105.168.171'
+    port: 8443
+    udp: true
+    uuid: '06d4d001-4168-4876-9416-7caecf578f40'
+    tls: true
+    servername: 'www.intel.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: '0ZJB66GqmKKJsqGBP7UYr2BgtJ-rV-U8jf9e-bNCoWs'
+      short-id: 'ba80'
+  - name: 'VLESS 5295'
+    type: 'vless'
+    server: '178.105.168.171'
+    port: 1894
+    udp: true
+    uuid: '06d4d001-4168-4876-9416-7caecf578f40'
+    encryption: 'none'
+    tls: true
+    servername: 'salehin.ir'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'j3668j3KcON22GVcooCUbKadsRPu3-b8bpGxBZnkEQs'
+      short-id: '57d37a396b6a5db5'
+  - name: 'VLESS 77554'
     type: 'vless'
     server: '132.243.65.86'
     port: 443
@@ -515,42 +615,47 @@ proxies:
     network: 'grpc'
     grpc-opts:
       grpc-service-name: 'content.v1.Feed'
-  - name: 'Trojan 28550'
-    type: 'trojan'
-    server: '34.242.77.118'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'sacred-anemone.rooster465.autos'
-    client-fingerprint: 'chrome'
-  - name: 'Shadowsocks 2172'
-    type: 'ss'
-    server: '51.195.126.38'
-    port: 8388
-    cipher: 'chacha20-ietf-poly1305'
-    password: '2YdE4lFOid5a'
-    udp: true
-  - name: 'VLESS 134985'
+  - name: 'VLESS 118028'
     type: 'vless'
-    server: '212.227.235.66'
+    server: '208.69.78.217'
     port: 2053
     udp: true
-    uuid: 'ead0dd61-d398-40ad-80d6-a0e1e516d7d3'
+    uuid: 'c0dd6d59-1573-43af-8b70-1470b2632a6d'
+    encryption: 'none'
     tls: true
     servername: 'www.apple.com'
-    client-fingerprint: 'firefox'
     reality-opts:
-      public-key: '7Y6Xb5Ql_03K25x8yKUSOKI2JTOMyv2nyCcFza90uxk'
-      short-id: '29e8dcd2b37aaa7f'
-  - name: 'Shadowsocks 8629'
-    type: 'ss'
-    server: '158.173.20.208'
-    port: 443
-    cipher: 'aes-128-gcm'
-    password: 'shadowsocks'
+      public-key: 'A49ue7zXSusJZdErPAewg3jqGdUFIO1a9xOunEKJfC0'
+      short-id: 'ad86e2d52ff40ebd'
+  - name: 'Hysteria2 5048'
+    type: 'hysteria2'
+    server: '85.209.157.177'
+    port: 8080
     udp: true
-  - name: 'VLESS 24459'
+    password: 'dsmO0439gj_nX942GJRE_9j39fbcxv52_R'
+    tls: true
+    servername: 'hopp-transit.1cooldns.com'
+  - name: 'VLESS 129109'
+    type: 'vless'
+    server: '57.131.38.163'
+    port: 2053
+    udp: true
+    uuid: 'd4b08cd6-0903-411a-9dac-45dbdf5c9712'
+    encryption: 'none'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'Ej2H5ucT7qKegYcT8wODdlxa-cLHr7F4hDVUHzAhcnc'
+      short-id: '5b8a942318178e7b'
+  - name: 'Shadowsocks 3526'
+    type: 'ss'
+    server: '51.255.13.232'
+    port: 8388
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'BqnqToih0PbU'
+    udp: true
+  - name: 'VLESS 26007'
     type: 'vless'
     server: '13.143.166.245'
     port: 443
@@ -563,34 +668,7 @@ proxies:
     reality-opts:
       public-key: 'FuKGULeQ9xZMJN8hWz6J_49tDJKT9HA-nsAXOOVRmyM'
       short-id: 'ff867ed245c73f43'
-  - name: 'Shadowsocks 11770'
-    type: 'ss'
-    server: '51.222.155.32'
-    port: 5003
-    cipher: 'aes-256-gcm'
-    password: 'g5MeD6Ft3CWlJId'
-    udp: true
-  - name: 'VLESS 127647'
-    type: 'vless'
-    server: '2.27.71.53'
-    port: 443
-    udp: true
-    uuid: 'df53b6c2-8005-475c-9eb9-74e1be785dc8'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'addons.mozilla.org'
-    client-fingerprint: 'randomized'
-    reality-opts:
-      public-key: '5tMM2VdgddmxOKhdNa3b7i_aXno1g-_61SzkppS2UXQ'
-      short-id: 'f3c023cc'
-  - name: 'Shadowsocks 8485'
-    type: 'ss'
-    server: '185.103.110.66'
-    port: 18280
-    cipher: 'aes-128-gcm'
-    password: 'f9300a9bf39ae0347c3a3bfbc4dd7754'
-    udp: true
-  - name: 'VLESS 133587'
+  - name: 'VLESS 142354'
     type: 'vless'
     server: '54.37.136.194'
     port: 2053
@@ -602,13 +680,65 @@ proxies:
     reality-opts:
       public-key: 'Vemd9Jjk5xKO8qSC3g8VVagwcb4J1BcTvp86CswQC0A'
       short-id: '50ba05992b05c1c3'
-  - name: 'Shadowsocks 9934'
-    type: 'ss'
-    server: '213.202.208.199'
-    port: 7001
-    cipher: 'aes-256-gcm'
-    password: 'RexnBgU7EV5ADxG'
+  - name: 'VLESS 34926'
+    type: 'vless'
+    server: '45.90.59.15'
+    port: 443
     udp: true
+    uuid: '3950b45e-740d-4dca-ac95-505ec8534592'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'www.cloudflare.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'P7S4UPFlQbmiBr4txyy8NZIMTrmO3UdxyH16WBU-YzY'
+      short-id: '19253fae84102271'
+  - name: 'VLESS 143831'
+    type: 'vless'
+    server: '212.227.235.66'
+    port: 2053
+    udp: true
+    uuid: 'ead0dd61-d398-40ad-80d6-a0e1e516d7d3'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: '7Y6Xb5Ql_03K25x8yKUSOKI2JTOMyv2nyCcFza90uxk'
+      short-id: '29e8dcd2b37aaa7f'
+  - name: 'Shadowsocks 11934'
+    type: 'ss'
+    server: '149.102.132.184'
+    port: 80
+    cipher: 'aes-256-gcm'
+    password: 'g5h5jleTRSyO3Rk4'
+    udp: true
+  - name: 'Shadowsocks 8547'
+    type: 'ss'
+    server: '185.103.110.68'
+    port: 18283
+    cipher: 'aes-128-gcm'
+    password: 'f9300a9bf39ae0347c3a3bfbc4dd7754'
+    udp: true
+  - name: 'VLESS 136988'
+    type: 'vless'
+    server: 'assets-es.pleiades.codes'
+    port: 443
+    udp: true
+    uuid: 'e0b9fb0f-1bbd-478b-9580-c2294778338b'
+    tls: true
+    servername: 'assets-es.pleiades.codes'
+    client-fingerprint: 'chrome'
+    network: 'grpc'
+    grpc-opts:
+      grpc-service-name: 'cdn.v1.AssetService'
+  - name: 'Trojan 29565'
+    type: 'trojan'
+    server: 'loved-shark.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'loved-shark.rooster465.autos'
   - name: 'VLESS 103754'
     type: 'vless'
     server: '13.143.174.97'
@@ -619,87 +749,14 @@ proxies:
     tls: true
     servername: '13.143.174.97'
     client-fingerprint: 'firefox'
-  - name: 'VLESS 49433'
-    type: 'vless'
-    server: '81.90.20.200'
-    port: 443
-    udp: true
-    uuid: '51c14658-8873-4454-9383-c41fc80bde4b'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'pl.pupoe.sbs'
-    client-fingerprint: 'firefox'
-  - name: 'VLESS 30452'
-    type: 'vless'
-    server: '95.85.224.51'
-    port: 443
-    udp: true
-    uuid: '342ab7e4-5a89-0001-8809-304120d4aa83'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'max.ru'
-    client-fingerprint: 'qq'
-    reality-opts:
-      public-key: 'WWeAHWUVD-phmnjNJ823cer0c4CMIbEs08AhsuEZmDc'
-      short-id: 'a696de84963656de'
-  - name: 'Trojan 28823'
-    type: 'trojan'
-    server: 'actual-squid.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'actual-squid.rooster465.autos'
-  - name: 'VLESS 110746'
-    type: 'vless'
-    server: '208.69.78.217'
-    port: 2053
-    udp: true
-    uuid: 'c0dd6d59-1573-43af-8b70-1470b2632a6d'
-    encryption: 'none'
-    tls: true
-    servername: 'www.apple.com'
-    reality-opts:
-      public-key: 'A49ue7zXSusJZdErPAewg3jqGdUFIO1a9xOunEKJfC0'
-      short-id: 'ad86e2d52ff40ebd'
-  - name: 'Shadowsocks 3641'
+  - name: 'Shadowsocks 3663'
     type: 'ss'
     server: '130.49.189.158'
     port: 43558
     cipher: 'chacha20-ietf-poly1305'
     password: 'EKGHx2yhUzmnRONhNOxvn+BqUr10wfqDQqRg4DYUJE8='
     udp: true
-  - name: 'VLESS 54501'
-    type: 'vless'
-    server: '51.255.166.202'
-    port: 443
-    udp: true
-    uuid: '593bf46b-8316-5050-9357-d8a41e4db78b'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'e3k67dwms3-51255166202-direct.tavafog.com'
-  - name: 'VLESS 69393'
-    type: 'vless'
-    server: '204.216.216.23'
-    port: 1114
-    udp: true
-    uuid: '6ba2eac6-0ec9-44ca-a42b-a8e23aafb530'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'yahoo.com'
-    reality-opts:
-      public-key: 'WfkCF0eEuIoO0MyJsKOddU89QrTzCZ4y2dzCJbH99CQ'
-      short-id: '79a1e14b'
-  - name: 'Shadowsocks 8486'
-    type: 'ss'
-    server: '185.103.110.68'
-    port: 18283
-    cipher: 'aes-128-gcm'
-    password: 'f9300a9bf39ae0347c3a3bfbc4dd7754'
-    udp: true
-  - name: 'VLESS 17785'
+  - name: 'VLESS 18922'
     type: 'vless'
     server: '95.216.27.15'
     port: 2053
@@ -712,65 +769,68 @@ proxies:
     reality-opts:
       public-key: '4nfogj5mHqNowtSn_2sXS3xTX8vcH75rFEU2BWvyekM'
       short-id: 'd368b94e275ab080'
-  - name: 'Trojan 29443'
-    type: 'trojan'
-    server: 'ultimate-jaguar.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'ultimate-jaguar.rooster465.autos'
-  - name: 'VLESS 18113'
-    type: 'vless'
-    server: '107.173.237.146'
-    port: 8443
-    udp: true
-    uuid: '1d39f715-2740-4d99-bc3b-197cc48dcee7'
-    encryption: 'none'
-    tls: true
-    servername: 'updates.cdn-apple.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'D3ojIs3AUKP_tV0E4TEjh90HBVJp24Nq3qMfdxD30kc'
-      short-id: 'df8611c07d'
-  - name: 'VLESS 4777'
-    type: 'vless'
-    server: '94.183.170.135'
-    port: 8443
-    udp: true
-    uuid: '06c4e938-2954-478f-a870-ca1b163e30e9'
-    encryption: 'none'
-    tls: true
-    servername: 'estproxy4.lockdwn.com'
-    client-fingerprint: 'chrome'
-  - name: 'Shadowsocks 11003'
+  - name: 'Shadowsocks 8546'
     type: 'ss'
-    server: '185.164.175.81'
-    port: 19999
-    cipher: 'aes-256-gcm'
-    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
+    server: '185.103.110.66'
+    port: 18280
+    cipher: 'aes-128-gcm'
+    password: 'f9300a9bf39ae0347c3a3bfbc4dd7754'
     udp: true
-  - name: 'VLESS 53317'
+  - name: 'VLESS 73669'
     type: 'vless'
-    server: '151.241.137.132'
+    server: '204.216.216.23'
+    port: 1114
+    udp: true
+    uuid: '6ba2eac6-0ec9-44ca-a42b-a8e23aafb530'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'yahoo.com'
+    reality-opts:
+      public-key: 'WfkCF0eEuIoO0MyJsKOddU89QrTzCZ4y2dzCJbH99CQ'
+      short-id: '79a1e14b'
+  - name: 'VLESS 32399'
+    type: 'vless'
+    server: '95.85.224.51'
     port: 443
     udp: true
-    uuid: '5786d86f-7731-4174-b1a3-84297e54b015'
+    uuid: '342ab7e4-5a89-0001-8809-304120d4aa83'
     flow: 'xtls-rprx-vision'
     tls: true
-    servername: 'finland.ali-bard.online'
-    client-fingerprint: 'firefox'
+    servername: 'max.ru'
+    client-fingerprint: 'qq'
     reality-opts:
-      public-key: 'SB1uC0OEveYjSiS_Nuw9Ld-uVVXWqi794OGnldthY3I'
-  - name: 'Trojan 28419'
+      public-key: 'WWeAHWUVD-phmnjNJ823cer0c4CMIbEs08AhsuEZmDc'
+      short-id: 'a696de84963656de'
+  - name: 'Trojan 28842'
     type: 'trojan'
-    server: '202.78.163.237'
+    server: '3.253.106.233'
     port: 443
     udp: true
     password: 'UX82473651'
     tls: true
-    servername: 'cheerful-swan.rooster465.autos'
-  - name: 'VLESS 34481'
+    servername: 'loved-shark.rooster465.autos'
+  - name: 'Shadowsocks 3259'
+    type: 'ss'
+    server: '185.213.23.63'
+    port: 990
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'ARgvGZywA+gacgGV26Bvmu05+wZmRW/j+AdU+Z8Bt44='
+    udp: true
+  - name: 'VLESS 49639'
+    type: 'vless'
+    server: '177.1.192.72'
+    port: 443
+    udp: true
+    uuid: '4d852af3-a121-41aa-9aed-4ca40a6f7b4d'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'addons.mozilla.org'
+    client-fingerprint: 'randomized'
+    reality-opts:
+      public-key: 'y3YCXTqEVks0nGfiSwJ43ol4pY69-mWFUZsdmveoVDM'
+      short-id: '46455ff0'
+  - name: 'VLESS 36705'
     type: 'vless'
     server: '185.138.90.52'
     port: 8443
@@ -784,33 +844,49 @@ proxies:
     reality-opts:
       public-key: 'sfxjlR0FMYgbUJ_4gK4rSgfgJ6hxh_Y1i52OJHKAiGY'
       short-id: '663d30479b605335'
-  - name: 'VLESS 46872'
+  - name: 'Shadowsocks 7789'
+    type: 'ss'
+    server: '140.174.184.5'
+    port: 8388
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'qItG8SueYQcP'
+    udp: true
+  - name: 'VLESS 52423'
     type: 'vless'
-    server: '177.1.192.72'
+    server: '81.90.20.200'
     port: 443
     udp: true
-    uuid: '4d852af3-a121-41aa-9aed-4ca40a6f7b4d'
+    uuid: '51c14658-8873-4454-9383-c41fc80bde4b'
     flow: 'xtls-rprx-vision'
     tls: true
-    servername: 'addons.mozilla.org'
-    client-fingerprint: 'randomized'
-    reality-opts:
-      public-key: 'y3YCXTqEVks0nGfiSwJ43ol4pY69-mWFUZsdmveoVDM'
-      short-id: '46455ff0'
-  - name: 'VLESS 9442'
-    type: 'vless'
-    server: '151.241.226.201'
-    port: 2053
+    servername: 'pl.pupoe.sbs'
+    client-fingerprint: 'firefox'
+  - name: 'Trojan 28812'
+    type: 'trojan'
+    server: '202.78.163.237'
+    port: 443
     udp: true
-    uuid: '0eed6293-8cf1-4e77-ac10-9c3d50d0b2f8'
+    password: 'UX82473651'
+    tls: true
+    servername: 'cheerful-swan.rooster465.autos'
+  - name: 'VLESS 5125'
+    type: 'vless'
+    server: '94.183.170.135'
+    port: 8443
+    udp: true
+    uuid: '06c4e938-2954-478f-a870-ca1b163e30e9'
     encryption: 'none'
     tls: true
-    servername: 'www.apple.com'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: 'bYW_MmB_CUHrsyoCAUKviI2LZdHf63yY2yOPXbih104'
-      short-id: '9e419c0759b54d6f'
-  - name: 'VLESS 92376'
+    servername: 'estproxy4.lockdwn.com'
+    client-fingerprint: 'chrome'
+  - name: 'Shadowsocks 9070'
+    type: 'ss'
+    server: '176.32.39.52'
+    port: 20880
+    cipher: 'aes-256-gcm'
+    password: '8ad9d72a5571df86'
+    udp: true
+  - name: 'VLESS 98380'
     type: 'vless'
     server: '136.175.82.85'
     port: 18775
@@ -824,7 +900,74 @@ proxies:
     reality-opts:
       public-key: 'oR75S6pg_RDAKIuzv_WrCiwaUqqFoek2iuo5N22llQQ'
       short-id: '6ba85179e30d4fc2'
-  - name: 'Hysteria2 2375'
+  - name: 'Trojan 29842'
+    type: 'trojan'
+    server: 'ultimate-jaguar.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'ultimate-jaguar.rooster465.autos'
+  - name: 'VLESS 10093'
+    type: 'vless'
+    server: '151.241.226.201'
+    port: 2053
+    udp: true
+    uuid: '0eed6293-8cf1-4e77-ac10-9c3d50d0b2f8'
+    encryption: 'none'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'bYW_MmB_CUHrsyoCAUKviI2LZdHf63yY2yOPXbih104'
+      short-id: '9e419c0759b54d6f'
+  - name: 'Shadowsocks 9236'
+    type: 'ss'
+    server: '15.204.246.132'
+    port: 7307
+    cipher: 'aes-256-gcm'
+    password: 'FoOiGlkAA9yPEGP'
+    udp: true
+  - name: 'Shadowsocks 6976'
+    type: 'ss'
+    server: '82.38.31.201'
+    port: 8080
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'k1dBOmOB4oqi7Ump37a1bQ'
+    udp: true
+  - name: 'VLESS 136973'
+    type: 'vless'
+    server: '193.238.154.5'
+    port: 443
+    udp: true
+    uuid: 'e0b9fb0f-1bbd-478b-9580-c2294778338b'
+    tls: true
+    servername: 'assets-es.pleiades.codes'
+    client-fingerprint: 'chrome'
+    network: 'grpc'
+    grpc-opts:
+      grpc-service-name: 'cdn.v1.AssetService'
+  - name: 'Shadowsocks 3033'
+    type: 'ss'
+    server: '51.124.237.47'
+    port: 443
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'y7KeRTzmH0vXT2kp'
+    udp: true
+  - name: 'VLESS 84160'
+    type: 'vless'
+    server: '193.187.95.124'
+    port: 443
+    udp: true
+    uuid: '81167507-b634-4f56-9555-33e4fd660ce0'
+    encryption: 'none'
+    tls: true
+    servername: 'github.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: '8bMoXjt19DiBhVEEzx2xxe9dsgYOerlQC6yf0JDOoQE'
+      short-id: '6f01a3e0f21267'
+  - name: 'Hysteria2 2373'
     type: 'hysteria2'
     server: 'open.2ml.bid'
     port: 443
@@ -832,247 +975,24 @@ proxies:
     password: 'my_super_password_123'
     tls: true
     servername: 'open.2ml.bid'
-  - name: 'Hysteria2 2369'
-    type: 'hysteria2'
-    server: '158.101.148.79'
+  - name: 'Trojan 28834'
+    type: 'trojan'
+    server: '3.120.109.26'
     port: 443
     udp: true
-    password: 'my_super_password_123'
+    password: 'UX82473651'
     tls: true
-    servername: 'open.2ml.bid'
-  - name: 'VLESS 88650'
-    type: 'vless'
-    server: 'cdn.bulkavpn.top'
-    port: 443
-    udp: true
-    uuid: '91d734be-a3d0-4d50-83ab-74cf7b6966fa'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'cdn.bulkavpn.top'
+    servername: 'actual-squid.rooster465.autos'
     client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'bQZcMViJWXus9rMSTOa-ZAaUJC0mIlPx7XmzrLp8GQU'
-      short-id: '94f32cfc'
-  - name: 'VLESS 94357'
-    type: 'vless'
-    server: '194.76.154.31'
-    port: 40443
-    udp: true
-    uuid: '9f0baff8-bdee-4de9-9515-bcc4932b41fa'
-    encryption: 'none'
-    tls: true
-    servername: 'deepl.com'
-    reality-opts:
-      public-key: 'MN6QjUHDUXyteMdR-cDna89fq4X3qgQhLnNqTtRUbBQ'
-      short-id: 'a8ae'
-  - name: 'VLESS 40517'
-    type: 'vless'
-    server: 'helllo.com.tr'
-    port: 2218
-    udp: true
-    uuid: '4476ca08-bdb4-41c1-bae4-a960bdb28c19'
-    tls: true
-    servername: 'www.apple.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'bWIOrQAqUWCrz6BGdwaG42xaV-HEo8sUdGqVktUh0XU'
-      short-id: 'cc80ef'
-  - name: 'Shadowsocks 10616'
-    type: 'ss'
-    server: '51.222.200.165'
-    port: 5000
-    cipher: 'aes-256-gcm'
-    password: 'Y6R9pAtvxxzmGC'
-    udp: true
-  - name: 'VLESS 13262'
-    type: 'vless'
-    server: '159.89.87.21'
-    port: 28190
-    udp: true
-    uuid: '14c80e0e-f7ce-4991-94fc-99a1db4a9b1e'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'aws.amazon.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'ZJRnFU-1s1JOnO8E9uZ7b00l1fPEh63fGRbdBANFRno'
-  - name: 'Shadowsocks 11500'
-    type: 'ss'
-    server: '15.204.247.124'
-    port: 2375
-    cipher: 'aes-256-gcm'
-    password: 'faBAoD54k87UJG7'
-    udp: true
-  - name: 'VLESS 3380'
-    type: 'vless'
-    server: 'jpga01.jumpernode.site'
-    port: 443
-    udp: true
-    uuid: '05453546-201f-4e8d-97ae-fd70da0e951f'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'amzn.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'AgTktefiMM58y7f-KFgEtmVti_YJbd0GPSkxNeJ0RH4'
-      short-id: 'c8e49965'
-  - name: 'VLESS 79228'
-    type: 'vless'
-    server: '103.75.118.228'
-    port: 12683
-    udp: true
-    uuid: '814bd064-544d-4255-a070-5705c03f6da9'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'www.apple.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'k2hPp0tTW0Da-HK94wYpSCLbuK44LfGqC2MSJIM1Ti0'
-      short-id: '48050fab'
-  - name: 'Trojan 28450'
+  - name: 'Trojan 29722'
     type: 'trojan'
-    server: '3.253.106.233'
+    server: 'pleased-albacore.rooster465.autos'
     port: 443
     udp: true
     password: 'UX82473651'
     tls: true
-    servername: 'loved-shark.rooster465.autos'
-  - name: 'Trojan 28881'
-    type: 'trojan'
-    server: 'brief-glider.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'brief-glider.rooster465.autos'
-  - name: 'Trojan 29202'
-    type: 'trojan'
-    server: 'meet-goshawk.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'meet-goshawk.rooster465.autos'
-  - name: 'VLESS 104941'
-    type: 'vless'
-    server: '46.250.250.149'
-    port: 2053
-    udp: true
-    uuid: 'b4caaf57-ad77-4948-a6f5-51b3513799bf'
-    tls: true
-    servername: 'www.apple.com'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: 'hieuCHb3HYdDYHmTDyWw2SGqyfo36AVuA-wSiZMdU1M'
-      short-id: '9922313fffed1c63'
-  - name: 'Trojan 29462'
-    type: 'trojan'
-    server: 'winning-marten.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'winning-marten.rooster465.autos'
-  - name: 'Trojan 29098'
-    type: 'trojan'
-    server: 'integral-rodent.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'integral-rodent.rooster465.autos'
-  - name: 'VLESS 20897'
-    type: 'vless'
-    server: 'jumpernode.site'
-    port: 443
-    udp: true
-    uuid: '23af32ca-bea1-4a5e-bebb-04d1b1b633bc'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'p-nt-www-amazon-com-kalias.amazon.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'sDKrtAJk2VP_w1w7cFi2O86RdlvQ2E2An5xsRdJlgGE'
-      short-id: '6d962e8d8a0dce'
-  - name: 'Trojan 28923'
-    type: 'trojan'
-    server: 'concrete-aardvark.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'concrete-aardvark.rooster465.autos'
-  - name: 'Trojan 29373'
-    type: 'trojan'
-    server: 'promoted-rattler.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'promoted-rattler.rooster465.autos'
-  - name: 'Trojan 28908'
-    type: 'trojan'
-    server: 'comic-poodle.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'comic-poodle.rooster465.autos'
-  - name: 'Trojan 28603'
-    type: 'trojan'
-    server: '43.207.198.39'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'fancy-javelin.rooster465.autos'
-    client-fingerprint: 'chrome'
-  - name: 'Trojan 28965'
-    type: 'trojan'
-    server: 'dynamic-imp.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'dynamic-imp.rooster465.autos'
-  - name: 'VLESS 116871'
-    type: 'vless'
-    server: '43.108.48.169'
-    port: 40701
-    udp: true
-    uuid: 'cdb7d825-9892-4d6f-80b8-7add83159dac'
-    encryption: 'none'
-    tls: true
-    servername: 'amazon.com'
-    reality-opts:
-      public-key: 'TWuVILeiSXfCSMZPsqNHtRquNALPRaW5Z51I63zdLEA'
-      short-id: '7ef3a8ab2886'
-  - name: 'Trojan 29023'
-    type: 'trojan'
-    server: 'fancy-javelin.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'fancy-javelin.rooster465.autos'
-  - name: 'Trojan 29006'
-    type: 'trojan'
-    server: 'evolving-platypus.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'evolving-platypus.rooster465.autos'
-  - name: 'Trojan 28378'
-    type: 'trojan'
-    server: '176.34.5.100'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'assuring-skink.rooster465.autos'
-  - name: 'VLESS 87110'
+    servername: 'pleased-albacore.rooster465.autos'
+  - name: 'VLESS 92649'
     type: 'vless'
     server: '51.89.194.151'
     port: 2053
@@ -1085,266 +1005,127 @@ proxies:
     reality-opts:
       public-key: 'xPEBx4wUmwAAv4ikUALNBf5wH6TRhyeQ0Q2pcNELsV0'
       short-id: 'd051f678212f9d54'
-  - name: 'Trojan 28751'
-    type: 'trojan'
-    server: '54.250.237.143'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'accurate-frog.rooster465.autos'
-  - name: 'Trojan 28802'
-    type: 'trojan'
-    server: 'accurate-frog.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'accurate-frog.rooster465.autos'
-  - name: 'Trojan 29354'
-    type: 'trojan'
-    server: 'prime-corgi.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'prime-corgi.rooster465.autos'
-  - name: 'Trojan 29283'
-    type: 'trojan'
-    server: 'optimum-snapper.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'optimum-snapper.rooster465.autos'
-  - name: 'Trojan 29234'
-    type: 'trojan'
-    server: 'neutral-quail.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'neutral-quail.rooster465.autos'
-  - name: 'Trojan 28347'
-    type: 'trojan'
-    server: '13.230.139.12'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'brief-glider.rooster465.autos'
-    client-fingerprint: 'chrome'
-  - name: 'Trojan 29251'
-    type: 'trojan'
-    server: 'noted-cougar.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'noted-cougar.rooster465.autos'
-  - name: 'VMess 5616'
-    type: 'vmess'
-    server: 'ww11.levikogjgfdd.ir'
-    port: 18000
-    udp: true
-    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
-    alterId: 0
-    cipher: 'auto'
-  - name: 'Trojan 28696'
-    type: 'trojan'
-    server: '54.199.66.128'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'integral-rodent.rooster465.autos'
-    client-fingerprint: 'chrome'
-  - name: 'VMess 22136'
-    type: 'vmess'
-    server: '149.88.23.207'
-    port: 18000
-    udp: true
-    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
-    alterId: 0
-    cipher: 'auto'
-  - name: 'Shadowsocks 10704'
-    type: 'ss'
-    server: '15.204.246.107'
-    port: 8888
-    cipher: 'aes-256-gcm'
-    password: 'Y6R9pAtvxxzmGC'
-    udp: true
-  - name: 'Shadowsocks 7143'
-    type: 'ss'
-    server: '181.215.18.110'
-    port: 1080
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'm5nsedvdczx6x06e'
-    udp: true
-  - name: 'Trojan 28746'
-    type: 'trojan'
-    server: '54.249.55.154'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'prime-corgi.rooster465.autos'
-    client-fingerprint: 'chrome'
-  - name: 'Trojan 28634'
-    type: 'trojan'
-    server: '52.192.217.187'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'evolving-platypus.rooster465.autos'
-  - name: 'SOCKS 45768'
-    type: 'socks5'
-    server: '47.83.158.131'
-    port: 3128
-    udp: true
-  - name: 'Trojan 29167'
-    type: 'trojan'
-    server: 'loved-shark.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'loved-shark.rooster465.autos'
-  - name: 'Trojan 28850'
-    type: 'trojan'
-    server: 'assuring-skink.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'assuring-skink.rooster465.autos'
-  - name: 'Trojan 28330'
-    type: 'trojan'
-    server: '13.212.81.3'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'holy-lamb.rooster465.autos'
-  - name: 'VLESS 32818'
-    type: 'vless'
-    server: '45.90.59.15'
-    port: 443
-    udp: true
-    uuid: '3950b45e-740d-4dca-ac95-505ec8534592'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'www.cloudflare.com'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: 'P7S4UPFlQbmiBr4txyy8NZIMTrmO3UdxyH16WBU-YzY'
-      short-id: '19253fae84102271'
-  - name: 'Trojan 29312'
-    type: 'trojan'
-    server: 'pet-antelope.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'pet-antelope.rooster465.autos'
-  - name: 'Shadowsocks 4833'
-    type: 'ss'
-    server: '57.129.113.16'
-    port: 8388
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'NcAXc0UZI6yQJE1p8QmOv8'
-    udp: true
-  - name: 'Shadowsocks 9654'
-    type: 'ss'
-    server: '149.102.149.207'
-    port: 80
-    cipher: 'aes-256-gcm'
-    password: 'LXchLsIwtCeUAUgu'
-    udp: true
-  - name: 'Trojan 29429'
-    type: 'trojan'
-    server: 'strong-haddock.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'strong-haddock.rooster465.autos'
-  - name: 'Shadowsocks 12408'
+  - name: 'Shadowsocks 12570'
     type: 'ss'
     server: '51.222.141.125'
     port: 445
     cipher: 'aes-256-gcm'
     password: 'zDNVedRFPQexG9v'
     udp: true
-  - name: 'VLESS 97454'
-    type: 'vless'
-    server: '151.245.106.49'
-    port: 2053
-    udp: true
-    uuid: 'a2de9567-9646-45a9-a410-7303a43bdb6c'
-    tls: true
-    servername: 'www.cloudflare.com'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: 'F6C33iIbfmt1mUsuLTarIC8ygdHKMqsaGvrSQltyxUo'
-      short-id: '429499c03d4cc8a0'
-  - name: 'Trojan 28528'
+  - name: 'Trojan 29862'
     type: 'trojan'
-    server: '3.75.93.113'
+    server: 'winning-marten.rooster465.autos'
     port: 443
     udp: true
     password: 'UX82473651'
     tls: true
-    servername: 'meet-goshawk.rooster465.autos'
-    client-fingerprint: 'chrome'
-  - name: 'Trojan 28981'
-    type: 'trojan'
-    server: 'engaging-toucan.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'engaging-toucan.rooster465.autos'
-  - name: 'Shadowsocks 5649'
+    servername: 'winning-marten.rooster465.autos'
+  - name: 'Shadowsocks 5502'
     type: 'ss'
-    server: '102.133.165.160'
-    port: 16233
+    server: '108.181.121.226'
+    port: 8388
     cipher: 'chacha20-ietf-poly1305'
-    password: 'Xsy8Ox4yOV3xLlpxtjzs3X'
+    password: 'WSyL4XTwNsdv'
     udp: true
-  - name: 'VLESS 110067'
+  - name: 'Shadowsocks 3035'
+    type: 'ss'
+    server: 'c3.nastuh.link'
+    port: 443
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'y7KeRTzmH0vXT2kp'
+    udp: true
+  - name: 'Shadowsocks 6446'
+    type: 'ss'
+    server: '132.243.175.144'
+    port: 8388
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'e8KgS8fD0yDqYFpgN4G5piCOt9aFyqA3'
+    udp: true
+  - name: 'Trojan 29364'
+    type: 'trojan'
+    server: 'dynamic-imp.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'dynamic-imp.rooster465.autos'
+  - name: 'Trojan 29323'
+    type: 'trojan'
+    server: 'concrete-aardvark.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'concrete-aardvark.rooster465.autos'
+  - name: 'VLESS 111858'
     type: 'vless'
-    server: '51.77.217.70'
+    server: '46.250.250.149'
     port: 2053
     udp: true
-    uuid: 'bf16ee0c-8b3c-41e4-ab3a-8b48033c404e'
+    uuid: 'b4caaf57-ad77-4948-a6f5-51b3513799bf'
     tls: true
     servername: 'www.apple.com'
     client-fingerprint: 'firefox'
     reality-opts:
-      public-key: 'g63cT3uI0Y5iUtj3m__RYz7nmR1eIK4AYikdnZCl63w'
-      short-id: 'bfe58beb41f1d09f'
-  - name: 'Trojan 29181'
+      public-key: 'hieuCHb3HYdDYHmTDyWw2SGqyfo36AVuA-wSiZMdU1M'
+      short-id: '9922313fffed1c63'
+  - name: 'Shadowsocks 10360'
+    type: 'ss'
+    server: '15.204.247.175'
+    port: 8008
+    cipher: 'aes-256-gcm'
+    password: 'XKFKl2rULjIp74'
+    udp: true
+  - name: 'Trojan 29226'
     type: 'trojan'
-    server: 'main-fawn.rooster465.autos'
+    server: 'actual-squid.rooster465.autos'
     port: 443
     udp: true
     password: 'UX82473651'
     tls: true
-    servername: 'main-fawn.rooster465.autos'
-  - name: 'Trojan 29296'
+    servername: 'actual-squid.rooster465.autos'
+  - name: 'Trojan 29404'
     type: 'trojan'
-    server: 'organic-caribou.rooster465.autos'
+    server: 'evolving-platypus.rooster465.autos'
     port: 443
     udp: true
     password: 'UX82473651'
     tls: true
-    servername: 'organic-caribou.rooster465.autos'
-  - name: 'VLESS 40511'
+    servername: 'evolving-platypus.rooster465.autos'
+  - name: 'VMess 5461'
+    type: 'vmess'
+    server: '140.238.2.250'
+    port: 443
+    udp: true
+    uuid: '41a7089a-040b-4538-8b8d-010902405bde'
+    alterId: 0
+    cipher: 'auto'
+    servername: '140.238.2.250'
+  - name: 'Trojan 29308'
+    type: 'trojan'
+    server: 'comic-poodle.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'comic-poodle.rooster465.autos'
+  - name: 'VLESS 42989'
+    type: 'vless'
+    server: '45.74.158.57'
+    port: 2218
+    udp: true
+    uuid: '4476ca08-bdb4-41c1-bae4-a960bdb28c19'
+    encryption: 'none'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'bWIOrQAqUWCrz6BGdwaG42xaV-HEo8sUdGqVktUh0XU'
+      short-id: 'cc80ef'
+  - name: 'VLESS 42995'
     type: 'vless'
     server: 'helllo.com.tr'
-    port: 2102
+    port: 2218
     udp: true
     uuid: '4476ca08-bdb4-41c1-bae4-a960bdb28c19'
     tls: true
@@ -1353,102 +1134,133 @@ proxies:
     reality-opts:
       public-key: 'bWIOrQAqUWCrz6BGdwaG42xaV-HEo8sUdGqVktUh0XU'
       short-id: 'cc80ef'
-  - name: 'VLESS 18137'
-    type: 'vless'
-    server: '194.61.31.126'
-    port: 2053
+  - name: 'Trojan 29281'
+    type: 'trojan'
+    server: 'brief-glider.rooster465.autos'
+    port: 443
     udp: true
-    uuid: '1d4e18bd-1f26-4915-b35a-7ace4826e76a'
+    password: 'UX82473651'
+    tls: true
+    servername: 'brief-glider.rooster465.autos'
+  - name: 'VLESS 138865'
+    type: 'vless'
+    server: '162.35.242.252'
+    port: 443
+    udp: true
+    uuid: 'e3e9805a-6c8b-4edd-8ee8-621df79806eb'
     encryption: 'none'
     tls: true
-    servername: 'www.apple.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'PuAGLfJy6cu1TNoHuKIKSxPetCbZI41fc8hQDjWPIAU'
-      short-id: '9980e0609b0d3891'
-  - name: 'VLESS 40509'
-    type: 'vless'
-    server: '45.74.158.57'
-    port: 2101
-    udp: true
-    uuid: '4476ca08-bdb4-41c1-bae4-a960bdb28c19'
-    encryption: 'none'
-    tls: true
-    servername: 'images.apple.com'
+    servername: 'nl.aksay.pro'
     client-fingerprint: 'firefox'
     reality-opts:
-      public-key: 'bWIOrQAqUWCrz6BGdwaG42xaV-HEo8sUdGqVktUh0XU'
-      short-id: 'ff583de4'
-  - name: 'Trojan 28465'
+      public-key: 'ClG6fvriBTK8donGsTlKusJ0dwRCgVDDTAGzAtZzJDY'
+      short-id: '82c2b7d5e70ff000'
+  - name: 'Trojan 29600'
     type: 'trojan'
-    server: '3.34.131.153'
+    server: 'meet-goshawk.rooster465.autos'
     port: 443
     udp: true
     password: 'UX82473651'
     tls: true
-    servername: 'pretty-rat.rooster465.autos'
-    client-fingerprint: 'chrome'
-  - name: 'Shadowsocks 11881'
-    type: 'ss'
-    server: '51.222.136.236'
-    port: 8882
-    cipher: 'aes-256-gcm'
-    password: 'kDWvXYZoTBcGkC4'
-    udp: true
-  - name: 'Shadowsocks 3527'
-    type: 'ss'
-    server: '108.181.126.122'
-    port: 8388
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'CJmTCCx7Ltud'
-    udp: true
-  - name: 'VLESS 15706'
+    servername: 'meet-goshawk.rooster465.autos'
+  - name: 'VLESS 3658'
     type: 'vless'
-    server: 'hinet1.2yly.com'
-    port: 24215
+    server: 'jpga01.jumpernode.site'
+    port: 443
     udp: true
-    uuid: '19d5a678-8396-4e3b-93da-ece618d0e83a'
+    uuid: '05453546-201f-4e8d-97ae-fd70da0e951f'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'amzn.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'AgTktefiMM58y7f-KFgEtmVti_YJbd0GPSkxNeJ0RH4'
+      short-id: 'c8e49965'
+  - name: 'Trojan 29693'
+    type: 'trojan'
+    server: 'organic-caribou.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'organic-caribou.rooster465.autos'
+  - name: 'VMess 6952'
+    type: 'vmess'
+    server: '149.88.23.207'
+    port: 18000
+    udp: true
+    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
+    alterId: 0
+    cipher: 'auto'
+  - name: 'Trojan 29680'
+    type: 'trojan'
+    server: 'optimum-snapper.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'optimum-snapper.rooster465.autos'
+  - name: 'Trojan 29667'
+    type: 'trojan'
+    server: 'obliging-louse.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'obliging-louse.rooster465.autos'
+  - name: 'VLESS 83398'
+    type: 'vless'
+    server: '198.55.102.59'
+    port: 4443
+    udp: true
+    uuid: '7f86f371-5a85-48be-babc-7af1ae7ffb75'
+    flow: 'xtls-rprx-vision'
     encryption: 'none'
     tls: true
-    servername: 'addons.mozilla.org'
-    client-fingerprint: 'chrome'
+    servername: 'vk.com'
     reality-opts:
-      public-key: 'mdWKUPMVTtTbDqK10BPb89OcqBC2-Lx-4NOYtqc1GWE'
-  - name: 'VLESS 31090'
-    type: 'vless'
-    server: '23.95.222.127'
-    port: 8443
-    udp: true
-    uuid: '352ff568-f971-4613-bf48-92997a5d44ed'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'www.apple.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'ribQDOlZ69PzvZ1EDF0EcmMvbq_T5RQrVRBSGUU2riU'
-      short-id: '35cd899f8de04801'
-  - name: 'VLESS 26195'
-    type: 'vless'
-    server: 'sg2-8sb.6121999.dpdns.org'
-    port: 19825
-    udp: true
-    uuid: '2d1ad594-80a4-4bfb-87a6-038e39701f51'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'sg2-8sb.6121999.dpdns.org'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'GvvkY8xYb9QjvwvzYq_uNC4tOGd0DCxRnz6770-xgkI'
-      short-id: '6ba85179e30d4fc2'
-  - name: 'Trojan 28938'
+      public-key: '9gYnZLxZAPxIKzu9e-cOLBpbCn9p9og9gBodOCh5HB8'
+      short-id: 'ce6767c3f1'
+  - name: 'Trojan 29498'
     type: 'trojan'
-    server: 'delicate-buck.rooster465.autos'
+    server: 'integral-rodent.rooster465.autos'
     port: 443
     udp: true
     password: 'UX82473651'
     tls: true
-    servername: 'delicate-buck.rooster465.autos'
-  - name: 'VLESS 26156'
+    servername: 'integral-rodent.rooster465.autos'
+  - name: 'Trojan 29191'
+    type: 'trojan'
+    server: '63.178.198.94'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'pleased-albacore.rooster465.autos'
+    client-fingerprint: 'chrome'
+  - name: 'VMess 23132'
+    type: 'vmess'
+    server: '149.88.23.202'
+    port: 18000
+    udp: true
+    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
+    alterId: 0
+    cipher: 'auto'
+  - name: 'Shadowsocks 8796'
+    type: 'ss'
+    server: '84.247.155.196'
+    port: 80
+    cipher: 'aes-256-gcm'
+    password: '3eOFeNssde7PYYMv'
+    udp: true
+  - name: 'Shadowsocks 11911'
+    type: 'ss'
+    server: '51.222.155.32'
+    port: 5003
+    cipher: 'aes-256-gcm'
+    password: 'g5MeD6Ft3CWlJId'
+    udp: true
+  - name: 'VLESS 27828'
     type: 'vless'
     server: '146.235.16.130'
     port: 19825
@@ -1461,62 +1273,360 @@ proxies:
     reality-opts:
       public-key: 'GvvkY8xYb9QjvwvzYq_uNC4tOGd0DCxRnz6770-xgkI'
       short-id: '6ba85179e30d4fc2'
-  - name: 'Trojan 28324'
-    type: 'trojan'
-    server: '13.125.69.162'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'engaging-toucan.rooster465.autos'
-  - name: 'Trojan 28681'
-    type: 'trojan'
-    server: '52.78.203.191'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'delicate-buck.rooster465.autos'
-  - name: 'Trojan 29115'
-    type: 'trojan'
-    server: 'intense-sole.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'intense-sole.rooster465.autos'
-  - name: 'Shadowsocks 6417'
+  - name: 'Shadowsocks 5684'
     type: 'ss'
-    server: '198.98.53.130'
+    server: '102.133.165.160'
+    port: 16233
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'Xsy8Ox4yOV3xLlpxtjzs3X'
+    udp: true
+  - name: 'Shadowsocks 2698'
+    type: 'ss'
+    server: '139.84.247.164'
+    port: 8388
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'tfAcRikawhNoZAhu'
+    udp: true
+  - name: 'Shadowsocks 5997'
+    type: 'ss'
+    server: '102.37.156.224'
     port: 443
     cipher: 'chacha20-ietf-poly1305'
-    password: 'eDfN7SODQceIOmIAbtJJtK'
+    password: 'aduB9HGxQHjA2SBMRjkHX6'
     udp: true
-  - name: 'Shadowsocks 8120'
+  - name: 'VLESS 27868'
+    type: 'vless'
+    server: 'sg2-8sb.6121999.dpdns.org'
+    port: 19825
+    udp: true
+    uuid: '2d1ad594-80a4-4bfb-87a6-038e39701f51'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'sg2-8sb.6121999.dpdns.org'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'GvvkY8xYb9QjvwvzYq_uNC4tOGd0DCxRnz6770-xgkI'
+      short-id: '6ba85179e30d4fc2'
+  - name: 'Trojan 29031'
+    type: 'trojan'
+    server: '52.192.217.187'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'evolving-platypus.rooster465.autos'
+  - name: 'VLESS 152906'
+    type: 'vless'
+    server: '103.172.197.3'
+    port: 16006
+    udp: true
+    uuid: 'f8c9d2a1-da40-4f90-b671-11772a0b13d6'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.cloudflare.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'll7JTP628PuBMZJvx6fuhGSmCRSURnReAetmhCEL8GU'
+  - name: 'Trojan 29829'
+    type: 'trojan'
+    server: 'strong-haddock.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'strong-haddock.rooster465.autos'
+  - name: 'Trojan 29253'
+    type: 'trojan'
+    server: 'assuring-skink.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'assuring-skink.rooster465.autos'
+  - name: 'Trojan 28856'
+    type: 'trojan'
+    server: '3.34.131.153'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'pretty-rat.rooster465.autos'
+    client-fingerprint: 'chrome'
+  - name: 'Shadowsocks 8180'
     type: 'ss'
     server: '147.78.1.141'
     port: 16672
     cipher: 'aes-128-gcm'
     password: '67c57ae584eecd70396fcd7ca7521130'
     udp: true
-  - name: 'Trojan 28781'
+  - name: 'Trojan 29480'
     type: 'trojan'
-    server: '56.10.9.77'
+    server: 'holy-lamb.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'holy-lamb.rooster465.autos'
+  - name: 'Trojan 29531'
+    type: 'trojan'
+    server: 'inviting-ferret.rooster465.autos'
     port: 443
     udp: true
     password: 'UX82473651'
     tls: true
     servername: 'inviting-ferret.rooster465.autos'
-    client-fingerprint: 'chrome'
-  - name: 'Trojan 29338'
+  - name: 'Trojan 29615'
     type: 'trojan'
-    server: 'pretty-rat.rooster465.autos'
+    server: 'musical-terrier.rooster465.autos'
     port: 443
     udp: true
     password: 'UX82473651'
     tls: true
-    servername: 'pretty-rat.rooster465.autos'
-  - name: 'Trojan 28834'
+    servername: 'musical-terrier.rooster465.autos'
+  - name: 'VLESS 19314'
+    type: 'vless'
+    server: '194.61.31.126'
+    port: 2053
+    udp: true
+    uuid: '1d4e18bd-1f26-4915-b35a-7ace4826e76a'
+    encryption: 'none'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'PuAGLfJy6cu1TNoHuKIKSxPetCbZI41fc8hQDjWPIAU'
+      short-id: '9980e0609b0d3891'
+  - name: 'Trojan 29147'
+    type: 'trojan'
+    server: '54.249.55.154'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'prime-corgi.rooster465.autos'
+    client-fingerprint: 'chrome'
+  - name: 'VLESS 56871'
+    type: 'vless'
+    server: 'apinbxs.zalolink.com'
+    port: 21263
+    udp: true
+    uuid: '57beeeb0-03fc-4fc9-94da-7604488a7134'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'us1p1.xn--ghq880n3na965a.com'
+    client-fingerprint: 'safari'
+    reality-opts:
+      public-key: 'YinI5MijeZpRatg6QNDvP0qXEif-6VHC6gV5yoji4i4'
+      short-id: '3d31326f95'
+  - name: 'Trojan 29709'
+    type: 'trojan'
+    server: 'pet-antelope.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'pet-antelope.rooster465.autos'
+  - name: 'VLESS 56802'
+    type: 'vless'
+    server: '103.30.76.197'
+    port: 44988
+    udp: true
+    uuid: '57beeeb0-03fc-4fc9-94da-7604488a7134'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'www.tesla.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'f6Tj8-uvWsLv3V-lGLuPciArp5oKqUImBg-U7-WJ-0A'
+      short-id: 'bb82c8'
+  - name: 'Trojan 29579'
+    type: 'trojan'
+    server: 'main-fawn.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'main-fawn.rooster465.autos'
+  - name: 'VLESS 42990'
+    type: 'vless'
+    server: 'helllo.com.tr'
+    port: 2102
+    udp: true
+    uuid: '4476ca08-bdb4-41c1-bae4-a960bdb28c19'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'bWIOrQAqUWCrz6BGdwaG42xaV-HEo8sUdGqVktUh0XU'
+      short-id: 'cc80ef'
+  - name: 'VLESS 56793'
+    type: 'vless'
+    server: '103.30.76.197'
+    port: 21263
+    udp: true
+    uuid: '57beeeb0-03fc-4fc9-94da-7604488a7134'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'us1p1.xn--ghq880n3na965a.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'YinI5MijeZpRatg6QNDvP0qXEif-6VHC6gV5yoji4i4'
+      short-id: '3d31326f95'
+  - name: 'Trojan 29069'
+    type: 'trojan'
+    server: '52.221.220.227'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'pet-antelope.rooster465.autos'
+  - name: 'Trojan 29095'
+    type: 'trojan'
+    server: '54.199.66.128'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'integral-rodent.rooster465.autos'
+    client-fingerprint: 'chrome'
+  - name: 'Trojan 28923'
+    type: 'trojan'
+    server: '3.75.93.113'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'meet-goshawk.rooster465.autos'
+    client-fingerprint: 'chrome'
+  - name: 'VLESS 56841'
+    type: 'vless'
+    server: '43.255.157.118'
+    port: 44988
+    udp: true
+    uuid: '57beeeb0-03fc-4fc9-94da-7604488a7134'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.tesla.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'f6Tj8-uvWsLv3V-lGLuPciArp5oKqUImBg-U7-WJ-0A'
+      short-id: 'bb82c8'
+  - name: 'Shadowsocks 10713'
+    type: 'ss'
+    server: '51.222.200.165'
+    port: 5000
+    cipher: 'aes-256-gcm'
+    password: 'Y6R9pAtvxxzmGC'
+    udp: true
+  - name: 'Trojan 28947'
+    type: 'trojan'
+    server: '34.242.77.118'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'sacred-anemone.rooster465.autos'
+    client-fingerprint: 'chrome'
+  - name: 'VLESS 14140'
+    type: 'vless'
+    server: '159.89.87.21'
+    port: 28190
+    udp: true
+    uuid: '14c80e0e-f7ce-4991-94fc-99a1db4a9b1e'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'aws.amazon.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'ZJRnFU-1s1JOnO8E9uZ7b00l1fPEh63fGRbdBANFRno'
+  - name: 'Trojan 29544'
+    type: 'trojan'
+    server: 'kind-stork.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'kind-stork.rooster465.autos'
+  - name: 'Shadowsocks 12026'
+    type: 'ss'
+    server: '51.222.136.236'
+    port: 8882
+    cipher: 'aes-256-gcm'
+    password: 'kDWvXYZoTBcGkC4'
+    udp: true
+  - name: 'Hysteria2 4487'
+    type: 'hysteria2'
+    server: 'admin.wwwinternetvideo.click'
+    port: 443
+    udp: true
+    password: 'YutbgyXL1mGaSlBXDoEucWvYbrDCINgUcQ6R6_At5Pjr2xCc'
+    tls: true
+    servername: 'admin.wwwinternetvideo.click'
+  - name: 'Trojan 29753'
+    type: 'trojan'
+    server: 'prime-corgi.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'prime-corgi.rooster465.autos'
+  - name: 'VLESS 22257'
+    type: 'vless'
+    server: 'jumpernode.site'
+    port: 443
+    udp: true
+    uuid: '23af32ca-bea1-4a5e-bebb-04d1b1b633bc'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'p-nt-www-amazon-com-kalias.amazon.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'sDKrtAJk2VP_w1w7cFi2O86RdlvQ2E2An5xsRdJlgGE'
+      short-id: '6d962e8d8a0dce'
+  - name: 'VLESS 117907'
+    type: 'vless'
+    server: '51.38.71.147'
+    port: 8443
+    udp: true
+    uuid: 'c08f0056-7a6d-4931-813b-aaa3cdd00aed'
+    encryption: 'none'
+    tls: true
+    servername: 'node-uk.connectsuite.org'
+    client-fingerprint: 'firefox'
+  - name: 'VLESS 94309'
+    type: 'vless'
+    server: 'cdn.bulkavpn.top'
+    port: 443
+    udp: true
+    uuid: '91d734be-a3d0-4d50-83ab-74cf7b6966fa'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'cdn.bulkavpn.top'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'bQZcMViJWXus9rMSTOa-ZAaUJC0mIlPx7XmzrLp8GQU'
+      short-id: '94f32cfc'
+  - name: 'Hysteria2 2367'
+    type: 'hysteria2'
+    server: '158.101.148.79'
+    port: 443
+    udp: true
+    password: 'my_super_password_123'
+    tls: true
+    servername: 'open.2ml.bid'
+  - name: 'Trojan 29337'
+    type: 'trojan'
+    server: 'delicate-buck.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'delicate-buck.rooster465.autos'
+  - name: 'Trojan 29237'
     type: 'trojan'
     server: 'amazing-peacock.rooster465.autos'
     port: 443
@@ -1524,11 +1634,60 @@ proxies:
     password: 'UX82473651'
     tls: true
     servername: 'amazing-peacock.rooster465.autos'
-  - name: 'Trojan 29269'
+  - name: 'Trojan 29807'
     type: 'trojan'
-    server: 'obliging-louse.rooster465.autos'
+    server: 'sacred-anemone.rooster465.autos'
     port: 443
     udp: true
     password: 'UX82473651'
     tls: true
-    servername: 'obliging-louse.rooster465.autos'
+    servername: 'sacred-anemone.rooster465.autos'
+  - name: 'Trojan 29205'
+    type: 'trojan'
+    server: 'accurate-frog.rooster465.autos'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'accurate-frog.rooster465.autos'
+  - name: 'Shadowsocks 4857'
+    type: 'ss'
+    server: '57.129.113.16'
+    port: 8388
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'NcAXc0UZI6yQJE1p8QmOv8'
+    udp: true
+  - name: 'VLESS 33053'
+    type: 'vless'
+    server: '23.95.222.127'
+    port: 8443
+    udp: true
+    uuid: '352ff568-f971-4613-bf48-92997a5d44ed'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'ribQDOlZ69PzvZ1EDF0EcmMvbq_T5RQrVRBSGUU2riU'
+      short-id: '35cd899f8de04801'
+  - name: 'Trojan 28719'
+    type: 'trojan'
+    server: '13.212.81.3'
+    port: 443
+    udp: true
+    password: 'UX82473651'
+    tls: true
+    servername: 'holy-lamb.rooster465.autos'
+  - name: 'VLESS 56853'
+    type: 'vless'
+    server: '45.153.130.119'
+    port: 21263
+    udp: true
+    uuid: '57beeeb0-03fc-4fc9-94da-7604488a7134'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'us1p1.xn--ghq880n3na965a.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'YinI5MijeZpRatg6QNDvP0qXEif-6VHC6gV5yoji4i4'
+      short-id: '3d31326f95'
