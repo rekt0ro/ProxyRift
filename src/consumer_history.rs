@@ -6,7 +6,7 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 use url::Url;
 
-const EVIDENCE_VERSION: u64 = 2;
+const EVIDENCE_VERSION: u64 = 3;
 const DECAY_HALF_LIFE_SECS: f64 = 30.0 * 24.0 * 60.0 * 60.0;
 const PROTOCOL_PRIOR_STRENGTH: f64 = 8.0;
 const ARCHETYPE_PRIOR_STRENGTH: f64 = 12.0;

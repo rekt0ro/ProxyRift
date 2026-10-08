@@ -1,9 +1,14 @@
 use proxyrift::consumer_history::{
     archetype_hash, config_hash, family_hash, now_unix, protocol, ConsumerEvidence,
 };
-use proxyrift::singbox::validate_candidates_with_consumer_targets as validate_singbox_consumer_targets;
+use proxyrift::singbox::{
+    validate_candidates_with_consumer_targets as validate_singbox_consumer_targets,
+    validate_candidates_with_targets_once_with_sustained_stream as validate_singbox_sustained_stream,
+};
 use proxyrift::validator::{
-    is_light_consumer_compatible, validate_candidates_with_consumer_targets, LIGHT_CONSUMER_TARGETS,
+    is_light_consumer_compatible, validate_candidates_with_consumer_targets,
+    validate_candidates_with_targets_once_with_sustained_stream as validate_xray_sustained_stream,
+    ProxyMetrics, LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_STABILITY_TARGETS,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -22,6 +27,10 @@ const DEFAULT_MAX_CANDIDATES: usize = 96;
 const DEFAULT_DEEP_CANDIDATES: usize = 64;
 const DEFAULT_DEEP_ROUNDS: usize = 3;
 const RECENT_CONSUMER_WINDOW_SECS: u64 = 7 * 24 * 60 * 60;
+const CONSUMER_STREAM_TIMEOUT_SECONDS: f64 = 15.0;
+const CONSUMER_STREAM_SEGMENTS: usize = 3;
+const CONSUMER_STREAM_SEGMENT_BYTES: usize = 1_048_576;
+const CONSUMER_STREAM_MAX_IDLE_SECONDS: u64 = 4;
 const MAX_STORED_ROUNDS: usize = 30;
 
 #[derive(Clone, Debug)]
@@ -39,6 +48,8 @@ struct ConfigResult {
     min_ms: Option<f64>,
     jitter_ms: Option<f64>,
     throughput_kbps: Option<f64>,
+    http_pass: bool,
+    stream_pass: bool,
 }
 
 fn value(args: &[String], name: &str, default: &str) -> String {
@@ -112,6 +123,8 @@ fn result_from_metrics(
         min_ms: metrics.map(|value| value.min_ms),
         jitter_ms: metrics.map(|value| value.jitter_ms),
         throughput_kbps: metrics.map(|value| value.throughput_kbps),
+        http_pass: passed,
+        stream_pass: false,
     }
 }
 
@@ -130,6 +143,8 @@ fn result_json(result: &ConfigResult) -> Value {
         "min_ms": result.min_ms,
         "jitter_ms": result.jitter_ms,
         "throughput_kbps": result.throughput_kbps,
+        "http_pass": result.http_pass,
+        "stream_pass": result.stream_pass,
     })
 }
 
@@ -147,7 +162,7 @@ fn load_history(path: &str) -> Result<Vec<Value>, String> {
         .get("schema_version")
         .and_then(Value::as_u64)
         .unwrap_or(0)
-        != 2
+        != 3
     {
         println!("[INFO] 🧹 Ignoring legacy consumer history; starting structural history v2");
         return Ok(Vec::new());
@@ -178,7 +193,7 @@ fn save_history(
     stored_rounds.reverse();
 
     let output = json!({
-        "schema_version": 2,
+        "schema_version": 3,
         "input": input_path,
         "targets": targets,
         "privacy": {
@@ -201,7 +216,7 @@ fn save_history(
 
 fn print_usage() {
     println!(
-        "Usage: light_consumer_test [options]\n         \n         Options:\n           --input FILE          Light subscription input (default: subscriptions/light.txt)\n           --history FILE        Persistent result history (default: subscriptions/light-consumer-results.json)\n           --xray PATH           Xray binary (default: xray)\n           --singbox PATH        sing-box binary (default: sing-box)\n           --workers N           Validation workers (default: 16)\n           --batch-size N        Candidates per core batch (default: 64)\n           --timeout SECONDS     sing-box request timeout (default: 6)\n           --xray-timeout SECONDS Xray fallback request timeout (default: 3)\n           --max-latency-ms N    Maximum accepted latency (default: 800)\n           --rounds N            Full rounds in standard mode (default: 1)\n           --adaptive            Select a history-aware test pool\n           --max-candidates N    Adaptive pool size (default: 96)\n           --deep-candidates N   Adaptive candidates that get deep rounds (default: 64)\n           --deep-rounds N       Rounds for unseen/stale candidates (default: 3)\n           --help                Show this help\n         \n         The history stores exact + structural hashes only. Raw proxy URLs are never persisted.\n         The evidence file stores only structural aggregates for reuse by ranking."
+        "Usage: light_consumer_test [options]\n         \n         Options:\n           --input FILE          Light subscription input (default: subscriptions/light.txt)\n           --history FILE        Persistent result history (default: subscriptions/light-consumer-results.json)\n           --xray PATH           Xray binary (default: xray)\n           --singbox PATH        sing-box binary (default: sing-box)\n           --workers N           Validation workers (default: 16)\n           --batch-size N        Candidates per core batch (default: 64)\n           --timeout SECONDS     sing-box request timeout (default: 6)\n           --xray-timeout SECONDS Xray fallback request timeout (default: 3)\n           --max-latency-ms N    Maximum accepted latency (default: 800)\n           --rounds N            Full rounds in standard mode (default: 1)\n           --adaptive            Select a history-aware test pool\n           --max-candidates N    Adaptive pool size (default: 96)\n           --deep-candidates N   Adaptive candidates that get deep rounds (default: 64)\n           --deep-rounds N       Rounds for unseen/stale candidates (default: 3)\n           --help                Show this help\n         \n         The history stores exact + structural hashes only. Raw proxy URLs are never persisted. Schema v3 requires sustained-stream validation for a consumer pass.\n         The evidence file stores only structural aggregates for reuse by ranking."
     );
 }
 
@@ -426,6 +441,70 @@ async fn validate_round(
         }
     }
 
+    let http_passed = results
+        .iter()
+        .filter(|result| result.http_pass)
+        .map(|result| result.config_hash.clone())
+        .collect::<HashSet<_>>();
+
+    let http_candidates = compatible
+        .iter()
+        .filter(|config| http_passed.contains(&config_hash(config)))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    println!(
+        "[INFO] 🧵 Consumer sustained stream | {} HTTP-qualified candidates | targets: {}",
+        http_candidates.len(),
+        LIGHT_TRANSFER_STABILITY_TARGETS.len()
+    );
+
+    let stream_verified = validate_sustained_stream(
+        &http_candidates,
+        xray,
+        singbox,
+        workers,
+        batch_size,
+        xray_timeout,
+    )
+    .await?;
+
+    for result in &mut results {
+        if !result.http_pass {
+            continue;
+        }
+
+        if let Some(stream_metrics) = stream_verified.get(
+            &candidates
+                .iter()
+                .find(|config| config_hash(config) == result.config_hash)
+                .cloned()
+                .unwrap_or_default(),
+        ) {
+            result.stream_pass = true;
+            result.pass = true;
+            if result.backend.is_none() {
+                result.backend = Some("stream".to_string());
+            }
+            result.median_ms = Some(stream_metrics.median_ms);
+            result.min_ms = Some(stream_metrics.min_ms);
+            result.jitter_ms = Some(stream_metrics.jitter_ms);
+            result.throughput_kbps = Some(stream_metrics.throughput_kbps);
+        } else {
+            result.stream_pass = false;
+            result.pass = false;
+        }
+    }
+
+    println!(
+        "[INFO] 📊 Consumer quality | HTTP: {}/{} | Sustained stream: {}/{} | Final consumer pass: {}",
+        results.iter().filter(|result| result.http_pass).count(),
+        results.len(),
+        stream_verified.len(),
+        http_candidates.len(),
+        results.iter().filter(|result| result.pass).count()
+    );
+
     let mut seen = HashSet::new();
     results.retain(|result| seen.insert(result.config_hash.clone()));
 
@@ -446,6 +525,8 @@ async fn validate_round(
                 min_ms: None,
                 jitter_ms: None,
                 throughput_kbps: None,
+                http_pass: false,
+                stream_pass: false,
             });
         }
     }
@@ -459,6 +540,88 @@ async fn validate_round(
     });
 
     Ok(results)
+}
+
+async fn validate_sustained_stream(
+    candidates: &[String],
+    xray: &str,
+    singbox: &str,
+    workers: usize,
+    batch_size: usize,
+    xray_timeout: f64,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    if candidates.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let request_timeout = std::time::Duration::from_secs_f64(CONSUMER_STREAM_TIMEOUT_SECONDS);
+    let max_latency_ms = 15000.0;
+    let max_idle_gap = std::time::Duration::from_secs(CONSUMER_STREAM_MAX_IDLE_SECONDS);
+
+    let mut stream_verified = HashMap::new();
+    let mut unresolved = Vec::new();
+
+    match validate_singbox_sustained_stream(
+        singbox,
+        candidates,
+        LIGHT_TRANSFER_STABILITY_TARGETS,
+        workers.clamp(1, 24),
+        request_timeout,
+        max_latency_ms,
+        CONSUMER_STREAM_SEGMENTS,
+        CONSUMER_STREAM_SEGMENT_BYTES,
+        max_idle_gap,
+    )
+    .await
+    {
+        Ok(verified) => {
+            for config in candidates {
+                if let Some(metrics) = verified.get(config) {
+                    stream_verified.insert(config.clone(), metrics.clone());
+                } else {
+                    unresolved.push(config.clone());
+                }
+            }
+            println!(
+                "[INFO] ✅ [Consumer/stream/sing-box] {}/{} passed",
+                verified.len(),
+                candidates.len()
+            );
+        }
+        Err(error) => {
+            println!("[WARN] ⚠️ [Consumer/stream/sing-box] unavailable | {error} | Trying Xray");
+            unresolved.extend(candidates.iter().cloned());
+        }
+    }
+
+    if !unresolved.is_empty() {
+        let xray_timeout = xray_timeout.max(CONSUMER_STREAM_TIMEOUT_SECONDS);
+        let verified = validate_xray_sustained_stream(
+            xray,
+            &unresolved,
+            LIGHT_TRANSFER_STABILITY_TARGETS,
+            workers.clamp(1, 24),
+            batch_size.max(1),
+            xray_timeout,
+            max_latency_ms,
+            CONSUMER_STREAM_SEGMENTS,
+            CONSUMER_STREAM_SEGMENT_BYTES,
+            max_idle_gap,
+        )
+        .await
+        .map_err(|error| format!("Xray consumer stream validation failed: {error}"))?;
+
+        println!(
+            "[INFO] ✅ [Consumer/stream/Xray] {}/{} unresolved candidates passed",
+            verified.len(),
+            unresolved.len()
+        );
+        for (config, metrics) in verified {
+            stream_verified.insert(config, metrics);
+        }
+    }
+
+    Ok(stream_verified)
 }
 
 fn aggregate_families(rounds: &[Value]) -> BTreeMap<String, (String, usize, usize)> {
@@ -726,6 +889,30 @@ async fn main() -> Result<(), String> {
     print_summary(&history, &latest_round);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use super::load_history;
+    use std::fs;
+
+    #[test]
+    fn rejects_legacy_consumer_history_v2() {
+        let path = std::env::temp_dir().join(format!(
+            "proxyrift-consumer-history-v2-{}-{}.json",
+            std::process::id(),
+            super::now_unix().unwrap_or_default()
+        ));
+        fs::write(
+            &path,
+            r#"{"schema_version":2,"rounds":[{"observed_at":1,"results":[]}]}"#,
+        )
+        .unwrap();
+
+        let rounds = load_history(path.to_str().unwrap()).unwrap();
+        assert!(rounds.is_empty());
+        let _ = fs::remove_file(path);
+    }
 }
 
 #[cfg(test)]
