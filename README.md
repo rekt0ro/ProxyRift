@@ -80,14 +80,13 @@ Transport Reachability
       └──────────────► Light candidates
                         │
                         ▼
-              LightGBM + Consumer Evidence
-                 60%          40%
+              LightGBM + Historical Evidence
                         │
                         ▼
                  Candidate Ranking
                         │
                         ▼
-                Consumer-like First
+              Promising Candidates First
                         │
                         ▼
                   Deep Validation
@@ -109,7 +108,7 @@ From there, the pipeline builds two lists:
 
 **All** is a larger pool of configurations that passed transport-level screening.
 
-**Light** is a smaller quality-focused pool. Candidates are ranked using LightGBM and historical consumer evidence before going through deeper validation.
+**Light** is a smaller quality-focused pool. Candidates are ranked using LightGBM together with historical validation evidence before going through deeper validation.
 
 Deep validation can include real HTTP requests, repeated checks, endpoint diversity, latency, jitter, transfer performance, and protocol-specific checks.
 
