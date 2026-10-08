@@ -21,12 +21,12 @@ use proxyrift::validator::{
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::env;
+use std::process::Command;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::env;
-use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use url::Url;
 
@@ -1973,7 +1973,8 @@ async fn run_transfer_gate_consumer(
                 transfer_target,
                 max_per_endpoint,
                 max_per_family,
-            ) > 0 {
+            ) > 0
+            {
                 eligible_untested.push(config);
             }
         }
@@ -2046,21 +2047,14 @@ async fn run_transfer_gate_consumer(
 
         let rate_limits_before = rate_limit_events();
         let batch_started = Instant::now();
-        let metadata = match validate_light_transfer_batch(
-            xray,
-            singbox,
-            &batch,
-            transfer_workers,
-            target,
-        )
-        .await
-        {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                transfer_done.store(true, Ordering::Relaxed);
-                return Err(error);
-            }
-        };
+        let metadata =
+            match validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target).await {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    transfer_done.store(true, Ordering::Relaxed);
+                    return Err(error);
+                }
+            };
         let batch_elapsed = batch_started.elapsed().as_secs();
         let batch_passed = metadata.len();
         transfer_verified.extend(metadata);
