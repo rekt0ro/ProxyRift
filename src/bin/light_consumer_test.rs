@@ -542,7 +542,6 @@ async fn validate_round(
     Ok(results)
 }
 
-
 async fn validate_sustained_stream(
     candidates: &[String],
     xray: &str,
@@ -573,7 +572,8 @@ async fn validate_sustained_stream(
         CONSUMER_STREAM_SEGMENT_BYTES,
         max_idle_gap,
     )
-    .await {
+    .await
+    {
         Ok(verified) => {
             for config in candidates {
                 if let Some(metrics) = verified.get(config) {
@@ -589,9 +589,7 @@ async fn validate_sustained_stream(
             );
         }
         Err(error) => {
-            println!(
-                "[WARN] ⚠️ [Consumer/stream/sing-box] unavailable | {error} | Trying Xray"
-            );
+            println!("[WARN] ⚠️ [Consumer/stream/sing-box] unavailable | {error} | Trying Xray");
             unresolved.extend(candidates.iter().cloned());
         }
     }
