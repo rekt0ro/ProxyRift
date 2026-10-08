@@ -977,6 +977,20 @@ fn singbox_outbound(config: &str) -> Result<Value, String> {
             }
             Ok(outbound)
         }
+        "http" => {
+            let mut outbound = json!({
+                "type": "http",
+                "server": string_at(&xray, &["settings", "servers", "0", "address"])?,
+                "server_port": u16_at(&xray, &["settings", "servers", "0", "port"])?,
+            });
+
+            if let Some(user) = value_at(&xray, &["settings", "servers", "0", "users", "0"]) {
+                outbound["username"] = json!(string_at(user, &["user"])?);
+                outbound["password"] = json!(string_at(user, &["pass"])?);
+            }
+
+            Ok(outbound)
+        }
         _ => Err(format!("scheme {scheme} not supported by sing-box Light")),
     }
 }
@@ -2418,6 +2432,29 @@ mod tests {
         let outbound = singbox_outbound(&config).expect("VMess empty security should map");
         assert_eq!(outbound["security"], "auto");
         assert_eq!(outbound["transport"]["type"], "http");
+    }
+
+    #[test]
+    fn maps_http_proxy_with_default_port_and_authentication() {
+        let outbound = singbox_outbound("http://user:secret@proxy.example.com")
+            .expect("HTTP proxy should map natively");
+
+        assert_eq!(outbound["type"], "http");
+        assert_eq!(outbound["server"], "proxy.example.com");
+        assert_eq!(outbound["server_port"], 80);
+        assert_eq!(outbound["username"], "user");
+        assert_eq!(outbound["password"], "secret");
+    }
+
+    #[test]
+    fn maps_unauthenticated_http_proxy_with_explicit_port() {
+        let outbound = singbox_outbound("http://proxy.example.com:8080")
+            .expect("HTTP proxy with explicit port should map natively");
+
+        assert_eq!(outbound["type"], "http");
+        assert_eq!(outbound["server_port"], 8080);
+        assert!(outbound.get("username").is_none());
+        assert!(outbound.get("password").is_none());
     }
 
     #[test]
