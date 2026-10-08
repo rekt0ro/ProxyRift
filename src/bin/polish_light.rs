@@ -3846,7 +3846,7 @@ async fn main() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FINAL_TRANSFER_WORKERS, adaptive_discovery_batch_size, adaptive_recheck_limit, adaptive_stability_pool_target,
+        adaptive_discovery_batch_size, adaptive_recheck_limit, adaptive_stability_pool_target,
         adaptive_stability_target, adaptive_strict_validation_target, adaptive_transfer_test_limit,
         adjust_transfer_workers, has_disabled_tls_verification, history_fingerprint, light_backend,
         light_training_features, merge_light_metadata, normalize_light_config,
@@ -3856,7 +3856,7 @@ mod tests {
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
         transfer_validation_target, update_transfer_target_state, ConsumerEvidence, LightBackend,
-        LightGbmScores, ProxyMetrics, TransferTargetState,
+        LightGbmScores, ProxyMetrics, TransferTargetState, FINAL_TRANSFER_WORKERS,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
