@@ -2958,7 +2958,21 @@ mod tests {
             priority: 100,
         };
 
-        registry.add_candidate(&source, 1);
+        let mut object = serde_json::Map::new();
+        object.insert("url".into(), Value::String(source.url.clone()));
+        object.insert("repo".into(), Value::String(source.repo.clone()));
+        object.insert("first_seen".into(), Value::from(1u64));
+        object.insert("last_checked".into(), Value::Null);
+        object.insert("successes".into(), Value::from(0u64));
+        object.insert("failures".into(), Value::from(0u64));
+        object.insert("failure_streak".into(), Value::from(0u64));
+        object.insert("empty_runs".into(), Value::from(0u64));
+        object.insert("empty_streak".into(), Value::from(0u64));
+        object.insert("configs_total".into(), Value::from(0u64));
+        registry
+            .sources_mut()
+            .insert(source.url.clone(), Value::Object(object));
+
         registry.record_outcome(&source.url, CollectionOutcome::Success(500), 2);
         registry.record_outcome(&source.url, CollectionOutcome::Success(600), 3);
         registry
