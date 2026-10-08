@@ -2048,7 +2048,15 @@ async fn run_transfer_gate_consumer(
         let rate_limits_before = rate_limit_events();
         let batch_started = Instant::now();
         let metadata =
-            match validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target).await {
+            match validate_light_transfer_batch(
+                xray,
+                singbox,
+                &batch,
+                transfer_workers,
+                target,
+            )
+            .await
+            {
                 Ok(metadata) => metadata,
                 Err(error) => {
                     transfer_done.store(true, Ordering::Relaxed);
