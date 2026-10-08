@@ -29,7 +29,7 @@ use url::Url;
 const DISCOVERY_BATCH_MIN: usize = 24;
 const DISCOVERY_BATCH_MAX: usize = 300;
 const DISCOVERY_STALL_BATCH_SIZE: usize = DISCOVERY_BATCH_MAX;
-const DISCOVERY_STAGNATION_WAVES: usize = 4;
+const DISCOVERY_STAGNATION_WAVES: usize = 3;
 const MAX_DISCOVERY_CANDIDATES: usize = 10000;
 const DISCOVERY_SAFETY_FACTOR: f64 = 1.15;
 const TRANSFER_RESERVE_DEFAULT_PASS_RATE: f64 = 0.80;
@@ -47,15 +47,15 @@ const CONSUMER_LEARNING_RESERVE_PERCENT: usize = 25;
 const MAX_CONSUMER_LEARNING_RESERVE: usize = 64;
 const MAX_FINAL_RECHECK_ATTEMPTS: usize = 2;
 const FINAL_TRANSFER_BATCH_SIZE: usize = 32;
-const FINAL_TRANSFER_WORKERS: usize = 8;
-const FINAL_TRANSFER_INITIAL_WORKERS: usize = 8;
+const FINAL_TRANSFER_WORKERS: usize = 12;
+const FINAL_TRANSFER_INITIAL_WORKERS: usize = 10;
 const FINAL_TRANSFER_MIN_WORKERS: usize = 2;
 const FINAL_TRANSFER_QUEUE_MULTIPLIER: usize = 3;
 const FINAL_TRANSFER_CLEAN_BATCHES_TO_RAMP: usize = 2;
 const FINAL_TRANSFER_TEST_LIMIT: usize = 320;
 const STABILITY_TRANSFER_TEST_LIMIT: usize = 450;
 const STABILITY_TRANSFER_BATCH_SIZE: usize = 32;
-const STABILITY_TRANSFER_WORKERS: usize = 12;
+const STABILITY_TRANSFER_WORKERS: usize = 16;
 const STABILITY_TEST_MAX_PER_ENDPOINT: usize = 2;
 const STABILITY_TEST_MAX_PER_FAMILY: usize = 6;
 const STABILITY_TRANSFER_MAX_LATENCY_MS: f64 = 15000.0;
@@ -73,7 +73,7 @@ const STREAM_CONTINUITY_RESERVE_PERCENT: usize = 5;
 const STREAM_CONTINUITY_RESERVE_MAX: usize = 16;
 const STREAM_CONTINUITY_BATCH_SIZE: usize = 24;
 const STREAM_CONTINUITY_WORKERS: usize = 24;
-const STREAM_START_TRANSFER_THRESHOLD: usize = 128;
+const STREAM_START_TRANSFER_THRESHOLD: usize = 96;
 const STREAM_CONTINUITY_SEGMENTS: usize = 3;
 const STREAM_CONTINUITY_SEGMENT_BYTES: usize = 1_048_576;
 const STREAM_CONTINUITY_MAX_IDLE_SECS: u64 = 4;
@@ -3856,7 +3856,7 @@ mod tests {
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
         transfer_validation_target, update_transfer_target_state, ConsumerEvidence, LightBackend,
-        LightGbmScores, ProxyMetrics, TransferTargetState,
+        LightGbmScores, ProxyMetrics, TransferTargetState, FINAL_TRANSFER_WORKERS,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -4105,7 +4105,10 @@ mod tests {
     fn clean_transfer_batches_ramp_workers_slowly() {
         assert_eq!(adjust_transfer_workers(2, 0, 8, 0), (2, 1));
         assert_eq!(adjust_transfer_workers(2, 0, 8, 1), (3, 0));
-        assert_eq!(adjust_transfer_workers(8, 0, 8, 1), (8, 0));
+        assert_eq!(
+            adjust_transfer_workers(8, 0, FINAL_TRANSFER_WORKERS, 1),
+            (9, 0)
+        );
     }
 
     #[test]
