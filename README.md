@@ -141,11 +141,11 @@ When there is not enough training data, ProxyRift falls back to a neutral score 
 
 ## 🔒 Security
 
-ProxyRift handles third-party proxy configurations and launches Xray and/or sing-box during validation.
+ProxyRift collects third-party proxy configurations and validates selected candidates using Xray and/or sing-box.
 
-The validator parses supported proxy URI formats and builds constrained configurations rather than directly executing arbitrary proxy configuration blobs.
+During Light validation, supported proxy URI formats are parsed and constrained configurations are constructed instead of directly executing arbitrary proxy configuration blobs. Endpoint resolution also rejects private, loopback, link-local, multicast, and other disallowed address ranges.
 
-Endpoint resolution also rejects private, loopback, link-local, multicast, and other disallowed address ranges.
+The All list does not go through the same deep Xray/sing-box validation. It is based on transport-level screening and should be treated accordingly.
 
 These checks reduce the attack surface, but they do not make third-party proxy endpoints trustworthy. Run ProxyRift in an isolated or sandboxed environment when operating it yourself.
 
@@ -155,9 +155,9 @@ Proxy validation is a snapshot.
 
 A proxy can pass every check during one run and fail later. Network conditions, server configuration, congestion, filtering, and endpoint availability can all change independently of ProxyRift.
 
-For that reason, ProxyRift reports observed behavior rather than claiming that a node is permanently "good".
+ProxyRift publishes the results of those validation runs as subscription lists. Passing validation means that a configuration met the relevant checks at the time it was tested, not that it will remain available or performant indefinitely.
 
-Independent testing of the published subscriptions is encouraged. A useful test is to sample published nodes from an environment separate from the collection runner and compare usability, stability, latency, and transfer performance against the published pool.
+Independent testing of the published subscriptions is encouraged. The most useful way to evaluate the lists is to sample nodes and test them from your own environment against real-world usability, stability, latency, and transfer performance.
 
 ## 🔄 Updates
 
