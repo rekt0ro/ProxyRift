@@ -3858,6 +3858,7 @@ mod tests {
         transfer_validation_target, update_transfer_target_state, ConsumerEvidence, LightBackend,
         LightGbmScores, ProxyMetrics, TransferTargetState,
     };
+    use super::FINAL_TRANSFER_WORKERS;
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::{HashMap, HashSet};
