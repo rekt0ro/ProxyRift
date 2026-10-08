@@ -851,12 +851,16 @@ fn convert_config(config: &str, index: usize) -> Result<String, String> {
 fn render_with_count(configs: &[String]) -> Result<(String, usize), String> {
     let mut lines = vec!["proxies:".to_string()];
     let mut rendered = 0usize;
+    let mut missing_port = 0usize;
 
     for (index, config) in configs.iter().enumerate() {
         match convert_config(config, index) {
             Ok(proxy) => {
                 lines.push(proxy);
                 rendered += 1;
+            }
+            Err(error) if error == "missing port" => {
+                missing_port += 1;
             }
             Err(error) => {
                 eprintln!(
@@ -866,6 +870,13 @@ fn render_with_count(configs: &[String]) -> Result<(String, usize), String> {
                 );
             }
         }
+    }
+
+    if missing_port > 0 {
+        eprintln!(
+            "[WARN] ⚠️ [Clash/Mihomo] Skipped {} config(s) | missing port",
+            missing_port
+        );
     }
 
     if rendered == 0 {
