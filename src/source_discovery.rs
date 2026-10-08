@@ -51,6 +51,7 @@ const GITHUB_SEARCH_MIN_INTERVAL_MS: u64 = 1_200;
 const GITHUB_SEARCH_MAX_INTERVAL_MS: u64 = 8_000;
 const GITHUB_SEARCH_MIN_REMAINING: u64 = 2;
 const GITHUB_SEARCH_FRESH_DAYS: u64 = 120;
+const SELF_REPOSITORY: &str = "rekt0ro/proxyrift";
 
 const SEARCH_SORTS: [&str; 2] = ["updated", "stars"];
 const SEARCH_QUERY_SET_NAMES: [&str; 3] = ["protocol", "sources", "fresh-low-star"];
@@ -613,6 +614,10 @@ impl Registry {
     }
 
     fn add_candidate(&mut self, candidate: &Candidate, now: u64) {
+        if is_self_source(&candidate.url) {
+            return;
+        }
+
         let sources = self.sources_mut();
         let record = sources.entry(candidate.url.clone()).or_insert_with(|| {
             let mut object = Map::new();
@@ -832,8 +837,20 @@ impl Registry {
     }
 }
 
+fn is_self_repository(repository: &str) -> bool {
+    repository.trim().eq_ignore_ascii_case(SELF_REPOSITORY)
+}
+
 fn is_self_source(url: &str) -> bool {
-    url.starts_with("https://raw.githubusercontent.com/rekt0ro/ProxyRift/")
+    source_repository_from_raw_url(url).is_some_and(|repository| is_self_repository(&repository))
+}
+
+fn validate_no_self_sources(urls: &[String]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if urls.iter().any(|url| is_self_source(url)) {
+        return Err("self repository source detected in output".into());
+    }
+
+    Ok(())
 }
 
 fn source_transport_stats(record: &Value) -> Option<(u64, u64)> {
@@ -1475,6 +1492,9 @@ async fn discover_repo(
     token: Option<&str>,
 ) -> Result<Vec<Candidate>, Box<dyn std::error::Error + Send + Sync>> {
     let name = &repo.name;
+    if is_self_repository(name) {
+        return Ok(Vec::new());
+    }
     let branch = &repo.branch;
     let url = format!(
         "https://api.github.com/repos/{}/readme?ref={}",
@@ -1529,6 +1549,9 @@ async fn scan_repo_tree(
     token: Option<&str>,
 ) -> Result<Vec<Candidate>, Box<dyn std::error::Error + Send + Sync>> {
     let name = &repo.name;
+    if is_self_repository(name) {
+        return Ok(Vec::new());
+    }
     let branch = &repo.branch;
     let url = format!(
         "https://api.github.com/repos/{}/git/trees/{}?recursive=1",
@@ -1763,6 +1786,10 @@ async fn search_repositories(
                     continue;
                 };
 
+                if is_self_repository(name) {
+                    continue;
+                }
+
                 let branch = item
                     .get("default_branch")
                     .and_then(Value::as_str)
@@ -1984,6 +2011,11 @@ fn extract_source_urls(text: &str, repo: &str, repo_rank: usize) -> Vec<Candidat
                 let source_repo =
                     source_repository_from_raw_url(&url).unwrap_or_else(|| repo.to_string());
 
+                if is_self_repository(&source_repo) {
+                    start = end;
+                    continue;
+                }
+
                 candidates.push(Candidate {
                     url,
                     repo: source_repo,
@@ -2139,7 +2171,7 @@ fn select_new_active_urls(candidates: &[Candidate], limit: usize) -> Vec<String>
         let mut best_key = None::<(i32, i32, i32, i32, i32, String)>;
 
         for (index, candidate) in pool.iter().enumerate() {
-            if selected_urls.contains(&candidate.url) {
+            if selected_urls.contains(&candidate.url) || is_self_source(&candidate.url) {
                 continue;
             }
 
@@ -2275,6 +2307,10 @@ fn deduplicate_candidates(candidates: Vec<Candidate>) -> Vec<Candidate> {
     let mut unique = HashMap::<String, Candidate>::new();
 
     for candidate in candidates {
+        if is_self_source(&candidate.url) {
+            continue;
+        }
+
         unique
             .entry(candidate.url.clone())
             .and_modify(|existing| {
@@ -2540,6 +2576,8 @@ async fn write_sources(
     path: &Path,
     urls: &[String],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    validate_no_self_sources(urls)?;
+
     let temporary = path.with_file_name(format!(
         ".{}.tmp",
         path.file_name()
@@ -2621,10 +2659,12 @@ mod tests {
     }
 
     use super::{
-        build_search_query, extract_source_urls, is_source_path, likely_source_url,
-        normalize_github_source, percent_encode_path, search_query_set_for_run,
-        search_sort_for_run, search_strategy_for_run, select_new_active_urls, source_path_family,
-        unix_days_to_ymd, Candidate, CollectionOutcome, Registry, Repository, Value,
+        build_search_query, deduplicate_candidates, extract_source_urls, is_self_repository,
+        is_self_source, is_source_path, likely_source_url, normalize_github_source,
+        percent_encode_path, search_query_set_for_run, search_sort_for_run,
+        search_strategy_for_run, select_new_active_urls, source_path_family,
+        unix_days_to_ymd, validate_no_self_sources, Candidate, CollectionOutcome, Registry,
+        Repository, Value,
         MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK,
         MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH, RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
     };
@@ -3604,6 +3644,132 @@ mod tests {
             "a".repeat(MAX_SOURCE_URL_LENGTH)
         );
         assert!(normalize_github_source(&raw).is_none());
+    }
+
+    #[test]
+    fn identifies_self_repository_case_insensitively() {
+        assert!(is_self_repository("rekt0ro/ProxyRift"));
+        assert!(is_self_repository("REKT0RO/PROXYRIFT"));
+        assert!(!is_self_repository("someone/ProxyRift"));
+    }
+
+    #[test]
+    fn identifies_self_sources_by_repository_identity() {
+        assert!(is_self_source(
+            "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
+        ));
+        assert!(is_self_source(
+            "https://raw.githubusercontent.com/REKT0RO/ProxyRIFT/refs/heads/main/subscriptions/all.txt"
+        ));
+        assert!(!is_self_source(
+            "https://raw.githubusercontent.com/other-owner/ProxyRift/main/subscriptions/all.txt"
+        ));
+    }
+
+    #[test]
+    fn readme_links_to_self_are_not_discovered() {
+        let text = concat!(
+            "https://github.com/rekt0ro/ProxyRift/blob/main/subscriptions/all.txt\n",
+            "https://github.com/other-owner/source-repo/blob/main/subscriptions/all.txt\n",
+        );
+
+        let candidates = extract_source_urls(text, "reader/example", 0);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].url,
+            "https://raw.githubusercontent.com/other-owner/source-repo/main/subscriptions/all.txt"
+        );
+    }
+
+    #[test]
+    fn deduplication_removes_self_sources() {
+        let candidates = vec![
+            Candidate {
+                url: "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
+                    .to_string(),
+                repo: "rekt0ro/ProxyRift".to_string(),
+                repo_rank: 0,
+                priority: 100,
+            },
+            Candidate {
+                url: "https://raw.githubusercontent.com/other-owner/source-repo/main/subscriptions/all.txt"
+                    .to_string(),
+                repo: "other-owner/source-repo".to_string(),
+                repo_rank: 1,
+                priority: 100,
+            },
+        ];
+
+        let candidates = deduplicate_candidates(candidates);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].repo, "other-owner/source-repo");
+    }
+
+    #[test]
+    fn registry_does_not_store_self_sources() {
+        let mut registry = Registry::new(1);
+        registry.add_candidate(
+            &Candidate {
+                url: "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
+                    .to_string(),
+                repo: "rekt0ro/ProxyRift".to_string(),
+                repo_rank: 0,
+                priority: 100,
+            },
+            1,
+        );
+
+        assert!(registry.sources().is_empty());
+    }
+
+    #[test]
+    fn active_selection_does_not_select_self_sources() {
+        let candidates = vec![
+            Candidate {
+                url: "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
+                    .to_string(),
+                repo: "rekt0ro/ProxyRift".to_string(),
+                repo_rank: 0,
+                priority: 100,
+            },
+            Candidate {
+                url: "https://raw.githubusercontent.com/other-owner/source-repo/main/subscriptions/all.txt"
+                    .to_string(),
+                repo: "other-owner/source-repo".to_string(),
+                repo_rank: 1,
+                priority: 100,
+            },
+        ];
+
+        let selected = select_new_active_urls(&candidates, 2);
+
+        assert_eq!(selected.len(), 1);
+        assert_eq!(
+            selected[0],
+            "https://raw.githubusercontent.com/other-owner/source-repo/main/subscriptions/all.txt"
+        );
+    }
+
+    #[test]
+    fn final_output_validation_rejects_self_sources() {
+        let urls = vec![
+            "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
+                .to_string(),
+        ];
+
+        assert!(validate_no_self_sources(&urls).is_err());
+    }
+
+    #[test]
+    fn final_output_validation_accepts_external_sources() {
+        let urls = vec![
+            "https://raw.githubusercontent.com/other-owner/source-repo/main/subscriptions/all.txt"
+                .to_string(),
+        ];
+
+        assert!(validate_no_self_sources(&urls).is_ok());
     }
 
     #[test]
