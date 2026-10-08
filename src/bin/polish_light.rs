@@ -20,7 +20,8 @@ use proxyrift::validator::{
     PRIMARY_TARGET,
 };
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 use std::env;
 use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -1624,17 +1625,30 @@ async fn fill_transfer_stability_gate(
     singbox: &str,
     final_verified: &[String],
     final_metadata: &HashMap<String, ProxyMetrics>,
-    stability_verified: &mut HashMap<String, ProxyMetrics>,
-    stability_tested: &mut HashSet<String>,
+    mut stability_verified: HashMap<String, ProxyMetrics>,
+    mut stability_tested: HashSet<String>,
+    stability_sender: tokio::sync::mpsc::UnboundedSender<Vec<String>>,
+    transfer_done: Arc<AtomicBool>,
     global_positions: &HashMap<String, usize>,
     history: &HashMap<String, HistoryEntry>,
     selection_limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
-) -> Result<usize, String> {
+) -> Result<(usize, HashMap<String, ProxyMetrics>, HashSet<String>), String> {
     let stability_started = Instant::now();
 
+    if !stability_verified.is_empty() {
+        let initial = stability_verified.keys().cloned().collect::<Vec<_>>();
+        if !initial.is_empty() {
+            let _ = stability_sender.send(initial);
+        }
+    }
+
     loop {
+        if transfer_done.load(Ordering::Relaxed) {
+            break;
+        }
+
         let stability_target = adaptive_stability_target(
             selection_limit,
             stability_tested.len(),
@@ -1646,7 +1660,7 @@ async fn fill_transfer_stability_gate(
         let mut stable_ranked = stability_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
             &mut stable_ranked,
-            stability_verified,
+            &stability_verified,
             global_positions,
             history,
         );
@@ -1660,7 +1674,7 @@ async fn fill_transfer_stability_gate(
         if stable_selected.len() >= stability_target
             || stability_tested.len() >= STABILITY_TRANSFER_TEST_LIMIT
         {
-            return Ok(stability_verified.len());
+            break;
         }
 
         let mut ranked = final_verified.to_vec();
@@ -1672,7 +1686,7 @@ async fn fill_transfer_stability_gate(
             .collect::<Vec<_>>();
 
         if untested.is_empty() {
-            return Ok(stability_verified.len());
+            break;
         }
 
         let completion_mode = stable_selected.len() < stability_target
@@ -1695,7 +1709,7 @@ async fn fill_transfer_stability_gate(
                 stability_tested.len(),
                 completion_grace
             );
-            return Ok(stability_verified.len());
+            break;
         }
 
         let remaining_budget = STABILITY_TRANSFER_TEST_LIMIT.saturating_sub(stability_tested.len());
@@ -1714,24 +1728,25 @@ async fn fill_transfer_stability_gate(
         );
 
         if batch.is_empty() {
-            return Ok(stability_verified.len());
+            break;
         }
 
         stability_tested.extend(batch.iter().cloned());
 
         if completion_mode {
             println!(
-                "[INFO] 🎯 [1 MiB] Completion mode | Stable: {} | Need: {} | Prioritizing {} highest-ranked untested candidates | Test caps: {}/{} endpoint/family | Grace: {}s",
+                "[INFO] 🎯 [1 MiB] Completion mode | Stable: {} | Need: {} | Prioritizing {} highest-ranked untested candidates | Test caps: {}/{} endpoint/family | Tested: {}/{} | Pipeline: 10 MiB consuming concurrently",
                 stable_selected.len(),
                 stability_target.saturating_sub(stable_selected.len()),
                 batch.len(),
                 STABILITY_TEST_MAX_PER_ENDPOINT,
                 STABILITY_TEST_MAX_PER_FAMILY,
-                completion_grace
+                stability_tested.len(),
+                STABILITY_TRANSFER_TEST_LIMIT
             );
         } else {
             println!(
-                "[INFO] 📥 [1 MiB] Stable pool: {}/{} | Testing {} candidates | Test caps: {}/{} endpoint/family | Tested: {}/{}",
+                "[INFO] 📥 [1 MiB] Stable pool: {}/{} | Testing {} candidates | Test caps: {}/{} endpoint/family | Tested: {}/{} | Pipeline: 10 MiB consuming concurrently",
                 stable_selected.len(),
                 stability_target,
                 batch.len(),
@@ -1750,18 +1765,28 @@ async fn fill_transfer_stability_gate(
         )
         .await?;
         let batch_passed = metadata.len();
+        let passed_configs = metadata.keys().cloned().collect::<Vec<_>>();
         stability_verified.extend(metadata);
 
+        if !passed_configs.is_empty() {
+            let _ = stability_sender.send(passed_configs);
+        }
+
         println!(
-            "[INFO] ✅ [1 MiB] {}/{} Passed both transfer destinations | Stable pool: {}",
+            "[INFO] ✅ [1 MiB] {}/{} Passed both transfer destinations | Stable pool: {} | Transfer pipeline: active",
             batch_passed,
             batch.len(),
             stability_verified.len()
         );
     }
+
+    Ok((
+        stability_verified.len(),
+        stability_verified,
+        stability_tested,
+    ))
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn fill_stream_continuity_gate(
     xray: &str,
     singbox: &str,
@@ -1849,13 +1874,10 @@ async fn fill_stream_continuity_gate(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn fill_transfer_gate(
+async fn run_transfer_gate_consumer(
     xray: &str,
     singbox: &str,
-    final_verified: &[String],
-    final_metadata: &HashMap<String, ProxyMetrics>,
-    stability_verified: &mut HashMap<String, ProxyMetrics>,
-    stability_tested: &mut HashSet<String>,
+    mut stability_receiver: tokio::sync::mpsc::UnboundedReceiver<Vec<String>>,
     transfer_verified: &mut HashMap<String, ProxyMetrics>,
     transfer_tested: &mut HashSet<String>,
     global_positions: &HashMap<String, usize>,
@@ -1863,49 +1885,9 @@ async fn fill_transfer_gate(
     selection_limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
+    transfer_done: Arc<AtomicBool>,
 ) -> Result<usize, String> {
     let transfer_target = transfer_validation_target(selection_limit);
-
-    let mut existing_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
-    sort_ranked(
-        &mut existing_ranked,
-        transfer_verified,
-        global_positions,
-        history,
-    );
-    let existing_selected = select_verified_configs(
-        &existing_ranked,
-        transfer_target,
-        max_per_endpoint,
-        max_per_family,
-    );
-    if existing_selected.len() >= transfer_target {
-        return Ok(existing_selected.len());
-    }
-
-    let stability_target = fill_transfer_stability_gate(
-        xray,
-        singbox,
-        final_verified,
-        final_metadata,
-        stability_verified,
-        stability_tested,
-        global_positions,
-        history,
-        selection_limit,
-        max_per_endpoint,
-        max_per_family,
-    )
-    .await?;
-
-    if stability_target < selection_limit {
-        println!(
-            "[INFO] ⏭️ [1 MiB] Stable pool below publish target | Stable: {} | Target: {}",
-            stability_target, selection_limit
-        );
-    }
-
-    let gate_started = Instant::now();
 
     let mut transfer_workers = FINAL_TRANSFER_INITIAL_WORKERS;
     let mut clean_batches = 0usize;
@@ -1913,7 +1895,14 @@ async fn fill_transfer_gate(
         vec![TransferTargetState::default(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     let mut target_tested_candidates =
         vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
+    let mut pending = VecDeque::<String>::new();
+    let mut receiver_closed = false;
+
     loop {
+        if transfer_done.load(Ordering::Relaxed) {
+            break;
+        }
+
         let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
             &mut transfer_ranked,
@@ -1930,34 +1919,68 @@ async fn fill_transfer_gate(
         );
 
         if selected.len() >= transfer_target {
+            transfer_done.store(true, Ordering::Relaxed);
             return Ok(selected.len());
         }
 
-        let untested = stability_verified
-            .keys()
-            .filter(|config| !transfer_tested.contains(*config))
-            .cloned()
-            .collect::<Vec<_>>();
+        if pending.is_empty() {
+            if receiver_closed {
+                break;
+            }
 
-        if untested.is_empty() {
-            return Ok(selected.len());
+            match stability_receiver.recv().await {
+                Some(batch) => pending.extend(batch),
+                None => {
+                    receiver_closed = true;
+                    continue;
+                }
+            }
         }
 
-        let eligible_untested = untested
-            .into_iter()
-            .filter(|config| {
-                selection_additional_potential_count(
-                    &selected,
-                    std::slice::from_ref(config),
-                    transfer_target,
-                    max_per_endpoint,
-                    max_per_family,
-                ) > 0
-            })
-            .collect::<Vec<_>>();
+        let remaining = transfer_target.saturating_sub(selected.len());
+        let dynamic_test_limit = adaptive_transfer_test_limit(
+            transfer_target,
+            selected.len(),
+            transfer_tested.len(),
+            transfer_verified.len(),
+            pending.len(),
+        );
+
+        if transfer_tested.len() >= dynamic_test_limit {
+            if receiver_closed {
+                break;
+            }
+
+            match stability_receiver.recv().await {
+                Some(batch) => pending.extend(batch),
+                None => receiver_closed = true,
+            }
+            continue;
+        }
+
+        let mut eligible_untested = Vec::new();
+        while let Some(config) = pending.pop_front() {
+            if transfer_tested.contains(&config) {
+                continue;
+            }
+
+            if selection_additional_potential_count(
+                &selected,
+                std::slice::from_ref(&config),
+                transfer_target,
+                max_per_endpoint,
+                max_per_family,
+            ) > 0 {
+                eligible_untested.push(config);
+            }
+        }
 
         if eligible_untested.is_empty() {
-            return Ok(selected.len());
+            if receiver_closed {
+                break;
+            }
+
+            continue;
         }
 
         let eligible_remaining = selection_additional_potential_count(
@@ -1967,52 +1990,11 @@ async fn fill_transfer_gate(
             max_per_endpoint,
             max_per_family,
         );
-        if selected.len().saturating_add(eligible_remaining) < transfer_target {
-            println!(
-                "[INFO] ⏭️ [10 MiB] Target unreachable with current strict pool | Selectable: {} | Untested eligible: {} | Validation target: {} | Publish target: {} | Continuing best-effort gate",
-                selected.len(),
-                eligible_remaining,
-                transfer_target,
-                selection_limit
-            );
-        }
-
-        let remaining = transfer_target.saturating_sub(selected.len());
-        let completion_grace = if remaining <= FINAL_TRANSFER_COMPLETION_GRACE_REMAINING {
-            FINAL_TRANSFER_COMPLETION_GRACE_SECS
-        } else {
-            0
-        };
-        if gate_started.elapsed().as_secs()
-            >= FINAL_TRANSFER_MAX_ELAPSED_SECS.saturating_add(completion_grace)
-        {
-            println!(
-                "[WARN] ⏱️ [10 MiB] Time budget reached | Tested: {} | Selectable: {} | Validation target: {} | Publish target: {} | Stopping best-effort gate",
-                transfer_tested.len(),
-                selected.len(),
-                transfer_target,
-                selection_limit
-            );
-            return Ok(selected.len());
-        }
-
-        let dynamic_test_limit = adaptive_transfer_test_limit(
-            transfer_target,
-            selected.len(),
-            transfer_tested.len(),
-            transfer_verified.len(),
-            eligible_remaining,
-        );
-
-        if transfer_tested.len() >= dynamic_test_limit {
-            println!(
-                "[INFO] 🎯 [10 MiB] Adaptive test budget reached | Tested: {} | Selectable: {} | Validation target: {} | Publish target: {}",
-                transfer_tested.len(),
-                selected.len(),
-                transfer_target,
-                selection_limit
-            );
-            return Ok(selected.len());
+        if eligible_remaining == 0 {
+            if receiver_closed {
+                break;
+            }
+            continue;
         }
 
         let queue_window = transfer_workers
@@ -2022,11 +2004,23 @@ async fn fill_transfer_gate(
             .saturating_sub(transfer_tested.len())
             .min(FINAL_TRANSFER_BATCH_SIZE)
             .min(queue_window)
+            .min(eligible_untested.len())
             .max(1);
 
         let batch = diversify_recheck_candidates(&eligible_untested, batch_limit, 1);
+        let batch_set = batch.iter().collect::<HashSet<_>>();
+
+        for config in eligible_untested {
+            if !batch_set.contains(&config) {
+                pending.push_back(config);
+            }
+        }
+
         if batch.is_empty() {
-            return Ok(selected.len());
+            if receiver_closed {
+                break;
+            }
+            continue;
         }
 
         transfer_tested.extend(batch.iter().cloned());
@@ -2038,7 +2032,7 @@ async fn fill_transfer_gate(
         target_tested_candidates[target_index].extend(batch.iter().cloned());
 
         println!(
-            "[INFO] 📥 [10 MiB] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {}",
+            "[INFO] 📥 [10 MiB] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {} | Pipeline: 1 MiB producer active",
             remaining,
             batch.len(),
             dynamic_test_limit,
@@ -2050,7 +2044,13 @@ async fn fill_transfer_gate(
         let rate_limits_before = rate_limit_events();
         let batch_started = Instant::now();
         let metadata =
-            validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target).await?;
+            match validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target).await {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    transfer_done.store(true, Ordering::Relaxed);
+                    return Err(error);
+                }
+            };
         let batch_elapsed = batch_started.elapsed().as_secs();
         let batch_passed = metadata.len();
         transfer_verified.extend(metadata);
@@ -2126,7 +2126,7 @@ async fn fill_transfer_gate(
                     "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Within tolerance, keeping workers at {}",
                     rate_limits,
                     target,
-                    transfer_workers
+                    previous_workers
                 );
             }
         } else if transfer_workers > previous_workers {
@@ -2155,9 +2155,102 @@ async fn fill_transfer_gate(
             ),
         );
     }
+
+    transfer_done.store(true, Ordering::Relaxed);
+    Ok(
+        select_verified_configs(
+            &transfer_verified.keys().cloned().collect::<Vec<_>>(),
+            transfer_target,
+            max_per_endpoint,
+            max_per_family,
+        )
+        .len(),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
+async fn fill_transfer_gate(
+    xray: &str,
+    singbox: &str,
+    final_verified: &[String],
+    final_metadata: &HashMap<String, ProxyMetrics>,
+    stability_verified: &mut HashMap<String, ProxyMetrics>,
+    stability_tested: &mut HashSet<String>,
+    transfer_verified: &mut HashMap<String, ProxyMetrics>,
+    transfer_tested: &mut HashSet<String>,
+    global_positions: &HashMap<String, usize>,
+    history: &HashMap<String, HistoryEntry>,
+    selection_limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+) -> Result<usize, String> {
+    let transfer_target = transfer_validation_target(selection_limit);
+
+    let mut existing_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
+    sort_ranked(
+        &mut existing_ranked,
+        transfer_verified,
+        global_positions,
+        history,
+    );
+    let existing_selected = select_verified_configs(
+        &existing_ranked,
+        transfer_target,
+        max_per_endpoint,
+        max_per_family,
+    );
+    if existing_selected.len() >= transfer_target {
+        return Ok(existing_selected.len());
+    }
+
+    let transfer_done = Arc::new(AtomicBool::new(false));
+    let (stability_sender, stability_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+    let stability_future = fill_transfer_stability_gate(
+        xray,
+        singbox,
+        final_verified,
+        final_metadata,
+        std::mem::take(stability_verified),
+        std::mem::take(stability_tested),
+        stability_sender,
+        transfer_done.clone(),
+        global_positions,
+        history,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
+    );
+
+    let mut transfer_verified_state = std::mem::take(transfer_verified);
+    let mut transfer_tested_state = std::mem::take(transfer_tested);
+    let transfer_future = run_transfer_gate_consumer(
+        xray,
+        singbox,
+        stability_receiver,
+        &mut transfer_verified_state,
+        &mut transfer_tested_state,
+        global_positions,
+        history,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
+        transfer_done.clone(),
+    );
+
+    let (stability_result, transfer_result) = tokio::join!(stability_future, transfer_future);
+
+    let (_, completed_stability_verified, completed_stability_tested) = stability_result?;
+    *stability_verified = completed_stability_verified;
+    *stability_tested = completed_stability_tested;
+
+    let transfer_selected = transfer_result?;
+    *transfer_verified = transfer_verified_state;
+    *transfer_tested = transfer_tested_state;
+
+    Ok(transfer_selected)
+}
+
 fn try_add_verified_config(
     config: &String,
     selected: &mut Vec<String>,
