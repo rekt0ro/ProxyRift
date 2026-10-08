@@ -8,7 +8,7 @@ use proxyrift::singbox::{
 use proxyrift::validator::{
     is_light_consumer_compatible, validate_candidates_with_consumer_targets,
     validate_candidates_with_targets_once_with_sustained_stream as validate_xray_sustained_stream,
-    LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_STABILITY_TARGETS,
+    ProxyMetrics, LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_STABILITY_TARGETS,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
