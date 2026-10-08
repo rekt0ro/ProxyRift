@@ -72,6 +72,14 @@ cleanup_temp() {
 }
 
 trap cleanup_temp EXIT
+ 
+cleanup_all() {
+  cleanup_temp
+  rm -rf target
+}
+
+trap cleanup_all EXIT
+
 
 env GITHUB_ENV="$envfile" bash scripts/install_lightgbm.sh
 
@@ -150,7 +158,7 @@ if git diff --quiet -- subscriptions/light-consumer-evidence.json; then
   exit 0
 fi
 
-run_id="$(date -u +%Y%m%d-%H%M%S)-$"
+run_id="$(date -u +%Y%m%d-%H%M%S)-$BASHPID"
 branch="consumer-evidence/$run_id"
 repo="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')"
 
@@ -172,16 +180,21 @@ gh api --method PUT "repos/$repo/contents/subscriptions/light-consumer-evidence.
 
 git restore --quiet -- subscriptions/light-consumer-evidence.json
 
-pr_url="$(gh pr create --base main --head "$branch" --title "Update Light consumer evidence" --body echo "[INFO] Merge this PR into main. On the next Update Configs run, main will contain the new evidence; then rerun this same command against the refreshed main Light list."
-echo "       Private results remain local in subscriptions/light-consumer-results.json"
-exit 0
-Consumer-network validation results from the current main subscriptions/light.txt.\\n\\nThis PR updates only the privacy-safe structural consumer evidence. Private subscriptions/light-consumer-results.json remains local.')"
+pr_url="$(gh pr create \
+  --base main \
+  --head "$branch" \
+  --title "Update Light consumer evidence" \
+  --body $'Consumer-network validation results from the current main subscriptions/light.txt.\n\nThis PR updates only the privacy-safe structural consumer evidence. Private subscriptions/light-consumer-results.json remains local.')"
 
 echo
 echo "[OK] Consumer evidence committed to:"
 echo "     $branch"
 echo "[OK] Evidence PR opened:"
 echo "     $pr_url"
+echo "[INFO] Cleaning local Rust build artifacts."
+cleanup_all
+trap - EXIT
+
 echo
 echo "[INFO] Merge this PR into main. On the next Update Configs run, main will contain the new evidence; then rerun this same command against the refreshed main Light list."
 echo "       Private results remain local in subscriptions/light-consumer-results.json"
