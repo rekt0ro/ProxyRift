@@ -4105,7 +4105,7 @@ mod tests {
     fn clean_transfer_batches_ramp_workers_slowly() {
         assert_eq!(adjust_transfer_workers(2, 0, 8, 0), (2, 1));
         assert_eq!(adjust_transfer_workers(2, 0, 8, 1), (3, 0));
-        assert_eq!(adjust_transfer_workers(8, 0, 8, 1), (8, 0));
+        assert_eq!(adjust_transfer_workers(8, 0, FINAL_TRANSFER_WORKERS, 1), (9, 0));
     }
 
     #[test]
