@@ -1951,7 +1951,9 @@ async fn run_transfer_gate_consumer(
             }
 
             let remaining_wait = std::time::Duration::from_secs(
-                elapsed_limit.saturating_sub(gate_started.elapsed().as_secs()).max(1),
+                elapsed_limit
+                    .saturating_sub(gate_started.elapsed().as_secs())
+                    .max(1),
             );
             match tokio::time::timeout(remaining_wait, stability_receiver.recv()).await {
                 Ok(Some(batch)) => pending.extend(batch),
@@ -1986,7 +1988,9 @@ async fn run_transfer_gate_consumer(
             }
 
             let remaining_wait = std::time::Duration::from_secs(
-                elapsed_limit.saturating_sub(gate_started.elapsed().as_secs()).max(1),
+                elapsed_limit
+                    .saturating_sub(gate_started.elapsed().as_secs())
+                    .max(1),
             );
             match tokio::time::timeout(remaining_wait, stability_receiver.recv()).await {
                 Ok(Some(batch)) => pending.extend(batch),
