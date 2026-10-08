@@ -102,10 +102,7 @@ env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     --input "$light_input" \
     --history subscriptions/light-consumer-results.json \
     --write-evidence subscriptions/light-consumer-evidence.json \
-    --adaptive \
-    --max-candidates 96 \
-    --deep-candidates 64 \
-    --deep-rounds 3 \
+    --rounds 1 \
     --workers 16 \
     --batch-size 64 \
     --timeout 6 \
