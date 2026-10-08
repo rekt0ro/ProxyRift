@@ -2056,11 +2056,11 @@ async fn run_transfer_gate_consumer(
         .await
         {
             Ok(metadata) => metadata,
-                Err(error) => {
-                    transfer_done.store(true, Ordering::Relaxed);
-                    return Err(error);
-                }
-            };
+            Err(error) => {
+                transfer_done.store(true, Ordering::Relaxed);
+                return Err(error);
+            }
+        };
         let batch_elapsed = batch_started.elapsed().as_secs();
         let batch_passed = metadata.len();
         transfer_verified.extend(metadata);
