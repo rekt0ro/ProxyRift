@@ -845,7 +845,9 @@ fn is_self_source(url: &str) -> bool {
     source_repository_from_raw_url(url).is_some_and(|repository| is_self_repository(&repository))
 }
 
-fn validate_no_self_sources(urls: &[String]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn validate_no_self_sources(
+    urls: &[String],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if urls.iter().any(|url| is_self_source(url)) {
         return Err("self repository source detected in output".into());
     }
@@ -2662,9 +2664,8 @@ mod tests {
         build_search_query, deduplicate_candidates, extract_source_urls, is_self_repository,
         is_self_source, is_source_path, likely_source_url, normalize_github_source,
         percent_encode_path, search_query_set_for_run, search_sort_for_run,
-        search_strategy_for_run, select_new_active_urls, source_path_family,
-        unix_days_to_ymd, validate_no_self_sources, Candidate, CollectionOutcome, Registry,
-        Repository, Value,
+        search_strategy_for_run, select_new_active_urls, source_path_family, unix_days_to_ymd,
+        validate_no_self_sources, Candidate, CollectionOutcome, Registry, Repository, Value,
         MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK,
         MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH, RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
     };
@@ -3686,8 +3687,9 @@ mod tests {
     fn deduplication_removes_self_sources() {
         let candidates = vec![
             Candidate {
-                url: "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
-                    .to_string(),
+                url:
+                    "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
+                        .to_string(),
                 repo: "rekt0ro/ProxyRift".to_string(),
                 repo_rank: 0,
                 priority: 100,
@@ -3712,8 +3714,9 @@ mod tests {
         let mut registry = Registry::new(1);
         registry.add_candidate(
             &Candidate {
-                url: "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
-                    .to_string(),
+                url:
+                    "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
+                        .to_string(),
                 repo: "rekt0ro/ProxyRift".to_string(),
                 repo_rank: 0,
                 priority: 100,
@@ -3728,8 +3731,9 @@ mod tests {
     fn active_selection_does_not_select_self_sources() {
         let candidates = vec![
             Candidate {
-                url: "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
-                    .to_string(),
+                url:
+                    "https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all.txt"
+                        .to_string(),
                 repo: "rekt0ro/ProxyRift".to_string(),
                 repo_rank: 0,
                 priority: 100,
