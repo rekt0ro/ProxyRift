@@ -3695,21 +3695,16 @@ async fn main() -> Result<(), String> {
     )
     .await?;
 
-    if record_performance_consumer_evidence && !transfer_tested.is_empty() {
+    if record_performance_consumer_evidence && !stream_tested.is_empty() {
         let observed_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|error| format!("system clock error: {error}"))?
             .as_secs();
 
-        let performance_observations = transfer_tested
+        let performance_observations = stream_tested
             .iter()
             .map(|config| {
-                let passed = if stream_tested.contains(config) {
-                    stream_verified.contains_key(config)
-                } else {
-                    transfer_verified.contains_key(config)
-                };
-                (config.as_str(), passed)
+                (config.as_str(), stream_verified.contains_key(config))
             })
             .collect::<Vec<_>>();
 
@@ -3717,7 +3712,7 @@ async fn main() -> Result<(), String> {
         consumer_evidence.save(&consumer_evidence_path)?;
 
         println!(
-            "[INFO] 🧠 [Consumer performance] Recorded {} observations | Highest available stage: 10 MiB/stream",
+            "[INFO] 🧠 [Consumer performance] Recorded {} observations | Stage: sustained stream",
             performance_observations.len()
         );
     }
