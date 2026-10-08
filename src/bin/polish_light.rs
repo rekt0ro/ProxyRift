@@ -2008,7 +2008,7 @@ async fn run_transfer_gate_consumer(
             .max(1);
 
         let batch = diversify_recheck_candidates(&eligible_untested, batch_limit, 1);
-        let batch_set = batch.iter().collect::<HashSet<_>>();
+        let batch_set = batch.iter().cloned().collect::<HashSet<_>>();
 
         for config in eligible_untested {
             if !batch_set.contains(&config) {
