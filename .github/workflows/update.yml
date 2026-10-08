@@ -83,6 +83,8 @@ jobs:
         run: test -s Cargo.lock
 
       - name: "🧠 Install native LightGBM runtime"
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/install_lightgbm.sh
 
       - name: "🌐 Resolve pinned validation cores"
