@@ -464,6 +464,7 @@ async fn validate_round(
         xray,
         singbox,
         workers,
+        batch_size,
         xray_timeout,
     )
     .await?;
@@ -547,6 +548,7 @@ async fn validate_sustained_stream(
     xray: &str,
     singbox: &str,
     workers: usize,
+    batch_size: usize,
     xray_timeout: f64,
 ) -> Result<HashMap<String, ProxyMetrics>, String> {
     if candidates.is_empty() {
@@ -601,7 +603,7 @@ async fn validate_sustained_stream(
             &unresolved,
             LIGHT_TRANSFER_STABILITY_TARGETS,
             workers.clamp(1, 24),
-            CONSUMER_STREAM_SEGMENTS.max(1),
+            batch_size.max(1),
             xray_timeout,
             max_latency_ms,
             CONSUMER_STREAM_SEGMENTS,
