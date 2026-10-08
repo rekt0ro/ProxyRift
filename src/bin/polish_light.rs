@@ -3622,7 +3622,7 @@ async fn main() -> Result<(), String> {
                 || stream_verified.len() > progress_before_stream;
 
             if strict_selected.len() >= selection_limit {
-                if progressed || stream_task.is_some() {
+                if progressed {
                     stagnant_waves = 0;
                 } else {
                     stagnant_waves = stagnant_waves.saturating_add(1);
