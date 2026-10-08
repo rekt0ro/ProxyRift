@@ -1900,6 +1900,7 @@ async fn run_transfer_gate_consumer(
         vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     let mut pending = VecDeque::<String>::new();
     let mut receiver_closed = false;
+    let gate_started = Instant::now();
 
     loop {
         if transfer_done.load(Ordering::Relaxed) {
@@ -1926,21 +1927,51 @@ async fn run_transfer_gate_consumer(
             return Ok(selected.len());
         }
 
+        let remaining = transfer_target.saturating_sub(selected.len());
+        let completion_grace = if remaining <= FINAL_TRANSFER_COMPLETION_GRACE_REMAINING {
+            FINAL_TRANSFER_COMPLETION_GRACE_SECS
+        } else {
+            0
+        };
+        let elapsed_limit = FINAL_TRANSFER_MAX_ELAPSED_SECS.saturating_add(completion_grace);
+        if gate_started.elapsed().as_secs() >= elapsed_limit {
+            println!(
+                "[WARN] ⏱️ [10 MiB] Time budget reached | Tested: {} | Selectable: {} | Validation target: {} | Publish target: {} | Stopping best-effort gate",
+                transfer_tested.len(),
+                selected.len(),
+                transfer_target,
+                selection_limit
+            );
+            break;
+        }
+
         if pending.is_empty() {
             if receiver_closed {
                 break;
             }
 
-            match stability_receiver.recv().await {
-                Some(batch) => pending.extend(batch),
-                None => {
-                    receiver_closed = true;
-                    continue;
+            let remaining_wait = std::time::Duration::from_secs(
+                elapsed_limit.saturating_sub(gate_started.elapsed().as_secs()).max(1),
+            );
+            match tokio::time::timeout(remaining_wait, stability_receiver.recv()).await {
+                Ok(Some(batch)) => pending.extend(batch),
+                Ok(None) => receiver_closed = true,
+                Err(_) => {
+                    println!(
+                        "[WARN] ⏱️ [10 MiB] Time budget reached while waiting for 1 MiB results | Tested: {} | Selectable: {} | Validation target: {} | Publish target: {}",
+                        transfer_tested.len(),
+                        selected.len(),
+                        transfer_target,
+                        selection_limit
+                    );
+                    break;
                 }
             }
-        }
 
-        let remaining = transfer_target.saturating_sub(selected.len());
+            if receiver_closed && pending.is_empty() {
+                continue;
+            }
+        }
         let dynamic_test_limit = adaptive_transfer_test_limit(
             transfer_target,
             selected.len(),
@@ -1954,9 +1985,22 @@ async fn run_transfer_gate_consumer(
                 break;
             }
 
-            match stability_receiver.recv().await {
-                Some(batch) => pending.extend(batch),
-                None => receiver_closed = true,
+            let remaining_wait = std::time::Duration::from_secs(
+                elapsed_limit.saturating_sub(gate_started.elapsed().as_secs()).max(1),
+            );
+            match tokio::time::timeout(remaining_wait, stability_receiver.recv()).await {
+                Ok(Some(batch)) => pending.extend(batch),
+                Ok(None) => receiver_closed = true,
+                Err(_) => {
+                    println!(
+                        "[WARN] ⏱️ [10 MiB] Adaptive test budget held while waiting for additional 1 MiB results | Tested: {} | Selectable: {} | Validation target: {} | Publish target: {}",
+                        transfer_tested.len(),
+                        selected.len(),
+                        transfer_target,
+                        selection_limit
+                    );
+                    break;
+                }
             }
             continue;
         }
@@ -2254,6 +2298,8 @@ async fn fill_transfer_gate(
 
     Ok(transfer_selected)
 }
+
+#[allow(clippy::too_many_arguments)]
 
 fn try_add_verified_config(
     config: &String,
