@@ -21,7 +21,10 @@ use proxyrift::validator::{
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::env;
 use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -2043,9 +2046,16 @@ async fn run_transfer_gate_consumer(
 
         let rate_limits_before = rate_limit_events();
         let batch_started = Instant::now();
-        let metadata =
-            match validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target).await {
-                Ok(metadata) => metadata,
+        let metadata = match validate_light_transfer_batch(
+            xray,
+            singbox,
+            &batch,
+            transfer_workers,
+            target,
+        )
+        .await
+        {
+            Ok(metadata) => metadata,
                 Err(error) => {
                     transfer_done.store(true, Ordering::Relaxed);
                     return Err(error);
@@ -2157,15 +2167,13 @@ async fn run_transfer_gate_consumer(
     }
 
     transfer_done.store(true, Ordering::Relaxed);
-    Ok(
-        select_verified_configs(
-            &transfer_verified.keys().cloned().collect::<Vec<_>>(),
-            transfer_target,
-            max_per_endpoint,
-            max_per_family,
-        )
-        .len(),
+    Ok(select_verified_configs(
+        &transfer_verified.keys().cloned().collect::<Vec<_>>(),
+        transfer_target,
+        max_per_endpoint,
+        max_per_family,
     )
+    .len())
 }
 
 #[allow(clippy::too_many_arguments)]
