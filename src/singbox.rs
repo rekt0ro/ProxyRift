@@ -1458,6 +1458,33 @@ async fn check_batch_targets(
                 &clients, &pool_urls, workers, policy,
             )
             .await;
+
+            // Don't accept pooled results from a core that died during validation.
+            if child.try_wait().ok().flatten().is_some() {
+                core_failures += 1;
+                if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
+                    let mid = batch_entries.len() / 2;
+                    pending.push(batch_entries[..mid].to_vec());
+                    pending.push(batch_entries[mid..].to_vec());
+                } else {
+                    println!(
+                        "[WARN] ⚠️ [Sing-Box] Core exited during pooled validation | {}",
+                        config_label(&batch_entries[0].0)
+                    );
+                }
+
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = fs::remove_dir_all(&work);
+                if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
+                    println!(
+                        "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
+                    );
+                    break;
+                }
+                continue;
+            }
+
             for (index, metrics) in pooled.into_iter().enumerate() {
                 if let Some(metrics) = metrics {
                     verified.insert(batch_entries[index].0.clone(), metrics);
@@ -1930,6 +1957,25 @@ pub async fn validate_candidates_with_target_once(
         workers,
         request_timeout,
         ValidationPolicy::new(max_latency_ms, 1, 1, 1),
+    )
+    .await
+}
+
+pub async fn validate_candidates_with_target_pool_once(
+    binary: &str,
+    candidates: &[String],
+    target: &str,
+    workers: usize,
+    request_timeout: Duration,
+    max_latency_ms: f64,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    validate_candidates_with_targets_policy(
+        binary,
+        candidates,
+        &[target],
+        workers,
+        request_timeout,
+        ValidationPolicy::new(max_latency_ms, 1, 1, 1).with_target_pool(),
     )
     .await
 }
