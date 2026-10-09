@@ -66,6 +66,16 @@ const TARGET_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(30);
 const TARGET_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 const TARGET_RATE_LIMIT_THRESHOLD: u8 = 3;
 const TARGET_POOL_PROBE_CHUNK_SIZE: usize = 8;
+const TARGET_POOL_MAX_PROBE_CHUNK_SIZE: usize = 32;
+
+fn next_target_pool_probe_chunk_size(current: usize, maximum: usize, rate_limits: u64) -> usize {
+    let maximum = maximum.max(1);
+    if rate_limits > 0 {
+        TARGET_POOL_PROBE_CHUNK_SIZE.min(maximum)
+    } else {
+        current.max(1).saturating_mul(2).min(maximum)
+    }
+}
 
 static RATE_LIMIT_EVENTS: AtomicU64 = AtomicU64::new(0);
 
@@ -2935,12 +2945,18 @@ pub(crate) async fn validate_clients_with_target_pool(
             .collect::<Vec<_>>();
         let mut target_throttled = false;
 
-        for chunk in eligible.chunks(TARGET_POOL_PROBE_CHUNK_SIZE) {
+        let maximum_chunk_size = workers.max(1).min(TARGET_POOL_MAX_PROBE_CHUNK_SIZE);
+        let mut chunk_size = TARGET_POOL_PROBE_CHUNK_SIZE.min(maximum_chunk_size);
+        let mut offset = 0usize;
+        while offset < eligible.len() {
             if target_is_rate_limited(target.as_str()) {
                 target_throttled = true;
                 break;
             }
 
+            let end = offset.saturating_add(chunk_size).min(eligible.len());
+            let chunk = &eligible[offset..end];
+            let rate_limits_before = target_rate_limit_events(target.as_str());
             let results = stream::iter(chunk.iter().copied())
                 .map(|index| {
                     let client = &clients[index];
@@ -2969,10 +2985,18 @@ pub(crate) async fn validate_clients_with_target_pool(
                 }
             }
 
+            let rate_limits_in_chunk =
+                target_rate_limit_events(target.as_str()).saturating_sub(rate_limits_before);
+            offset = end;
             if target_is_rate_limited(target.as_str()) {
                 target_throttled = true;
                 break;
             }
+            chunk_size = next_target_pool_probe_chunk_size(
+                chunk_size,
+                maximum_chunk_size,
+                rate_limits_in_chunk,
+            );
         }
 
         if target_throttled {
@@ -3405,6 +3429,27 @@ pub async fn validate_candidates_with_target_once(
         batch_size,
         timeout_seconds,
         ValidationPolicy::new(max_latency_ms, 1, 1, 1),
+    )
+    .await
+}
+
+pub async fn validate_candidates_with_target_pool_once(
+    binary: &str,
+    candidates: &[String],
+    target: &str,
+    workers: usize,
+    batch_size: usize,
+    timeout_seconds: f64,
+    max_latency_ms: f64,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    validate_candidates_targets_inner(
+        binary,
+        candidates,
+        &[target],
+        workers,
+        batch_size,
+        timeout_seconds,
+        ValidationPolicy::new(max_latency_ms, 1, 1, 1).with_target_pool(),
     )
     .await
 }
@@ -3872,6 +3917,34 @@ async fn check_batch_targets(
         if policy.target_pool_mode {
             let pooled =
                 validate_clients_with_target_pool(&clients, targets, workers, policy).await;
+
+            // A core crash invalidates this batch's results, just as it does in the
+            // non-pooled path. Split the batch so one bad config cannot poison others.
+            if child.try_wait().ok().flatten().is_some() {
+                core_failures += 1;
+                if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
+                    let mid = batch_entries.len() / 2;
+                    pending_batches.push(batch_entries[..mid].to_vec());
+                    pending_batches.push(batch_entries[mid..].to_vec());
+                } else {
+                    println!(
+                        "[WARN] ⚠️ [Xray] Core exited during pooled validation | {}",
+                        config_label(&batch_entries[0].0)
+                    );
+                }
+
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = fs::remove_dir_all(&work);
+                if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
+                    println!(
+                        "[WARN] ⚠️ [Xray] Core failure budget exhausted | Stopping further batch splits"
+                    );
+                    break;
+                }
+                continue;
+            }
+
             for (index, metrics) in pooled.into_iter().enumerate() {
                 if let Some(metrics) = metrics {
                     combined.insert(batch_entries[index].0.clone(), metrics);
@@ -4443,6 +4516,15 @@ mod tests {
         assert!(!target_status_is_healthy(429));
         assert!(!target_status_is_healthy(500));
         assert!(!target_status_is_healthy(404));
+    }
+
+    #[test]
+    fn target_pool_chunk_size_ramps_on_clean_chunks_and_resets_after_rate_limits() {
+        assert_eq!(next_target_pool_probe_chunk_size(8, 32, 0), 16);
+        assert_eq!(next_target_pool_probe_chunk_size(16, 32, 0), 32);
+        assert_eq!(next_target_pool_probe_chunk_size(32, 32, 0), 32);
+        assert_eq!(next_target_pool_probe_chunk_size(32, 32, 1), 8);
+        assert_eq!(next_target_pool_probe_chunk_size(4, 4, 1), 4);
     }
 
     #[test]
