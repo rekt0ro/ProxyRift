@@ -3374,10 +3374,7 @@ mod tests {
         let candidates = readme.into_iter().chain(tree).collect::<Vec<_>>();
 
         let selected = super::select_new_active_urls(&candidates, 10);
-        let tree_selected = selected
-            .iter()
-            .filter(|url| url.contains("/tree-"))
-            .count();
+        let tree_selected = selected.iter().filter(|url| url.contains("/tree-")).count();
 
         assert_eq!(selected.len(), 10);
         assert_eq!(tree_selected, 2);
