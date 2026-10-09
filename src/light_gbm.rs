@@ -12,9 +12,9 @@ use std::sync::Arc;
 const DEFAULT_SCORE: f64 = 0.5;
 const DEFAULT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
 const DEFAULT_SCORE_PATH: &str = "/tmp/proxyrift/lightgbm-scores.json";
-const MIN_TRAINING_ROWS: usize = 500;
-const MIN_POSITIVE_ROWS: usize = 50;
-const MIN_NEGATIVE_ROWS: usize = 50;
+const MIN_TRAINING_ROWS: usize = 5_000;
+const MIN_POSITIVE_ROWS: usize = 500;
+const MIN_NEGATIVE_ROWS: usize = 500;
 const TRAINING_ITERATIONS: usize = 140;
 const MAX_SCORE: f64 = 1.0;
 const MIN_SCORE: f64 = 0.0;
@@ -348,6 +348,29 @@ impl ModelTarget {
         }
     }
 
+    fn minimum_timestamps(self) -> usize {
+        match self {
+            Self::Strict => 20,
+            Self::Transfer | Self::Stream => 10,
+        }
+    }
+
+    fn minimum_holdout_class_rows(self) -> usize {
+        match self {
+            Self::Strict => 100,
+            Self::Transfer => 50,
+            Self::Stream => 25,
+        }
+    }
+
+    fn minimum_unique_candidates(self) -> usize {
+        match self {
+            Self::Strict => 1_000,
+            Self::Transfer => 100,
+            Self::Stream => 50,
+        }
+    }
+
     fn seed(self) -> i32 {
         match self {
             Self::Strict => 42,
@@ -360,6 +383,7 @@ impl ModelTarget {
 #[derive(Clone, Debug)]
 struct TrainingExample {
     observed_at: u64,
+    candidate_fingerprint: String,
     features: Vec<f64>,
     strict_pass: bool,
     transfer_pass: Option<bool>,
@@ -600,6 +624,7 @@ fn load_training(path: &str) -> Result<TrainingData, String> {
             }
             examples.push(TrainingExample {
                 observed_at: row.observed_at,
+                candidate_fingerprint: row.candidate_fingerprint.clone(),
                 features,
                 strict_pass: row.strict_pass,
                 transfer_pass: row.transfer_pass,
@@ -808,14 +833,24 @@ fn train_target_model(
     rows.sort_unstable_by_key(|(row, _)| row.observed_at);
     let positive = rows.iter().filter(|(_, label)| *label).count();
     let negative = rows.len().saturating_sub(positive);
-    if rows.len() < target.minimum_rows() || positive < 50 || negative < 50 {
+    let unique_candidates = rows
+        .iter()
+        .map(|(row, _)| row.candidate_fingerprint.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    if rows.len() < target.minimum_rows()
+        || positive < target.minimum_training_class_rows()
+        || negative < target.minimum_training_class_rows()
+        || unique_candidates < target.minimum_unique_candidates()
+    {
         return Ok(TargetResult::unavailable(
             target,
             format!(
-                "insufficient labelled data (rows={}, pass={}, fail={})",
+                "insufficient labelled data (rows={}, pass={}, fail={}, unique_candidates={})",
                 rows.len(),
                 positive,
-                negative
+                negative,
+                unique_candidates
             ),
         ));
     }
@@ -826,11 +861,14 @@ fn train_target_model(
         .collect::<Vec<_>>();
     timestamps.sort_unstable();
     timestamps.dedup();
-    if timestamps.len() < 5 {
+    if timestamps.len() < target.minimum_timestamps() {
         return Ok(TargetResult::unavailable(
             target,
-            "at least five distinct observation timestamps are required for a time split"
-                .to_string(),
+            format!(
+                "insufficient distinct observation timestamps (found={}, required={})",
+                timestamps.len(),
+                target.minimum_timestamps()
+            ),
         ));
     }
     let holdout_start_index = (timestamps.len()
@@ -855,8 +893,8 @@ fn train_target_model(
         || training_positive < target.minimum_training_class_rows()
         || training_negative < target.minimum_training_class_rows()
         || holdout.len() < 100
-        || holdout_positive < 20
-        || holdout_negative < 20
+        || holdout_positive < target.minimum_holdout_class_rows()
+        || holdout_negative < target.minimum_holdout_class_rows()
     {
         let mut result = TargetResult::unavailable(
             target,
