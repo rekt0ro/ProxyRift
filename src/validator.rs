@@ -3288,10 +3288,12 @@ async fn check_batch(
                     .rev()
                     .collect::<String>();
 
-                println!(
+                if !(crate::compact_logs_enabled()) {
+                    println!(
                     "[INFO] 🧹 [Xray] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
-                );
+                    );
+                }
                 if !tail.is_empty()
                     && !tail.contains(
                         "The feature HTTP transport (without header padding, etc.) has been removed"
@@ -3460,6 +3462,21 @@ fn target_status_is_healthy(status: u16) -> bool {
     (200..300).contains(&status) && status != 429
 }
 
+fn target_order_changed(hosts: &[String]) -> bool {
+    static LAST_HOST_ORDER: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    let mut previous = LAST_HOST_ORDER
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    if previous.as_slice() == hosts {
+        false
+    } else {
+        *previous = hosts.to_vec();
+        true
+    }
+}
+
 pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url> {
     if targets.is_empty() {
         return Vec::new();
@@ -3481,18 +3498,32 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
         .collect::<Vec<_>>();
     sort_targets_by_performance(&mut available);
     if !available.is_empty() {
-        let host_order = available
+        let host_names = available
             .iter()
-            .map(|target| {
-                format!(
-                    "{} [{}]",
-                    target.host_str().unwrap_or(target.as_str()),
-                    target_performance_diagnostics(target.as_str())
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" -> ");
-        println!("[INFO] 🧭 [Targets] Adaptive host order | {host_order}");
+            .map(|target| target.host_str().unwrap_or(target.as_str()).to_ascii_lowercase())
+            .collect::<Vec<_>>();
+
+        if crate::compact_logs_enabled() {
+            if target_order_changed(&host_names) {
+                println!(
+                    "[INFO] 🧭 [Targets] Active download hosts | {}",
+                    host_names.join(" -> ")
+                );
+            }
+        } else {
+            let host_order = available
+                .iter()
+                .map(|target| {
+                    format!(
+                        "{} [{}]",
+                        target.host_str().unwrap_or(target.as_str()),
+                        target_performance_diagnostics(target.as_str())
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            println!("[INFO] 🧭 [Targets] Adaptive host order | {host_order}");
+        }
     }
 
     if available.is_empty() {
@@ -3895,18 +3926,22 @@ async fn validate_candidates_targets_inner(
     let (parsed, mut compatibility_rejected) = xray_compatibility_filter(parsed);
     rejected.append(&mut compatibility_rejected);
 
-    println!(
+    if !(crate::compact_logs_enabled()) {
+        println!(
         "[INFO] 🔬 [Xray] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
-    );
+        );
+    }
 
     for (config, reason) in rejected.iter().take(8) {
-        println!(
+        if !(crate::compact_logs_enabled()) {
+            println!(
             "[INFO] 🧹 [Xray] Rejected | {} | {reason}",
             config_label(config)
-        );
+            );
+        }
     }
 
     if !rejected.is_empty() {
@@ -3938,7 +3973,8 @@ async fn validate_candidates_targets_inner(
         )
         .await?;
 
-        println!(
+        if !(crate::compact_logs_enabled()) {
+            println!(
             "[INFO] ✅ [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Destinations: {}",
             index + 1,
             total_batches,
@@ -3947,12 +3983,14 @@ async fn validate_candidates_targets_inner(
             policy.min_successful_attempts,
             policy.stability_attempts,
             policy.min_successful_targets
-        );
+            );
+        }
 
         metadata.extend(batch_metadata);
     }
 
-    println!(
+    if !(crate::compact_logs_enabled()) {
+        println!(
         "[INFO] ✅ [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Destinations: {}",
         metadata.len(),
         candidates.len(),
@@ -3960,7 +3998,8 @@ async fn validate_candidates_targets_inner(
         policy.min_successful_attempts,
         policy.stability_attempts,
         policy.min_successful_targets
-    );
+        );
+    }
 
     Ok(metadata)
 }
@@ -4048,10 +4087,12 @@ async fn check_batch_targets(
                     .rev()
                     .collect::<String>();
 
-                println!(
+                if !(crate::compact_logs_enabled()) {
+                    println!(
                     "[INFO] 🧹 [Xray] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
-                );
+                    );
+                }
                 if !tail.is_empty() {
                     println!("[INFO] ℹ️ [Xray] Core log | {tail}");
                 } else {
@@ -4363,18 +4404,22 @@ async fn validate_candidates_inner(
 ) -> Result<HashMap<String, ProxyMetrics>, String> {
     let (parsed, rejected) = unique_parsed(candidates);
 
-    println!(
+    if !(crate::compact_logs_enabled()) {
+        println!(
         "[INFO] 🔬 [Xray] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
-    );
+        );
+    }
 
     for (config, reason) in rejected.iter().take(8) {
-        println!(
+        if !(crate::compact_logs_enabled()) {
+            println!(
             "[INFO] 🧹 [Xray] Rejected | {} | {reason}",
             config_label(config)
-        );
+            );
+        }
     }
 
     if !rejected.is_empty() {
@@ -4412,7 +4457,8 @@ async fn validate_candidates_inner(
         )
         .await?;
 
-        println!(
+        if !(crate::compact_logs_enabled()) {
+            println!(
             "[INFO] ✅ [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: {}",
             index + 1,
             total_batches,
@@ -4421,12 +4467,14 @@ async fn validate_candidates_inner(
             MIN_SUCCESSFUL_ATTEMPTS,
             STABILITY_ATTEMPTS,
             target_count
-        );
+            );
+        }
 
         metadata.extend(batch_metadata);
     }
 
-    println!(
+    if !(crate::compact_logs_enabled()) {
+        println!(
         "[INFO] ✅ [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Latency ≤ {}ms",
         metadata.len(),
         candidates.len(),
@@ -4434,7 +4482,8 @@ async fn validate_candidates_inner(
         MIN_SUCCESSFUL_ATTEMPTS,
         STABILITY_ATTEMPTS,
         MAX_LATENCY_MS
-    );
+        );
+    }
 
     Ok(metadata)
 }
