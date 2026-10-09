@@ -100,7 +100,7 @@ if [ -s "subscriptions/light-training.jsonl" ]; then
   fi
 fi
 if [ -s /tmp/proxyrift/lightgbm-scores.json ]; then
-  lightgbm_trained="$(jq -r 'if .trained == true then "✅ Trained" else "⚪ Not trained" end' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'unknown')"
+  lightgbm_trained="$(jq -r 'if .trained == true then "✅ Promoted" else "⚪ Baseline-only" end' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'unknown')"
   lightgbm_training_rows="$(jq -r '.training_rows // 0' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
   lightgbm_feature_count="$(jq -r '.feature_count // 0' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
   lightgbm_scored="$(jq -r '(.scores // {}) | length' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
@@ -357,7 +357,7 @@ light_delta_display="$(format_delta "$light_elapsed" "$previous_light_elapsed")"
   echo "| Transfer (10 MiB) | $lightgbm_transfer_status | $lightgbm_transfer_brier | $lightgbm_transfer_baseline | $lightgbm_transfer_holdout |"
   echo "| Stream stability | $lightgbm_stream_status | $lightgbm_stream_brier | $lightgbm_stream_baseline | $lightgbm_stream_holdout |"
   echo
-  echo "Models are used only when they beat a time-ordered holdout baseline. Unpromoted targets contribute a neutral score."
+  echo "Only targets that beat the time-ordered holdout baseline are blended. If none qualify, LightGBM returns neutral scores."
   echo
   echo "<details>"
   echo "<summary>Training dataset health</summary>"
