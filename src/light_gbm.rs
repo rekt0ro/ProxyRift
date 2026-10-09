@@ -179,6 +179,7 @@ impl LightGbmScores {
             "baseline": "training_prevalence_brier",
             "composite_weights": {"strict": 0.50, "transfer": 0.30, "stream": 0.20},
             "promotion_minimum_relative_brier_improvement": MIN_RELATIVE_BRIER_IMPROVEMENT,
+            "promotion_top_20pct_lift_minimum": 1.0,
             "history_features": HISTORY_FEATURE_COUNT,
             "model_feature_count": MODEL_FEATURE_COUNT,
             "targets": {
@@ -748,6 +749,27 @@ fn brier_score(predictions: &[f64], labels: &[f32]) -> f64 {
         / predictions.len() as f64
 }
 
+fn top_quintile_pass_rate(predictions: &[f64], labels: &[f32]) -> f64 {
+    if predictions.is_empty() || predictions.len() != labels.len() {
+        return f64::NAN;
+    }
+
+    let mut indices = (0..predictions.len()).collect::<Vec<_>>();
+    indices.sort_unstable_by(|left, right| {
+        predictions[*right]
+            .total_cmp(&predictions[*left])
+            .then_with(|| left.cmp(right))
+    });
+
+    let top_count = predictions.len().div_ceil(5).max(1);
+    let passes = indices
+        .iter()
+        .take(top_count)
+        .filter(|index| labels[**index] >= 0.5)
+        .count();
+    passes as f64 / top_count as f64
+}
+
 fn fit_booster(features: &[Vec<f64>], labels: &[f32], seed: i32) -> Result<Booster, String> {
     if features.is_empty() || features.len() != labels.len() {
         return Err("cannot train LightGBM with empty or mismatched training rows".to_string());
@@ -945,9 +967,26 @@ fn train_target_model(
     } else {
         0.0
     };
-    let accepted = model_brier.is_finite()
+    let holdout_pass_rate = holdout_positive as f64 / holdout.len() as f64;
+    let model_top_20pct_pass_rate = top_quintile_pass_rate(&holdout_predictions, &holdout_labels);
+    let top_20pct_lift = if holdout_pass_rate > 0.0 {
+        model_top_20pct_pass_rate / holdout_pass_rate
+    } else {
+        0.0
+    };
+    let brier_accepted = model_brier.is_finite()
         && baseline_brier.is_finite()
         && relative_improvement >= MIN_RELATIVE_BRIER_IMPROVEMENT;
+    let ranking_accepted = model_top_20pct_pass_rate.is_finite()
+        && model_top_20pct_pass_rate + 1e-9 >= holdout_pass_rate;
+    let accepted = brier_accepted && ranking_accepted;
+    let reason = if !brier_accepted {
+        "model_did_not_beat_temporal_baseline"
+    } else if !ranking_accepted {
+        "top_20pct_below_random_selection_baseline"
+    } else {
+        "better_brier_and_non_degrading_top_20pct"
+    };
 
     let mut report = serde_json::json!({
         "target": target.name(),
@@ -965,7 +1004,11 @@ fn train_target_model(
         "model_brier": model_brier,
         "baseline_brier": baseline_brier,
         "relative_brier_improvement": relative_improvement,
-        "reason": if accepted { "better_than_temporal_baseline" } else { "model_did_not_beat_temporal_baseline" },
+        "holdout_pass_rate": holdout_pass_rate,
+        "model_top_20pct_pass_rate": model_top_20pct_pass_rate,
+        "top_20pct_lift": top_20pct_lift,
+        "top_20pct_non_degrading": ranking_accepted,
+        "reason": reason,
     });
     if !accepted {
         return Ok(TargetResult {
@@ -1403,7 +1446,8 @@ fn structural_vector(
 mod tests {
     use super::{
         candidate_fingerprint, config_feature_vector, history_feature_vector, load_training,
-        parse_config_features, port_bucket, HISTORY_FEATURE_COUNT, MODEL_FEATURE_COUNT,
+        parse_config_features, port_bucket, top_quintile_pass_rate, HISTORY_FEATURE_COUNT,
+        MODEL_FEATURE_COUNT,
     };
     use serde_json::{json, Map, Value};
     use std::fs;
@@ -1456,6 +1500,20 @@ mod tests {
                 "stream_pass": null
             }
         })
+    }
+
+    #[test]
+    fn top_quintile_metric_rewards_a_useful_ranking() {
+        let predictions = [0.1, 0.2, 0.8, 0.4, 0.9];
+        let labels = [0.0, 0.0, 1.0, 0.0, 1.0];
+        assert_eq!(top_quintile_pass_rate(&predictions, &labels), 1.0);
+    }
+
+    #[test]
+    fn top_quintile_metric_detects_an_inverted_ranking() {
+        let predictions = [0.9, 0.8, 0.2, 0.4, 0.1];
+        let labels = [0.0, 0.0, 1.0, 1.0, 1.0];
+        assert_eq!(top_quintile_pass_rate(&predictions, &labels), 0.0);
     }
 
     #[test]
