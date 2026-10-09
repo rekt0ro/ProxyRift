@@ -1977,7 +1977,6 @@ pub async fn validate_candidates_with_targets_once_with_minimum_body(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub async fn validate_candidates_with_target_pool_once_with_minimum_body(
     binary: &str,
     candidates: &[String],
