@@ -1817,7 +1817,7 @@ async fn check_batch(
                     .chars()
                     .rev()
                     .collect::<String>();
-                crate::emit_log_if!(!crate::compact_logs_enabled();
+                println!(
                     "[INFO] 🧹 [Sing-Box] Rejected | {}",
                     config_label(&batch_entries[0].0)
                 );
