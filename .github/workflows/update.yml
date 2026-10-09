@@ -41,21 +41,7 @@ jobs:
 
       - name: "🦀 Resolve stable Rust toolchain"
         id: rust-toolchain
-        run: |
-          set -euo pipefail
-
-          stable_channel="$(curl -fsSL \
-            --retry 5 \
-            --retry-delay 2 \
-            --retry-max-time 45 \
-            --retry-connrefused \
-            https://static.rust-lang.org/dist/channel-rust-stable.toml)"
-
-          rust_version="$(awk -F'"' '/^\[pkg\.rustc\]$/ { in_rustc=1; next } /^\[/ { in_rustc=0 } in_rustc && /^[[:space:]]*version[[:space:]]*=/ { split($2, parts, " "); print parts[1]; exit }' <<< "$stable_channel")"
-          test -n "$rust_version"
-          [[ "$rust_version" =~ ^1\.[0-9]+\.[0-9]+$ ]]
-          echo "version=$rust_version" >> "$GITHUB_OUTPUT"
-
+        run: bash scripts/update/resolve_stable_rust.sh
       - name: "🦀 Restore Rust toolchain cache"
         id: rust-toolchain-cache-restore
         uses: actions/cache/restore@v6
@@ -64,22 +50,14 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-rust-toolchain-${{ steps.rust-toolchain.outputs.version }}
 
       - name: "🦀 Set up Rust"
-        run: |
-          set -euo pipefail
-
-          toolchain="${{ steps.rust-toolchain.outputs.version }}"
-          if ! rustup toolchain list | awk '{print $1}' | grep -E "^$toolchain(-|$)" >/dev/null; then
-            rustup toolchain install "$toolchain" --profile minimal --component rustfmt
-          fi
-          rustup default "$toolchain"
-
+        env:
+          RUST_TOOLCHAIN_VERSION: ${{ steps.rust-toolchain.outputs.version }}
+        run: bash scripts/update/setup_rust.sh
       - name: "📌 Record Rust version"
         id: rust-version
-        run: |
-          actual_version="$(rustc --version | awk '{print $2}')"
-          test "$actual_version" = "${{ steps.rust-toolchain.outputs.version }}"
-          echo "version=$actual_version" >> "$GITHUB_OUTPUT"
-
+        env:
+          RUST_TOOLCHAIN_VERSION: ${{ steps.rust-toolchain.outputs.version }}
+        run: bash scripts/update/record_rust_version.sh
       - name: "🔒 Verify dependency lock"
         run: test -s Cargo.lock
 
@@ -97,44 +75,19 @@ jobs:
           SINGBOX_VERSION_PIN: "1.14.2"
           SINGBOX_SHA256_PIN: "a684484d7477d1437282ee411f4d131d0340aaad60a7868841ebd5d87dd8a0c6"
           SINGBOX_ASSET_PIN: "sing-box-1.14.2-linux-amd64.tar.gz"
-        run: |
-          set -euo pipefail
-
-          [[ "$XRAY_VERSION_PIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          [[ "$XRAY_SHA256_PIN" =~ ^[0-9a-f]{64}$ ]]
-          [[ "$SINGBOX_VERSION_PIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          [[ "$SINGBOX_SHA256_PIN" =~ ^[0-9a-f]{64}$ ]]
-          test "$XRAY_ASSET_PIN" = "Xray-linux-64.zip"
-          test "$SINGBOX_ASSET_PIN" = "sing-box-1.14.2-linux-amd64.tar.gz"
-
-          {
-            echo "xray_version=$XRAY_VERSION_PIN"
-            echo "xray_sha256=$XRAY_SHA256_PIN"
-            echo "xray_asset=$XRAY_ASSET_PIN"
-            echo "singbox_version=$SINGBOX_VERSION_PIN"
-            echo "singbox_sha256=$SINGBOX_SHA256_PIN"
-            echo "singbox_asset=$SINGBOX_ASSET_PIN"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "[INFO] 🧩 [Cores] Pinned releases | Xray $XRAY_VERSION_PIN | sing-box $SINGBOX_VERSION_PIN"
+        run: bash scripts/update/resolve_validation_cores.sh
       - name: "⚡ Compute cache keys"
         id: keys
         env:
           RUNNER_OS_NAME: ${{ runner.os }}
+          RUNNER_ARCH_NAME: ${{ runner.arch }}
           LOCK_HASH: ${{ hashFiles('Cargo.lock') }}
           RUST_VERSION: ${{ steps.rust-version.outputs.version }}
           XRAY_VERSION: ${{ steps.validation-cores.outputs.xray_version }}
           XRAY_SHA256: ${{ steps.validation-cores.outputs.xray_sha256 }}
           SINGBOX_VERSION: ${{ steps.validation-cores.outputs.singbox_version }}
           SINGBOX_SHA256: ${{ steps.validation-cores.outputs.singbox_sha256 }}
-        run: |
-          {
-            echo "rust-toolchain=${RUNNER_OS_NAME}-${{ runner.arch }}-rust-toolchain-${RUST_VERSION}"
-            echo "registry=${RUNNER_OS_NAME}-cargo-registry-${LOCK_HASH}"
-            echo "build=${RUNNER_OS_NAME}-cargo-build-rust-${RUST_VERSION}-${LOCK_HASH}"
-            echo "xray=${RUNNER_OS_NAME}-xray-${XRAY_VERSION}-${XRAY_SHA256}-verified"
-            echo "singbox=${RUNNER_OS_NAME}-sing-box-${SINGBOX_VERSION}-${SINGBOX_SHA256}-verified"
-          } >> "$GITHUB_OUTPUT"
+        run: bash scripts/update/compute_cache_keys.sh
       - name: "💾 Restore Rust registry cache"
         id: cargo-registry-restore
         uses: actions/cache/restore@v6
@@ -167,27 +120,7 @@ jobs:
           XRAY_VERSION: ${{ steps.validation-cores.outputs.xray_version }}
           XRAY_SHA256: ${{ steps.validation-cores.outputs.xray_sha256 }}
           XRAY_ASSET: ${{ steps.validation-cores.outputs.xray_asset }}
-        run: |
-          set -euo pipefail
-
-          mkdir -p "$HOME/.local/bin" /tmp/xray-download
-
-          if [ ! -x "$HOME/.local/bin/xray" ]; then
-            if [[ ! "$XRAY_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
-              echo "XRAY_SHA256 is not a valid SHA-256 from the release metadata." >&2
-              exit 1
-            fi
-
-            asset_url="https://github.com/${XRAY_REPOSITORY}/releases/download/v${XRAY_VERSION}/${XRAY_ASSET}"
-            curl -fsSL "$asset_url" -o /tmp/xray-download/xray.zip
-            echo "${XRAY_SHA256}  /tmp/xray-download/xray.zip" | sha256sum -c -
-            unzip -q /tmp/xray-download/xray.zip -d /tmp/xray-download/extracted
-            install -m 0755 /tmp/xray-download/extracted/xray "$HOME/.local/bin/xray"
-          fi
-
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/xray" version
-
+        run: bash scripts/update/install_xray.sh
       - name: "💾 Save Xray binary cache"
         if: steps.xray-cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -207,29 +140,7 @@ jobs:
           SINGBOX_VERSION: ${{ steps.validation-cores.outputs.singbox_version }}
           SINGBOX_SHA256: ${{ steps.validation-cores.outputs.singbox_sha256 }}
           SINGBOX_ASSET: ${{ steps.validation-cores.outputs.singbox_asset }}
-        run: |
-          set -euo pipefail
-
-          mkdir -p "$HOME/.local/bin" /tmp/singbox-download
-
-          if [ ! -x "$HOME/.local/bin/sing-box" ]; then
-            if [[ ! "$SINGBOX_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
-              echo "SINGBOX_SHA256 is not a valid SHA-256 from the release metadata." >&2
-              exit 1
-            fi
-
-            asset_url="https://github.com/${SINGBOX_REPOSITORY}/releases/download/v${SINGBOX_VERSION}/${SINGBOX_ASSET}"
-            curl -fsSL "$asset_url" -o /tmp/singbox-download/sing-box.tar.gz
-            echo "${SINGBOX_SHA256}  /tmp/singbox-download/sing-box.tar.gz" | sha256sum -c -
-            tar -xzf /tmp/singbox-download/sing-box.tar.gz -C /tmp/singbox-download
-            install -m 0755 "/tmp/singbox-download/sing-box-${SINGBOX_VERSION}-linux-amd64/sing-box" "$HOME/.local/bin/sing-box"
-          fi
-
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          singbox_version="$("$HOME/.local/bin/sing-box" version | head -n 1)"
-          echo "[INFO] 🧩 [Sing-Box] Version | ${singbox_version}"
-          grep -F "$SINGBOX_VERSION" <<< "$singbox_version" >/dev/null
-
+        run: bash scripts/update/install_singbox.sh
       - name: "💾 Save sing-box binary cache"
         if: steps.singbox-cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -241,20 +152,9 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: "🌍 Check runner network"
-        run: |
-          curl -fsS --max-time 10 "https://speed.cloudflare.com/__down?bytes=1" -o /dev/null
-          curl -fsS --max-time 10 "https://api.ipify.org?format=json" -o /dev/null
-          echo "[INFO] 🌍 [Network] Runner connectivity OK"
-
+        run: bash scripts/update/check_runner_network.sh
       - name: "🔨 Build Rust binaries"
-        run: |
-          cargo build --release --locked --bins --quiet
-          test -x ./target/release/ProxyRift
-          test -x ./target/release/check_proxies
-          test -x ./target/release/polish_light
-          test -x ./target/release/encode_subscriptions
-          test -x ./target/release/discover_sources
-
+        run: bash scripts/update/build_rust_binaries.sh
       - name: "💾 Save Rust toolchain cache"
         if: steps.rust-toolchain-cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -303,18 +203,7 @@ jobs:
 
       - name: "🏷️ Add subscription update metadata"
         id: subscription_metadata
-        run: |
-          for f in subscriptions/all.txt subscriptions/light.txt; do
-            test -s "$f"
-            tmp="${f}.tmp"
-            {
-              printf '%s\n' '#profile-update-interval: 1'
-              awk '!/^#profile-update-interval:/' "$f"
-            } > "$tmp"
-            mv -f "$tmp" "$f"
-            test "$(grep -Ec '^#profile-update-interval:' "$f")" -eq 1
-          done
-
+        run: bash scripts/update/add_subscription_metadata.sh
       - name: "🧬 Generate subscriptions"
         id: generate_base64
         run: |
@@ -322,11 +211,7 @@ jobs:
 
       - name: "📦 Prepare published outputs"
         id: prepare_outputs
-        run: |
-          for f in subscriptions/all.txt subscriptions/light.txt subscriptions/all-base64.txt subscriptions/light-base64.txt subscriptions/all-clash.yaml subscriptions/light-clash.yaml subscriptions/all-singbox.json subscriptions/light-singbox.json; do
-            test -s "$f"
-          done
-
+        run: bash scripts/update/prepare_published_outputs.sh
       - name: "🚀 Publish generated changes"
         id: publish
         run: bash scripts/update/publish_generated_changes.sh
