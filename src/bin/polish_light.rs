@@ -3928,8 +3928,8 @@ mod tests {
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
         transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
-        ConsumerEvidence, LightBackend,
-        LightGbmScores, ProxyMetrics, TransferTargetState, FINAL_TRANSFER_WORKERS,
+        ConsumerEvidence, LightBackend, LightGbmScores, ProxyMetrics, TransferTargetState,
+        FINAL_TRANSFER_WORKERS,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
