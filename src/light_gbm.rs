@@ -4,7 +4,7 @@ use lgbm::{
     Booster, Dataset, Field, MatBuf, Parameters, PredictType,
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::BufRead;
 use std::sync::Arc;
