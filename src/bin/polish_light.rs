@@ -499,6 +499,11 @@ fn write_light_stats(
     transfer_passed: usize,
     stream_continuity_tested: usize,
     stream_continuity_passed: usize,
+    selection_target: usize,
+    strict_selectable: usize,
+    stability_selectable: usize,
+    transfer_selectable: usize,
+    stream_selectable: usize,
     published: usize,
 ) -> Result<(), String> {
     if path.is_empty() {
@@ -516,6 +521,12 @@ fn write_light_stats(
         "transfer_passed": transfer_passed,
         "stream_continuity_tested": stream_continuity_tested,
         "stream_continuity_passed": stream_continuity_passed,
+        "selection_target": selection_target,
+        "strict_selectable": strict_selectable,
+        "stability_selectable": stability_selectable,
+        "transfer_selectable": transfer_selectable,
+        "stream_selectable": stream_selectable,
+        "selection_shortfall": selection_target.saturating_sub(published),
         "published": published,
     });
     let body = serde_json::to_vec_pretty(&stats).map_err(|error| error.to_string())?;
@@ -1618,6 +1629,36 @@ fn adjust_transfer_workers(
     }
 }
 
+
+#[derive(Clone, Copy, Debug)]
+struct TransferConcurrencyState {
+    workers: usize,
+    clean_batches: usize,
+}
+
+impl Default for TransferConcurrencyState {
+    fn default() -> Self {
+        Self {
+            workers: FINAL_TRANSFER_INITIAL_WORKERS,
+            clean_batches: 0,
+        }
+    }
+}
+
+impl TransferConcurrencyState {
+    fn observe(&mut self, rate_limits: u64, batch_size: usize) -> (usize, usize) {
+        let previous_workers = self.workers;
+        let previous_clean_batches = self.clean_batches;
+        (self.workers, self.clean_batches) = adjust_transfer_workers(
+            self.workers,
+            rate_limits,
+            batch_size,
+            self.clean_batches,
+        );
+        (previous_workers, previous_clean_batches)
+    }
+}
+
 const FINAL_TRANSFER_TARGET_PROBE_SIZE: usize = 12;
 
 fn transfer_target_batch_limit(state: &TransferTargetState, requested: usize) -> usize {
@@ -1825,12 +1866,35 @@ async fn fill_stream_continuity_gate(
     stream_tested: &mut HashSet<String>,
     global_positions: &HashMap<String, usize>,
     history: &HashMap<String, HistoryEntry>,
+    cohort_generations: &HashMap<String, usize>,
+    selection_limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
 ) -> Result<usize, String> {
     if transfer_verified.is_empty() {
         return Ok(0);
     }
 
     let test_limit = STREAM_CONTINUITY_TEST_LIMIT.min(transfer_verified.len());
+    let already_selectable = stream_selection_count(
+        stream_verified,
+        cohort_generations,
+        global_positions,
+        history,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
+    );
+    if already_selectable >= selection_limit {
+        println!(
+            "[INFO] 🎯 [Stream] Output quota already fillable | Selectable: {}/{} | Tested: {} | Passed: {}",
+            already_selectable,
+            selection_limit,
+            stream_tested.len(),
+            stream_verified.len()
+        );
+        return Ok(stream_verified.len());
+    }
 
     loop {
         if stream_tested.len() >= test_limit {
@@ -1889,6 +1953,26 @@ async fn fill_stream_continuity_gate(
             stream_verified.len(),
             batch_started.elapsed().as_secs()
         );
+
+        let selectable = stream_selection_count(
+            stream_verified,
+            cohort_generations,
+            global_positions,
+            history,
+            selection_limit,
+            max_per_endpoint,
+            max_per_family,
+        );
+        if selectable >= selection_limit {
+            println!(
+                "[INFO] 🎯 [Stream] Output quota is fillable | Selectable: {}/{} | Tested: {} | Passed: {} | Stopping additional continuity probes",
+                selectable,
+                selection_limit,
+                stream_tested.len(),
+                stream_verified.len()
+            );
+            return Ok(stream_verified.len());
+        }
     }
 }
 
@@ -1908,10 +1992,9 @@ async fn run_transfer_gate_consumer(
 ) -> Result<usize, String> {
     let transfer_target = transfer_validation_target(selection_limit);
 
-    let mut transfer_workers = FINAL_TRANSFER_INITIAL_WORKERS;
-    let mut clean_batches = 0usize;
-    let mut target_states =
-        vec![TransferTargetState::default(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
+    let target_count = proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len();
+    let mut target_concurrency = vec![TransferConcurrencyState::default(); target_count];
+    let mut target_states = vec![TransferTargetState::default(); target_count];
     let mut target_tested_candidates =
         vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     let mut pending = VecDeque::<String>::new();
@@ -2033,6 +2116,7 @@ async fn run_transfer_gate_consumer(
         };
         let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
         let target_state_before = target_states[target_index];
+        let transfer_workers = target_concurrency[target_index].workers;
 
         let queue_window = transfer_workers
             .saturating_mul(FINAL_TRANSFER_QUEUE_MULTIPLIER)
@@ -2145,10 +2229,8 @@ async fn run_transfer_gate_consumer(
             }
         }
 
-        let previous_workers = transfer_workers;
-        let previous_clean_batches = clean_batches;
-        (transfer_workers, clean_batches) =
-            adjust_transfer_workers(transfer_workers, rate_limits, batch.len(), clean_batches);
+        let (previous_workers, previous_clean_batches) =
+            target_concurrency[target_index].observe(rate_limits, batch.len());
         if rate_limits > 0 {
             let rate_limit_percent = if batch.is_empty() {
                 0
@@ -2156,13 +2238,13 @@ async fn run_transfer_gate_consumer(
                 rate_limits.saturating_mul(100).div_ceil(batch.len() as u64)
             };
 
-            if transfer_workers < previous_workers {
+            if target_concurrency[target_index].workers < previous_workers {
                 println!(
                     "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Reducing workers {} -> {}",
                     rate_limits,
                     target,
                     previous_workers,
-                    transfer_workers
+                    target_concurrency[target_index].workers
                 );
             } else {
                 println!(
@@ -2172,12 +2254,12 @@ async fn run_transfer_gate_consumer(
                     previous_workers
                 );
             }
-        } else if transfer_workers > previous_workers {
+        } else if target_concurrency[target_index].workers > previous_workers {
             println!(
                 "[INFO] 📈 Light transfer: {} clean batches; increasing workers {} -> {}",
                 previous_clean_batches + 1,
                 previous_workers,
-                transfer_workers
+                target_concurrency[target_index].workers
             );
         }
 
@@ -2451,6 +2533,53 @@ fn select_verified_configs(
     }
 
     result
+}
+
+
+fn stage_selectable_count(
+    metadata: &HashMap<String, ProxyMetrics>,
+    global_positions: &HashMap<String, usize>,
+    history: &HashMap<String, HistoryEntry>,
+    selection_limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+) -> usize {
+    let mut ranked = metadata.keys().cloned().collect::<Vec<_>>();
+    sort_ranked(&mut ranked, metadata, global_positions, history);
+    select_verified_configs(
+        &ranked,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
+    )
+    .len()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stream_selection_count(
+    stream_verified: &HashMap<String, ProxyMetrics>,
+    cohort_generations: &HashMap<String, usize>,
+    global_positions: &HashMap<String, usize>,
+    history: &HashMap<String, HistoryEntry>,
+    selection_limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+) -> usize {
+    if selection_limit == 0 || stream_verified.is_empty() {
+        return 0;
+    }
+
+    let mut ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
+    sort_ranked(&mut ranked, stream_verified, global_positions, history);
+    select_verified_configs_with_cohort_floor(
+        &ranked,
+        cohort_generations,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
+    )
+    .0
+    .len()
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -3134,6 +3263,10 @@ async fn run_stream_continuity_snapshot(
     history: HashMap<String, HistoryEntry>,
     existing_stream_verified: HashMap<String, ProxyMetrics>,
     existing_stream_tested: HashSet<String>,
+    cohort_generations: HashMap<String, usize>,
+    selection_limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
 ) -> Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String> {
     let mut stream_verified = existing_stream_verified;
     let mut stream_tested = existing_stream_tested;
@@ -3146,10 +3279,43 @@ async fn run_stream_continuity_snapshot(
         &mut stream_tested,
         &global_positions,
         &history,
+        &cohort_generations,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
     )
     .await?;
 
     Ok((stream_verified, stream_tested))
+}
+
+async fn merge_finished_stream_task(
+    stream_task: &mut Option<StreamTask>,
+    stream_verified: &mut HashMap<String, ProxyMetrics>,
+    stream_tested: &mut HashSet<String>,
+) -> Result<bool, String> {
+    if !stream_task.as_ref().is_some_and(|task| task.is_finished()) {
+        return Ok(false);
+    }
+
+    let Some(handle) = stream_task.take() else {
+        return Ok(false);
+    };
+
+    match handle.await {
+        Ok(Ok((completed_stream, completed_tested))) => {
+            stream_verified.extend(completed_stream);
+            stream_tested.extend(completed_tested);
+            println!(
+                "[INFO] 🧵 [Stream] Background validation merged | Tested: {} | Passed: {}",
+                stream_tested.len(),
+                stream_verified.len()
+            );
+            Ok(true)
+        }
+        Ok(Err(error)) => Err(error),
+        Err(error) => Err(format!("stream background task failed: {error}")),
+    }
 }
 
 #[tokio::main]
@@ -3690,15 +3856,32 @@ async fn main() -> Result<(), String> {
             )
             .len();
 
+            let _ = merge_finished_stream_task(
+                &mut stream_task,
+                &mut stream_verified,
+                &mut stream_tested,
+            )
+            .await?;
+
             if transfer_selected >= STREAM_START_TRANSFER_THRESHOLD
                 && stream_task.is_none()
                 && stream_tested.len() < STREAM_CONTINUITY_TEST_LIMIT.min(transfer_verified.len())
+                && stream_selection_count(
+                    &stream_verified,
+                    &cohort_generations,
+                    &global_positions,
+                    &history,
+                    selection_limit,
+                    max_per_endpoint,
+                    max_per_family,
+                ) < selection_limit
             {
                 let transfer_snapshot = transfer_verified.clone();
                 let positions_snapshot = global_positions.clone();
                 let history_snapshot = history.clone();
                 let stream_verified_snapshot = stream_verified.clone();
                 let stream_tested_snapshot = stream_tested.clone();
+                let cohort_generations_snapshot = cohort_generations.clone();
                 let xray_snapshot = xray.clone();
                 let singbox_snapshot = singbox.clone();
 
@@ -3717,6 +3900,10 @@ async fn main() -> Result<(), String> {
                         history_snapshot,
                         stream_verified_snapshot,
                         stream_tested_snapshot,
+                        cohort_generations_snapshot,
+                        selection_limit,
+                        max_per_endpoint,
+                        max_per_family,
                     )
                     .await
                 }));
@@ -3888,6 +4075,10 @@ async fn main() -> Result<(), String> {
         &mut stream_tested,
         &global_positions,
         &history,
+        &cohort_generations,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
     )
     .await?;
 
@@ -3965,6 +4156,49 @@ async fn main() -> Result<(), String> {
         );
     }
 
+    let strict_selectable = stage_selectable_count(
+        &final_metadata,
+        &global_positions,
+        &history,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
+    );
+    let stability_selectable = stage_selectable_count(
+        &stability_verified,
+        &global_positions,
+        &history,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
+    );
+    let transfer_selectable = stage_selectable_count(
+        &transfer_verified,
+        &global_positions,
+        &history,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
+    );
+    let stream_selectable = stage_selectable_count(
+        &stream_verified,
+        &global_positions,
+        &history,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
+    );
+    println!(
+        "[INFO] 📊 [Light feasibility] Target: {} | Strict selectable: {} | 1 MiB selectable: {} | 10 MiB selectable: {} | Stream selectable: {} | Selected: {} | Shortfall: {}",
+        selection_limit,
+        strict_selectable,
+        stability_selectable,
+        transfer_selectable,
+        stream_selectable,
+        selected.len(),
+        selection_limit.saturating_sub(selected.len())
+    );
+
     write_light_stats(
         &stats_path,
         input_candidate_count,
@@ -3977,6 +4211,11 @@ async fn main() -> Result<(), String> {
         transfer_verified.len(),
         stream_tested.len(),
         stream_selected,
+        selection_limit,
+        strict_selectable,
+        stability_selectable,
+        transfer_selectable,
+        stream_selectable,
         selected.len(),
     )?;
 
@@ -4052,7 +4291,8 @@ mod tests {
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
         transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
-        ConsumerEvidence, LightBackend, LightGbmScores, ProxyMetrics, TransferTargetState,
+        stream_selection_count, ConsumerEvidence, LightBackend, LightGbmScores, ProxyMetrics,
+        TransferConcurrencyState, TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS,
         FINAL_TRANSFER_WORKERS,
     };
     use base64::engine::general_purpose::STANDARD;
@@ -4106,6 +4346,68 @@ mod tests {
         assert_eq!(selected.len(), 8);
         assert_eq!(previous, 3);
         assert_eq!(older, 2);
+    }
+
+    #[test]
+    fn stream_pool_early_exit_uses_final_diversity_selection() {
+        let configs = vec![
+            "vless://a@example.com:443".to_string(),
+            "vless://b@example.net:443".to_string(),
+        ];
+        let metrics = ProxyMetrics {
+            successes: 3,
+            attempts: 3,
+            median_ms: 20.0,
+            min_ms: 10.0,
+            jitter_ms: 1.0,
+            throughput_kbps: 100.0,
+        };
+        let stream_verified = configs
+            .iter()
+            .cloned()
+            .map(|config| (config, metrics.clone()))
+            .collect::<HashMap<_, _>>();
+        let cohort_generations = HashMap::new();
+        let positions = HashMap::new();
+        let history = HashMap::new();
+
+        assert_eq!(
+            stream_selection_count(
+                &stream_verified,
+                &cohort_generations,
+                &positions,
+                &history,
+                2,
+                1,
+                3,
+            ),
+            2
+        );
+        assert_eq!(
+            stream_selection_count(
+                &stream_verified,
+                &cohort_generations,
+                &positions,
+                &history,
+                3,
+                1,
+                3,
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn rate_limit_worker_adjustment_is_isolated_per_host() {
+        let mut hosts = [
+            TransferConcurrencyState::default(),
+            TransferConcurrencyState::default(),
+        ];
+
+        let (previous_workers, _) = hosts[0].observe(2, 8);
+        assert_eq!(previous_workers, FINAL_TRANSFER_INITIAL_WORKERS);
+        assert_eq!(hosts[0].workers, FINAL_TRANSFER_INITIAL_WORKERS - 1);
+        assert_eq!(hosts[1].workers, FINAL_TRANSFER_INITIAL_WORKERS);
     }
 
     #[test]
