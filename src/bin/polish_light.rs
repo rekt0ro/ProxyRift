@@ -1629,7 +1629,6 @@ fn adjust_transfer_workers(
     }
 }
 
-
 #[derive(Clone, Copy, Debug)]
 struct TransferConcurrencyState {
     workers: usize,
@@ -1649,12 +1648,8 @@ impl TransferConcurrencyState {
     fn observe(&mut self, rate_limits: u64, batch_size: usize) -> (usize, usize) {
         let previous_workers = self.workers;
         let previous_clean_batches = self.clean_batches;
-        (self.workers, self.clean_batches) = adjust_transfer_workers(
-            self.workers,
-            rate_limits,
-            batch_size,
-            self.clean_batches,
-        );
+        (self.workers, self.clean_batches) =
+            adjust_transfer_workers(self.workers, rate_limits, batch_size, self.clean_batches);
         (previous_workers, previous_clean_batches)
     }
 }
@@ -2535,7 +2530,6 @@ fn select_verified_configs(
     result
 }
 
-
 fn stage_selectable_count(
     metadata: &HashMap<String, ProxyMetrics>,
     global_positions: &HashMap<String, usize>,
@@ -2546,13 +2540,7 @@ fn stage_selectable_count(
 ) -> usize {
     let mut ranked = metadata.keys().cloned().collect::<Vec<_>>();
     sort_ranked(&mut ranked, metadata, global_positions, history);
-    select_verified_configs(
-        &ranked,
-        selection_limit,
-        max_per_endpoint,
-        max_per_family,
-    )
-    .len()
+    select_verified_configs(&ranked, selection_limit, max_per_endpoint, max_per_family).len()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4289,9 +4277,9 @@ mod tests {
         recheck_exploration_limit, select_recheck_candidates, select_stability_test_batch,
         select_transfer_target, select_verified_configs, select_verified_configs_with_cohort_floor,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
-        selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
-        transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
-        stream_selection_count, ConsumerEvidence, LightBackend, LightGbmScores, ProxyMetrics,
+        selection_rejection_counts, should_quarantine_transfer_target, stream_selection_count,
+        strict_validation_target, transfer_target_batch_limit, transfer_validation_target,
+        update_transfer_target_state, ConsumerEvidence, LightBackend, LightGbmScores, ProxyMetrics,
         TransferConcurrencyState, TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS,
         FINAL_TRANSFER_WORKERS,
     };
