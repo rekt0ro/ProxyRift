@@ -93,7 +93,9 @@ pub(crate) fn record_target_rate_limit(target: &str) {
     };
     let now = Instant::now();
     let states = TARGET_RATE_LIMIT_STATES.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut states = states.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut states = states
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let state = states.entry(key.clone()).or_default();
     state.total_events = state.total_events.saturating_add(1);
     state.recent_events = match state.last_event {
@@ -123,7 +125,9 @@ pub fn target_is_rate_limited(target: &str) -> bool {
     let Some(states) = TARGET_RATE_LIMIT_STATES.get() else {
         return false;
     };
-    let mut states = states.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut states = states
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let Some(state) = states.get_mut(&key) else {
         return false;
     };
@@ -146,8 +150,13 @@ pub fn target_rate_limit_events(target: &str) -> u64 {
     let Some(states) = TARGET_RATE_LIMIT_STATES.get() else {
         return 0;
     };
-    let states = states.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    states.get(&key).map(|state| state.total_events).unwrap_or(0)
+    let states = states
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    states
+        .get(&key)
+        .map(|state| state.total_events)
+        .unwrap_or(0)
 }
 
 #[derive(Clone, Debug)]
@@ -2799,7 +2808,15 @@ async fn probe_request_sustained(
     minimum_body_bytes: usize,
     max_idle_gap: Duration,
 ) -> Result<ProbeSample, ProbeError> {
-    probe_request_sustained_mode(client, url, segments, minimum_body_bytes, max_idle_gap, false).await
+    probe_request_sustained_mode(
+        client,
+        url,
+        segments,
+        minimum_body_bytes,
+        max_idle_gap,
+        false,
+    )
+    .await
 }
 
 async fn probe_request_sustained_mode(
@@ -2943,8 +2960,7 @@ pub(crate) async fn validate_clients_with_target_pool(
                         successful_targets[index] = successful_targets[index].saturating_add(1);
                         latencies[index].push(sample.latency_ms);
                         if sample.latency_ms > 0.0 && is_throughput_target(target.as_str()) {
-                            throughputs[index]
-                                .push(sample.bytes as f64 * 8.0 / sample.latency_ms);
+                            throughputs[index].push(sample.bytes as f64 * 8.0 / sample.latency_ms);
                         }
                     }
                 }
@@ -2969,11 +2985,7 @@ pub(crate) async fn validate_clients_with_target_pool(
             if successful_targets[index] < minimum_targets
                 || successful_targets[index] < policy.min_successful_attempts
                 || latencies[index].is_empty()
-                || latencies[index]
-                    .iter()
-                    .copied()
-                    .fold(0.0, f64::max)
-                    > policy.max_latency_ms
+                || latencies[index].iter().copied().fold(0.0, f64::max) > policy.max_latency_ms
             {
                 return None;
             }
@@ -3201,7 +3213,11 @@ async fn check_batch(
                                 .push(sample.bytes as f64 * 8.0 / sample.latency_ms);
                         }
                     }
-                    Err(ProbeError::Failed | ProbeError::RateLimited | ProbeError::TargetCoolingDown) => {}
+                    Err(
+                        ProbeError::Failed
+                        | ProbeError::RateLimited
+                        | ProbeError::TargetCoolingDown,
+                    ) => {}
                 }
             }
         }
@@ -3852,7 +3868,8 @@ async fn check_batch_targets(
         }
 
         if policy.target_pool_mode {
-            let pooled = validate_clients_with_target_pool(&clients, targets, workers, policy).await;
+            let pooled =
+                validate_clients_with_target_pool(&clients, targets, workers, policy).await;
             for (index, metrics) in pooled.into_iter().enumerate() {
                 if let Some(metrics) = metrics {
                     combined.insert(batch_entries[index].0.clone(), metrics);
@@ -3922,7 +3939,11 @@ async fn check_batch_targets(
                                 .push(sample.bytes as f64 * 8.0 / sample.latency_ms);
                         }
                     }
-                    Err(ProbeError::Failed | ProbeError::RateLimited | ProbeError::TargetCoolingDown) => late_streak[entry_index] = 0,
+                    Err(
+                        ProbeError::Failed
+                        | ProbeError::RateLimited
+                        | ProbeError::TargetCoolingDown,
+                    ) => late_streak[entry_index] = 0,
                 }
             }
 
