@@ -21,8 +21,6 @@ jobs:
   collect:
     name: "🔎 Collect & Validate"
     runs-on: ubuntu-latest
-    # Preserve a 30-minute nominal workflow budget while leaving more room for collection.
-    timeout-minutes: 29
     permissions:
       actions: read
       contents: write
@@ -296,7 +294,7 @@ jobs:
         id: build_light
         env:
           LIGHT_MAX_CANDIDATES: "15000"
-          # Aim for a midrange pool; 200 remains an upper bound, not a quota.
+          # Aim for 100+ verified configs without treating the 130-config ceiling as a quota.
           LIGHT_SELECTION_LIMIT: "130"
           LIGHT_MIN_PUBLISH: "50"
         run: |
@@ -853,8 +851,6 @@ jobs:
     name: "🧹 Cleanup Caches"
     needs: collect
     runs-on: ubuntu-latest
-    # Cache cleanup normally completes in seconds; keep a bounded 1-minute allowance.
-    timeout-minutes: 1
     permissions:
       actions: write
 
