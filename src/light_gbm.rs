@@ -145,7 +145,7 @@ impl LightGbmScores {
         }
         let weight_sum = models.iter().map(|(_, weight)| *weight).sum::<f64>();
         let mut scores = HashMap::with_capacity(candidates.len());
-        for (index, candidate) in candidates.iter().enumerate() {
+        for candidate in candidates {
             let score = if weight_sum > 0.0 {
                 models
                     .iter()
@@ -165,7 +165,6 @@ impl LightGbmScores {
                     DEFAULT_SCORE
                 },
             );
-            let _ = index;
         }
 
         let trained = weight_sum > 0.0;
@@ -835,7 +834,8 @@ fn train_target_model(
             "at least five distinct observation timestamps are required for a time split".to_string(),
         ));
     }
-    let holdout_start_index = (timestamps.len() * (1 - HOLDOUT_FRACTION_NUMERATOR))
+    let holdout_start_index = (timestamps.len()
+        * (HOLDOUT_FRACTION_DENOMINATOR - HOLDOUT_FRACTION_NUMERATOR))
         / HOLDOUT_FRACTION_DENOMINATOR;
     let holdout_start_index = holdout_start_index.clamp(1, timestamps.len() - 1);
     let cutoff = timestamps[holdout_start_index];
