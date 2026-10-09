@@ -150,7 +150,12 @@ impl LightGbmScores {
                 models
                     .iter()
                     .map(|(model, weight)| {
-                        weight * model.predictions.get(candidate).copied().unwrap_or(DEFAULT_SCORE)
+                        weight
+                            * model
+                                .predictions
+                                .get(candidate)
+                                .copied()
+                                .unwrap_or(DEFAULT_SCORE)
                     })
                     .sum::<f64>()
                     / weight_sum
@@ -252,10 +257,7 @@ impl LightGbmScores {
             .get("trained")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let model_report = value
-            .get("model_report")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let model_report = value.get("model_report").cloned().unwrap_or(Value::Null);
 
         let mut scores = HashMap::new();
         if let Some(entries) = value.get("scores").and_then(Value::as_object) {
@@ -827,7 +829,8 @@ fn train_target_model(
     if timestamps.len() < 5 {
         return Ok(TargetResult::unavailable(
             target,
-            "at least five distinct observation timestamps are required for a time split".to_string(),
+            "at least five distinct observation timestamps are required for a time split"
+                .to_string(),
         ));
     }
     let holdout_start_index = (timestamps.len()
@@ -888,15 +891,15 @@ fn train_target_model(
         .iter()
         .map(|(_, label)| if *label { 1.0_f32 } else { 0.0_f32 })
         .collect::<Vec<_>>();
-    let baseline_rate = train_labels.iter().map(|label| f64::from(*label)).sum::<f64>()
+    let baseline_rate = train_labels
+        .iter()
+        .map(|label| f64::from(*label))
+        .sum::<f64>()
         / train_labels.len() as f64;
     let evaluation_booster = fit_booster(&train_features, &train_labels, target.seed())?;
     let holdout_predictions = predict_booster(&evaluation_booster, &holdout_features)?;
     let model_brier = brier_score(&holdout_predictions, &holdout_labels);
-    let baseline_brier = brier_score(
-        &vec![baseline_rate; holdout_labels.len()],
-        &holdout_labels,
-    );
+    let baseline_brier = brier_score(&vec![baseline_rate; holdout_labels.len()], &holdout_labels);
     let relative_improvement = if baseline_brier > 0.0 {
         (baseline_brier - model_brier) / baseline_brier
     } else {
@@ -967,7 +970,13 @@ fn train_target_model(
 fn training_feature_vector(fields: &serde_json::Map<String, Value>) -> Option<Vec<f64>> {
     // Keep stored and live-candidate encodings identical. Historical rows include
     // legacy enum values such as "vmess-default", which map to the live default bucket.
-    let protocol = normalize_protocol(fields.get("protocol")?.as_str()?.to_ascii_lowercase().as_str());
+    let protocol = normalize_protocol(
+        fields
+            .get("protocol")?
+            .as_str()?
+            .to_ascii_lowercase()
+            .as_str(),
+    );
     let raw_backend = fields.get("backend")?.as_str()?.to_ascii_lowercase();
     let backend = if BACKENDS.contains(&raw_backend.as_str()) {
         raw_backend
@@ -980,7 +989,13 @@ fn training_feature_vector(fields: &serde_json::Map<String, Value>) -> Option<Ve
     } else {
         raw_transport.as_str()
     });
-    let security = normalize_security(fields.get("security")?.as_str()?.to_ascii_lowercase().as_str());
+    let security = normalize_security(
+        fields
+            .get("security")?
+            .as_str()?
+            .to_ascii_lowercase()
+            .as_str(),
+    );
     let port = fields.get("port")?.as_u64().unwrap_or_default();
 
     Some(structural_vector(
@@ -1348,7 +1363,7 @@ fn structural_vector(
 mod tests {
     use super::{
         candidate_fingerprint, config_feature_vector, history_feature_vector, load_training,
-        parse_config_features, port_bucket, MODEL_FEATURE_COUNT, HISTORY_FEATURE_COUNT,
+        parse_config_features, port_bucket, HISTORY_FEATURE_COUNT, MODEL_FEATURE_COUNT,
     };
     use serde_json::{json, Map, Value};
     use std::fs;
@@ -1464,16 +1479,26 @@ mod tests {
         for index in 0..3 {
             rows.push(serde_json::to_string(&stored_row(100, "same-candidate", true)).unwrap());
             if index == 0 {
-                rows.push(serde_json::to_string(&stored_row(100, "other-candidate", false)).unwrap());
+                rows.push(
+                    serde_json::to_string(&stored_row(100, "other-candidate", false)).unwrap(),
+                );
             }
         }
         rows.push(serde_json::to_string(&stored_row(200, "same-candidate", true)).unwrap());
         fs::write(&path, rows.join("\n") + "\n").expect("write training data");
 
         let data = load_training(&path).expect("load training data");
-        let same_time = data.examples.iter().filter(|row| row.observed_at == 100).collect::<Vec<_>>();
+        let same_time = data
+            .examples
+            .iter()
+            .filter(|row| row.observed_at == 100)
+            .collect::<Vec<_>>();
         assert!(same_time.iter().all(|row| row.features[53] == 0.0));
-        let later = data.examples.iter().find(|row| row.observed_at == 200).expect("later row");
+        let later = data
+            .examples
+            .iter()
+            .find(|row| row.observed_at == 200)
+            .expect("later row");
         assert!((later.features[54] - (5.0 / 7.0)).abs() < 1e-9);
         assert_eq!(later.features.len(), MODEL_FEATURE_COUNT);
         let _ = fs::remove_file(path);
