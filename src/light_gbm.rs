@@ -755,19 +755,35 @@ fn top_quintile_pass_rate(predictions: &[f64], labels: &[f32]) -> f64 {
     }
 
     let mut indices = (0..predictions.len()).collect::<Vec<_>>();
-    indices.sort_unstable_by(|left, right| {
-        predictions[*right]
-            .total_cmp(&predictions[*left])
-            .then_with(|| left.cmp(right))
-    });
+    indices.sort_unstable_by(|left, right| predictions[*right].total_cmp(&predictions[*left]));
 
     let top_count = predictions.len().div_ceil(5).max(1);
-    let passes = indices
-        .iter()
-        .take(top_count)
-        .filter(|index| labels[**index] >= 0.5)
-        .count();
-    passes as f64 / top_count as f64
+    let mut selected_passes = 0.0_f64;
+    let mut remaining = top_count;
+    let mut start = 0;
+
+    // Tied scores share the top-k boundary proportionally. A flat model therefore
+    // gets exactly the holdout-wide pass rate instead of a timestamp-order artefact.
+    while start < indices.len() && remaining > 0 {
+        let score = predictions[indices[start]];
+        let mut end = start + 1;
+        while end < indices.len() && predictions[indices[end]].total_cmp(&score).is_eq() {
+            end += 1;
+        }
+
+        let group_size = end - start;
+        let selected_from_group = remaining.min(group_size);
+        let group_passes = indices[start..end]
+            .iter()
+            .filter(|index| labels[**index] >= 0.5)
+            .count();
+        selected_passes +=
+            (selected_from_group as f64 / group_size as f64) * group_passes as f64;
+        remaining -= selected_from_group;
+        start = end;
+    }
+
+    selected_passes / top_count as f64
 }
 
 fn fit_booster(features: &[Vec<f64>], labels: &[f32], seed: i32) -> Result<Booster, String> {
@@ -1514,6 +1530,13 @@ mod tests {
         let predictions = [0.9, 0.8, 0.2, 0.4, 0.1];
         let labels = [0.0, 0.0, 1.0, 1.0, 1.0];
         assert_eq!(top_quintile_pass_rate(&predictions, &labels), 0.0);
+    }
+
+    #[test]
+    fn tied_scores_use_expected_top_quintile_rate() {
+        let predictions = [0.5, 0.5, 0.5, 0.5, 0.5];
+        let labels = [0.0, 0.0, 1.0, 1.0, 1.0];
+        assert!((top_quintile_pass_rate(&predictions, &labels) - 0.6).abs() < 1e-9);
     }
 
     #[test]
