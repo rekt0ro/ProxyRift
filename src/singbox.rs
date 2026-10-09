@@ -1689,19 +1689,19 @@ async fn check_batch_targets(
                 policy.sustained_stream_segments,
                 policy.sustained_stream_max_idle,
             ) {
-                println!(
+                crate::emit_log_if!(!crate::compact_logs_enabled();
                     "[INFO] 🔎 [Stream] Target 1 | {primary_successes}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
-                println!(
+                crate::emit_log_if!(!crate::compact_logs_enabled();
                     "[INFO] 🔎 [Stream] Target 2 | {secondary_successes_count}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
             } else {
-                println!(
+                crate::emit_log_if!(!crate::compact_logs_enabled();
                     "[INFO] 🔎 [Transfer] Target 1 | {primary_successes}/{count} Responded | Min body: {minimum} bytes"
                 );
-                println!(
+                crate::emit_log_if!(!crate::compact_logs_enabled();
                     "[INFO] 🔎 [Transfer] Target 2 | {secondary_successes_count}/{count} Responded | Min body: {minimum} bytes"
                 );
             }
@@ -2189,7 +2189,7 @@ async fn validate_candidates_with_targets_policy(
         }
     }
 
-    println!(
+    crate::emit_log_if!(!crate::compact_logs_enabled();
         "[INFO] 🔬 [Sing-Box] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
@@ -2197,7 +2197,7 @@ async fn validate_candidates_with_targets_policy(
     );
 
     for (config, reason) in rejected.iter().take(8) {
-        println!(
+        crate::emit_log_if!(!crate::compact_logs_enabled();
             "[INFO] 🧹 [Sing-Box] Rejected | {} | {reason}",
             config_label(config)
         );
@@ -2241,7 +2241,7 @@ async fn validate_candidates_with_targets_policy(
         )
         .await?;
 
-        println!(
+        crate::emit_log_if!(!crate::compact_logs_enabled();
             "[INFO] ✅ [Sing-Box] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Destinations: {}",
             index + 1,
             total_batches,
@@ -2255,7 +2255,7 @@ async fn validate_candidates_with_targets_policy(
         metadata.extend(batch_metadata);
     }
 
-    println!(
+    crate::emit_log_if!(!crate::compact_logs_enabled();
         "[INFO] ✅ [Sing-Box] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Destinations: {}",
         metadata.len(),
         candidates.len(),
@@ -2292,7 +2292,7 @@ pub async fn validate_candidates_with_target(
         }
     }
 
-    println!(
+    crate::emit_log_if!(!crate::compact_logs_enabled();
         "[INFO] 🔬 [Sing-Box] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
@@ -2300,7 +2300,7 @@ pub async fn validate_candidates_with_target(
     );
 
     for (config, reason) in rejected.iter().take(8) {
-        println!(
+        crate::emit_log_if!(!crate::compact_logs_enabled();
             "[INFO] 🧹 [Sing-Box] Rejected | {} | {reason}",
             config_label(config)
         );
@@ -2327,7 +2327,7 @@ pub async fn validate_candidates_with_target(
         )
         .await?;
 
-        println!(
+        crate::emit_log_if!(!crate::compact_logs_enabled();
             "[INFO] ✅ [Sing-Box] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: 1",
             index + 1,
             total_batches,
@@ -2340,7 +2340,7 @@ pub async fn validate_candidates_with_target(
         metadata.extend(batch_metadata);
     }
 
-    println!(
+    crate::emit_log_if!(!crate::compact_logs_enabled();
         "[INFO] ✅ [Sing-Box] Complete | {}/{} Verified | Targets: 1 | Requirement: {}/{} | Latency ≤ {}ms",
         metadata.len(),
         candidates.len(),

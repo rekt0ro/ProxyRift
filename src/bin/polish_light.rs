@@ -1797,7 +1797,7 @@ async fn fill_transfer_stability_gate(
         stability_tested.extend(batch.iter().cloned());
 
         if completion_mode {
-            println!(
+            proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stability_tested.len(), batch.len(), 100, stable_selected.len() >= stability_target);
                 "[INFO] 🎯 [1 MiB] Completion mode | Stable: {} | Need: {} | Prioritizing {} highest-ranked untested candidates | Test caps: {}/{} endpoint/family | Tested: {}/{} | Pipeline: 10 MiB consuming concurrently",
                 stable_selected.len(),
                 stability_target.saturating_sub(stable_selected.len()),
@@ -1808,7 +1808,7 @@ async fn fill_transfer_stability_gate(
                 STABILITY_TRANSFER_TEST_LIMIT
             );
         } else {
-            println!(
+            proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stability_tested.len(), batch.len(), 100, stable_selected.len() >= stability_target);
                 "[INFO] 📥 [1 MiB] Stable pool: {}/{} | Testing {} candidates | Test caps: {}/{} endpoint/family | Tested: {}/{} | Pipeline: 10 MiB consuming concurrently",
                 stable_selected.len(),
                 stability_target,
@@ -1837,7 +1837,7 @@ async fn fill_transfer_stability_gate(
             let _ = stability_sender.send(passed_configs);
         }
 
-        println!(
+        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stability_tested.len(), batch.len(), 100, stability_verified.len() >= stability_target);
             "[INFO] ✅ [1 MiB] {}/{} Passed both transfer destinations | Batch: {}s | Stable pool: {} | Transfer pipeline: active",
             batch_passed,
             batch.len(),
@@ -1922,7 +1922,7 @@ async fn fill_stream_continuity_gate(
         }
 
         stream_tested.extend(batch.iter().cloned());
-        println!(
+        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stream_tested.len(), batch.len(), STREAM_CONTINUITY_BATCH_SIZE * 4, stream_tested.len() >= test_limit);
             "[INFO] 📥 [Stream] Continuity pool: {}/{} | Testing {} | Tested: {}/{}",
             stream_verified.len(),
             test_limit,
@@ -1942,7 +1942,7 @@ async fn fill_stream_continuity_gate(
         let batch_passed = metadata.len();
         stream_verified.extend(metadata);
 
-        println!(
+        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stream_tested.len(), batch.len(), STREAM_CONTINUITY_BATCH_SIZE * 4, stream_tested.len() >= test_limit);
             "[INFO] ✅ [Stream] {}/{} Passed continuity | Stream pool: {} | Batch: {}s",
             batch_passed,
             batch.len(),
@@ -2145,7 +2145,7 @@ async fn run_transfer_gate_consumer(
 
         target_tested_candidates[target_index].extend(batch.iter().cloned());
 
-        println!(
+        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 100, transfer_tested.len() >= dynamic_test_limit);
             "[INFO] 📥 [10 MiB] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {} | Pipeline: 1 MiB producer active",
             remaining,
             batch.len(),
@@ -2259,7 +2259,7 @@ async fn run_transfer_gate_consumer(
             );
         }
 
-        println!(
+        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 100, transfer_verified.len() >= transfer_target || (receiver_closed && pending.is_empty()));
             "[INFO] ✅ [10 MiB] {}/{} Passed in {}s | Total passed: {} | Validation slots remaining: {}",
             batch_passed,
             batch.len(),
