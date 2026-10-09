@@ -295,7 +295,7 @@ jobs:
         id: build_light
         env:
           LIGHT_MAX_CANDIDATES: "15000"
-          LIGHT_SELECTION_LIMIT: "200"
+          LIGHT_SELECTION_LIMIT: "130"
           LIGHT_MIN_PUBLISH: "50"
         run: |
           mkdir -p /tmp/proxyrift
@@ -851,7 +851,6 @@ jobs:
     name: "🧹 Cleanup Caches"
     needs: collect
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     permissions:
       actions: write
 

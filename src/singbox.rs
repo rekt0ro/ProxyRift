@@ -1,11 +1,12 @@
 use crate::validator::{
-    adaptive_batch_size, config_label, extend_rate_limit, healthy_targets, is_throughput_target,
-    rate_limit_wait, read_response_body_at_least, read_response_body_at_least_with_max_idle,
-    read_response_body_limited_to, response_limit_for_target, uses_udp_transport, ProxyMetrics,
-    ValidationPolicy, MIN_RESPONSE_BYTES, MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS,
-    PRIMARY_TARGET, STABILITY_ATTEMPTS, STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK,
-    STRICT_MIN_SUCCESSFUL_ATTEMPTS, STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS,
-    STRICT_STABILITY_ATTEMPTS, SUSTAINED_THROUGHPUT_TIMEOUT,
+    adaptive_batch_size, config_label, healthy_targets, is_throughput_target,
+    read_response_body_at_least, read_response_body_at_least_with_max_idle,
+    read_response_body_limited_to, record_target_rate_limit, response_limit_for_target,
+    uses_udp_transport, ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
+    MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS,
+    STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS,
+    STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
+    SUSTAINED_THROUGHPUT_TIMEOUT,
 };
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
@@ -1185,7 +1186,7 @@ async fn request_url(
     let response = request.send().await.map_err(|error| error.to_string())?;
 
     if response.status().as_u16() == 429 {
-        extend_rate_limit(rate_limit_wait(response.headers()));
+        record_target_rate_limit(url);
         return Err("target returned HTTP 429".to_string());
     }
 
@@ -1251,7 +1252,7 @@ async fn request_url_sustained(
     let response = request.send().await.map_err(|error| error.to_string())?;
 
     if response.status().as_u16() == 429 {
-        extend_rate_limit(rate_limit_wait(response.headers()));
+        record_target_rate_limit(url);
         return Err("target returned HTTP 429".to_string());
     }
 
@@ -1446,6 +1447,53 @@ async fn check_batch_targets(
                     return Err(error);
                 }
             }
+        }
+
+        if policy.target_pool_mode {
+            let pool_urls = targets
+                .iter()
+                .map(|target| Url::parse(target).map_err(|error| error.to_string()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let pooled = crate::validator::validate_clients_with_target_pool(
+                &clients, &pool_urls, workers, policy,
+            )
+            .await;
+
+            // Don't accept pooled results from a core that died during validation.
+            if child.try_wait().ok().flatten().is_some() {
+                core_failures += 1;
+                if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
+                    let mid = batch_entries.len() / 2;
+                    pending.push(batch_entries[..mid].to_vec());
+                    pending.push(batch_entries[mid..].to_vec());
+                } else {
+                    println!(
+                        "[WARN] ⚠️ [Sing-Box] Core exited during pooled validation | {}",
+                        config_label(&batch_entries[0].0)
+                    );
+                }
+
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = fs::remove_dir_all(&work);
+                if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
+                    println!(
+                        "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
+                    );
+                    break;
+                }
+                continue;
+            }
+
+            for (index, metrics) in pooled.into_iter().enumerate() {
+                if let Some(metrics) = metrics {
+                    verified.insert(batch_entries[index].0.clone(), metrics);
+                }
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_dir_all(&work);
+            continue;
         }
 
         let count = batch_entries.len();
@@ -1913,6 +1961,25 @@ pub async fn validate_candidates_with_target_once(
     .await
 }
 
+pub async fn validate_candidates_with_target_pool_once(
+    binary: &str,
+    candidates: &[String],
+    target: &str,
+    workers: usize,
+    request_timeout: Duration,
+    max_latency_ms: f64,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    validate_candidates_with_targets_policy(
+        binary,
+        candidates,
+        &[target],
+        workers,
+        request_timeout,
+        ValidationPolicy::new(max_latency_ms, 1, 1, 1).with_target_pool(),
+    )
+    .await
+}
+
 pub async fn validate_candidates_with_targets_once(
     binary: &str,
     candidates: &[String],
@@ -1956,6 +2023,34 @@ pub async fn validate_candidates_with_targets_once_with_minimum_body(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub async fn validate_candidates_with_target_pool_once_with_minimum_body(
+    binary: &str,
+    candidates: &[String],
+    targets: &[&str],
+    workers: usize,
+    request_timeout: Duration,
+    max_latency_ms: f64,
+    minimum_body_bytes: usize,
+    minimum_successful_targets: usize,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    if minimum_successful_targets == 0 || minimum_successful_targets > targets.len() {
+        return Err("target-pool minimum must be between 1 and the number of targets".to_string());
+    }
+
+    validate_candidates_with_targets_policy(
+        binary,
+        candidates,
+        targets,
+        workers,
+        request_timeout,
+        ValidationPolicy::new(max_latency_ms, 1, 1, minimum_successful_targets)
+            .with_minimum_body_bytes(minimum_body_bytes)
+            .with_target_pool(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn validate_candidates_with_targets_once_with_sustained_stream(
     binary: &str,
     candidates: &[String],
@@ -1979,6 +2074,36 @@ pub async fn validate_candidates_with_targets_once_with_sustained_stream(
             minimum_body_bytes,
             max_idle_gap,
         ),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn validate_candidates_with_target_pool_once_with_sustained_stream(
+    binary: &str,
+    candidates: &[String],
+    targets: &[&str],
+    workers: usize,
+    request_timeout: Duration,
+    max_latency_ms: f64,
+    segments: usize,
+    minimum_body_bytes: usize,
+    max_idle_gap: Duration,
+    minimum_successful_targets: usize,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    if minimum_successful_targets == 0 || minimum_successful_targets > targets.len() {
+        return Err("target-pool minimum must be between 1 and the number of targets".to_string());
+    }
+
+    validate_candidates_with_targets_policy(
+        binary,
+        candidates,
+        targets,
+        workers,
+        request_timeout,
+        ValidationPolicy::new(max_latency_ms, 1, 1, minimum_successful_targets)
+            .with_sustained_stream(segments, minimum_body_bytes, max_idle_gap)
+            .with_target_pool(),
     )
     .await
 }
@@ -2086,7 +2211,15 @@ async fn validate_candidates_with_targets_policy(
         .iter()
         .map(|target| Url::parse(target).map_err(|error| error.to_string()))
         .collect::<Result<Vec<_>, _>>()?;
-    let parsed_targets = healthy_targets(&parsed_targets, MIN_SUCCESSFUL_TARGETS).await;
+    let parsed_targets = healthy_targets(&parsed_targets, policy.min_successful_targets).await;
+    if parsed_targets.len() < policy.min_successful_targets {
+        println!(
+            "[WARN] ⚠️ [Targets] Not enough non-throttled targets | Available: {} | Required: {} | Skipping Sing-box batch",
+            parsed_targets.len(),
+            policy.min_successful_targets
+        );
+        return Ok(HashMap::new());
+    }
     let target_values = parsed_targets
         .iter()
         .map(|target| target.to_string())

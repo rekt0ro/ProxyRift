@@ -9,6 +9,7 @@ use std::fs::{self, File};
 use std::net::IpAddr;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout};
@@ -22,10 +23,8 @@ pub const STRICT_THROUGHPUT_TARGETS: &[&str] = &[
     "https://cdn.truefilesize.com/test/test-10mb.bin",
     "http://speedtest.tele2.net/10MB.zip",
 ];
-pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
-    STRICT_THROUGHPUT_TARGET,
-    "https://cdn.truefilesize.com/test/test-10mb.bin",
-];
+pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = STRICT_THROUGHPUT_TARGETS;
+pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 2;
 pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
     PRIMARY_TARGET,
     "https://example.com/",
@@ -63,8 +62,112 @@ pub const RATE_LIMIT_MIN_WAIT: Duration = Duration::from_secs(1);
 pub const RATE_LIMIT_MAX_WAIT: Duration = Duration::from_secs(300);
 const RATE_LIMIT_JITTER_BASE_MS: u64 = 150;
 const RATE_LIMIT_JITTER_STEP_MS: u64 = 100;
+const TARGET_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(30);
+const TARGET_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(5 * 60);
+const TARGET_RATE_LIMIT_THRESHOLD: u8 = 3;
+const TARGET_POOL_PROBE_CHUNK_SIZE: usize = 8;
+const TARGET_POOL_MAX_PROBE_CHUNK_SIZE: usize = 32;
+
+fn next_target_pool_probe_chunk_size(current: usize, maximum: usize, rate_limits: u64) -> usize {
+    let maximum = maximum.max(1);
+    if rate_limits > 0 {
+        TARGET_POOL_PROBE_CHUNK_SIZE.min(maximum)
+    } else {
+        current.max(1).saturating_mul(2).min(maximum)
+    }
+}
 
 static RATE_LIMIT_EVENTS: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Default)]
+struct TargetRateLimitState {
+    total_events: u64,
+    recent_events: u8,
+    last_event: Option<Instant>,
+    cooldown_until: Option<Instant>,
+}
+
+static TARGET_RATE_LIMIT_STATES: OnceLock<Mutex<HashMap<String, TargetRateLimitState>>> =
+    OnceLock::new();
+
+fn target_rate_limit_key(target: &str) -> Option<String> {
+    Url::parse(target)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+}
+
+pub(crate) fn record_target_rate_limit(target: &str) {
+    RATE_LIMIT_EVENTS.fetch_add(1, Ordering::AcqRel);
+    let Some(key) = target_rate_limit_key(target) else {
+        return;
+    };
+    let now = Instant::now();
+    let states = TARGET_RATE_LIMIT_STATES.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut states = states
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let state = states.entry(key.clone()).or_default();
+    state.total_events = state.total_events.saturating_add(1);
+    state.recent_events = match state.last_event {
+        Some(last) if now.duration_since(last) <= TARGET_RATE_LIMIT_WINDOW => {
+            state.recent_events.saturating_add(1)
+        }
+        _ => 1,
+    };
+    state.last_event = Some(now);
+
+    let cooldown_was_open = state.cooldown_until.is_some_and(|until| until > now);
+    if state.recent_events >= TARGET_RATE_LIMIT_THRESHOLD {
+        state.cooldown_until = Some(now + TARGET_RATE_LIMIT_COOLDOWN);
+        if !cooldown_was_open {
+            println!(
+                "[WARN] ⚠️ [Targets] Rate-limit circuit opened | Host: {key} | Cooling down for {}s",
+                TARGET_RATE_LIMIT_COOLDOWN.as_secs()
+            );
+        }
+    }
+}
+
+pub fn target_is_rate_limited(target: &str) -> bool {
+    let Some(key) = target_rate_limit_key(target) else {
+        return false;
+    };
+    let Some(states) = TARGET_RATE_LIMIT_STATES.get() else {
+        return false;
+    };
+    let mut states = states
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(state) = states.get_mut(&key) else {
+        return false;
+    };
+    match state.cooldown_until {
+        Some(until) if until > Instant::now() => true,
+        Some(_) => {
+            state.cooldown_until = None;
+            state.recent_events = 0;
+            state.last_event = None;
+            false
+        }
+        None => false,
+    }
+}
+
+pub fn target_rate_limit_events(target: &str) -> u64 {
+    let Some(key) = target_rate_limit_key(target) else {
+        return 0;
+    };
+    let Some(states) = TARGET_RATE_LIMIT_STATES.get() else {
+        return 0;
+    };
+    let states = states
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    states
+        .get(&key)
+        .map(|state| state.total_events)
+        .unwrap_or(0)
+}
 
 #[derive(Clone, Debug)]
 pub struct ProxyMetrics {
@@ -88,6 +191,7 @@ pub(crate) struct ValidationPolicy {
     pub(crate) secondary_attempts: usize,
     pub(crate) secondary_min_successful_attempts: usize,
     pub(crate) fresh_connections_each_request: bool,
+    pub(crate) target_pool_mode: bool,
 }
 
 impl ValidationPolicy {
@@ -108,6 +212,7 @@ impl ValidationPolicy {
             secondary_attempts: STRICT_SECONDARY_ATTEMPTS,
             secondary_min_successful_attempts: STRICT_SECONDARY_MIN_SUCCESSFUL_ATTEMPTS,
             fresh_connections_each_request: false,
+            target_pool_mode: false,
         }
     }
 
@@ -123,11 +228,17 @@ impl ValidationPolicy {
             secondary_attempts: 1,
             secondary_min_successful_attempts: 1,
             fresh_connections_each_request: true,
+            target_pool_mode: false,
         }
     }
 
     pub(crate) const fn with_minimum_body_bytes(mut self, minimum_body_bytes: usize) -> Self {
         self.minimum_body_bytes = Some(minimum_body_bytes);
+        self
+    }
+
+    pub(crate) const fn with_target_pool(mut self) -> Self {
+        self.target_pool_mode = true;
         self
     }
 
@@ -190,6 +301,8 @@ pub(crate) fn throughput_kbps(values: &[f64]) -> f64 {
 #[derive(Debug)]
 enum ProbeError {
     Failed,
+    RateLimited,
+    TargetCoolingDown,
 }
 
 fn clean(url: &str) -> &str {
@@ -2473,10 +2586,6 @@ pub(crate) fn rate_limit_wait(headers: &reqwest::header::HeaderMap) -> Duration 
         .min(RATE_LIMIT_MAX_WAIT)
 }
 
-pub(crate) fn extend_rate_limit(_wait: Duration) {
-    RATE_LIMIT_EVENTS.fetch_add(1, Ordering::AcqRel);
-}
-
 pub fn rate_limit_events() -> u64 {
     RATE_LIMIT_EVENTS.load(Ordering::Acquire)
 }
@@ -2624,6 +2733,19 @@ async fn probe_request_with_minimum(
     url: Url,
     minimum_body_bytes: Option<usize>,
 ) -> Result<ProbeSample, ProbeError> {
+    probe_request_with_minimum_mode(client, url, minimum_body_bytes, false).await
+}
+
+async fn probe_request_with_minimum_mode(
+    client: &Client,
+    url: Url,
+    minimum_body_bytes: Option<usize>,
+    target_pool_mode: bool,
+) -> Result<ProbeSample, ProbeError> {
+    if target_pool_mode && target_is_rate_limited(url.as_str()) {
+        return Err(ProbeError::TargetCoolingDown);
+    }
+
     let started = Instant::now();
     let response_limit =
         minimum_body_bytes.unwrap_or_else(|| response_limit_for_target(url.as_str()));
@@ -2635,13 +2757,16 @@ async fn probe_request_with_minimum(
 
     if response.status().as_u16() == 429 {
         let wait = rate_limit_wait(response.headers());
-        let event = RATE_LIMIT_EVENTS.fetch_add(1, Ordering::AcqRel);
-        let jitter_ms = RATE_LIMIT_JITTER_BASE_MS + (event % 8) * RATE_LIMIT_JITTER_STEP_MS;
-        let delay = wait
-            .min(Duration::from_secs(2))
-            .max(Duration::from_millis(jitter_ms));
-        sleep(delay).await;
-        return Err(ProbeError::Failed);
+        record_target_rate_limit(url.as_str());
+        if !target_pool_mode {
+            let event = RATE_LIMIT_EVENTS.load(Ordering::Acquire);
+            let jitter_ms = RATE_LIMIT_JITTER_BASE_MS + (event % 8) * RATE_LIMIT_JITTER_STEP_MS;
+            let delay = wait
+                .min(Duration::from_secs(2))
+                .max(Duration::from_millis(jitter_ms));
+            sleep(delay).await;
+        }
+        return Err(ProbeError::RateLimited);
     }
 
     if !response.status().is_success() || !valid_probe_status(&url, response.status().as_u16()) {
@@ -2693,6 +2818,29 @@ async fn probe_request_sustained(
     minimum_body_bytes: usize,
     max_idle_gap: Duration,
 ) -> Result<ProbeSample, ProbeError> {
+    probe_request_sustained_mode(
+        client,
+        url,
+        segments,
+        minimum_body_bytes,
+        max_idle_gap,
+        false,
+    )
+    .await
+}
+
+async fn probe_request_sustained_mode(
+    client: &Client,
+    url: Url,
+    segments: usize,
+    minimum_body_bytes: usize,
+    max_idle_gap: Duration,
+    target_pool_mode: bool,
+) -> Result<ProbeSample, ProbeError> {
+    if target_pool_mode && target_is_rate_limited(url.as_str()) {
+        return Err(ProbeError::TargetCoolingDown);
+    }
+
     let started = Instant::now();
     let required_bytes = segments.max(1).saturating_mul(minimum_body_bytes);
 
@@ -2702,13 +2850,16 @@ async fn probe_request_sustained(
 
     if response.status().as_u16() == 429 {
         let wait = rate_limit_wait(response.headers());
-        let event = RATE_LIMIT_EVENTS.fetch_add(1, Ordering::AcqRel);
-        let jitter_ms = RATE_LIMIT_JITTER_BASE_MS + (event % 8) * RATE_LIMIT_JITTER_STEP_MS;
-        let delay = wait
-            .min(Duration::from_secs(2))
-            .max(Duration::from_millis(jitter_ms));
-        sleep(delay).await;
-        return Err(ProbeError::Failed);
+        record_target_rate_limit(url.as_str());
+        if !target_pool_mode {
+            let event = RATE_LIMIT_EVENTS.load(Ordering::Acquire);
+            let jitter_ms = RATE_LIMIT_JITTER_BASE_MS + (event % 8) * RATE_LIMIT_JITTER_STEP_MS;
+            let delay = wait
+                .min(Duration::from_secs(2))
+                .max(Duration::from_millis(jitter_ms));
+            sleep(delay).await;
+        }
+        return Err(ProbeError::RateLimited);
     }
 
     if !response.status().is_success() || !valid_probe_status(&url, response.status().as_u16()) {
@@ -2736,10 +2887,155 @@ async fn probe_request_with_validation_policy(
         policy.minimum_body_bytes,
     ) {
         (Some(segments), Some(max_idle_gap), Some(minimum_body_bytes)) if segments > 1 => {
-            probe_request_sustained(client, url, segments, minimum_body_bytes, max_idle_gap).await
+            if policy.target_pool_mode {
+                probe_request_sustained_mode(
+                    client,
+                    url,
+                    segments,
+                    minimum_body_bytes,
+                    max_idle_gap,
+                    true,
+                )
+                .await
+            } else {
+                probe_request_sustained(client, url, segments, minimum_body_bytes, max_idle_gap)
+                    .await
+            }
         }
-        _ => probe_request_with_minimum(client, url, policy.minimum_body_bytes).await,
+        _ => {
+            if policy.target_pool_mode {
+                probe_request_with_minimum_mode(client, url, policy.minimum_body_bytes, true).await
+            } else {
+                probe_request_with_minimum(client, url, policy.minimum_body_bytes).await
+            }
+        }
     }
+}
+
+pub(crate) async fn validate_clients_with_target_pool(
+    clients: &[Client],
+    targets: &[Url],
+    workers: usize,
+    policy: ValidationPolicy,
+) -> Vec<Option<ProxyMetrics>> {
+    let count = clients.len();
+    let minimum_targets = policy.min_successful_targets.max(1);
+    let mut successful_targets = vec![0usize; count];
+    let mut attempts = vec![0usize; count];
+    let mut latencies = vec![Vec::<f64>::new(); count];
+    let mut throughputs = vec![Vec::<f64>::new(); count];
+
+    for target in targets {
+        if successful_targets
+            .iter()
+            .all(|successes| *successes >= minimum_targets)
+        {
+            break;
+        }
+        if target_is_rate_limited(target.as_str()) {
+            println!(
+                "[INFO] ⏭️ [Targets] Switching away from cooling-down host | {}",
+                target.host_str().unwrap_or(target.as_str())
+            );
+            continue;
+        }
+
+        let eligible = (0..count)
+            .filter(|&index| successful_targets[index] < minimum_targets)
+            .collect::<Vec<_>>();
+        let mut target_throttled = false;
+
+        let maximum_chunk_size = workers.clamp(1, TARGET_POOL_MAX_PROBE_CHUNK_SIZE);
+        let mut chunk_size = TARGET_POOL_PROBE_CHUNK_SIZE.min(maximum_chunk_size);
+        let mut offset = 0usize;
+        while offset < eligible.len() {
+            if target_is_rate_limited(target.as_str()) {
+                target_throttled = true;
+                break;
+            }
+
+            let end = offset.saturating_add(chunk_size).min(eligible.len());
+            let chunk = &eligible[offset..end];
+            let rate_limits_before = target_rate_limit_events(target.as_str());
+            let results = stream::iter(chunk.iter().copied())
+                .map(|index| {
+                    let client = &clients[index];
+                    let target = target.clone();
+                    async move {
+                        (
+                            index,
+                            probe_request_with_validation_policy(client, target, policy).await,
+                        )
+                    }
+                })
+                .buffer_unordered(workers.max(1).min(chunk.len().max(1)))
+                .collect::<Vec<_>>()
+                .await;
+
+            for (index, result) in results {
+                attempts[index] = attempts[index].saturating_add(1);
+                if let Ok(sample) = result {
+                    if sample.latency_ms <= policy.max_latency_ms {
+                        successful_targets[index] = successful_targets[index].saturating_add(1);
+                        latencies[index].push(sample.latency_ms);
+                        if sample.latency_ms > 0.0 && is_throughput_target(target.as_str()) {
+                            throughputs[index].push(sample.bytes as f64 * 8.0 / sample.latency_ms);
+                        }
+                    }
+                }
+            }
+
+            let rate_limits_in_chunk =
+                target_rate_limit_events(target.as_str()).saturating_sub(rate_limits_before);
+            offset = end;
+            if target_is_rate_limited(target.as_str()) {
+                target_throttled = true;
+                break;
+            }
+            chunk_size = next_target_pool_probe_chunk_size(
+                chunk_size,
+                maximum_chunk_size,
+                rate_limits_in_chunk,
+            );
+        }
+
+        if target_throttled {
+            println!(
+                "[WARN] 🔁 [Targets] Switching to an alternate download host | {}",
+                target.host_str().unwrap_or(target.as_str())
+            );
+        }
+    }
+
+    (0..count)
+        .map(|index| {
+            if successful_targets[index] < minimum_targets
+                || successful_targets[index] < policy.min_successful_attempts
+                || latencies[index].is_empty()
+                || latencies[index].iter().copied().fold(0.0, f64::max) > policy.max_latency_ms
+            {
+                return None;
+            }
+
+            let mut values = std::mem::take(&mut latencies[index]);
+            values.sort_by(f64::total_cmp);
+            let right = values.len() / 2;
+            let median = if values.len() % 2 == 1 {
+                values[right]
+            } else {
+                (values[right - 1] + values[right]) / 2.0
+            };
+
+            Some(ProxyMetrics {
+                successes: successful_targets[index],
+                attempts: attempts[index],
+                median_ms: median,
+                min_ms: values[0],
+                jitter_ms: latency_jitter(&values),
+                throughput_kbps: throughput_kbps(&throughputs[index]),
+            })
+        })
+        .collect()
 }
 
 async fn functional_attempt(
@@ -2944,7 +3240,11 @@ async fn check_batch(
                                 .push(sample.bytes as f64 * 8.0 / sample.latency_ms);
                         }
                     }
-                    Err(ProbeError::Failed) => {}
+                    Err(
+                        ProbeError::Failed
+                        | ProbeError::RateLimited
+                        | ProbeError::TargetCoolingDown,
+                    ) => {}
                 }
             }
         }
@@ -3012,6 +3312,34 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
         return Vec::new();
     }
 
+    let available = targets
+        .iter()
+        .filter(|target| {
+            let cooling = target_is_rate_limited(target.as_str());
+            if cooling {
+                println!(
+                    "[INFO] ⏭️ [Targets] Skipping cooling-down host | {}",
+                    target.host_str().unwrap_or(target.as_str())
+                );
+            }
+            !cooling
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if available.is_empty() {
+        return available;
+    }
+
+    if available.len() < minimum {
+        println!(
+            "[WARN] ⚠️ [Targets] Rate limits leave too few alternate hosts | Available: {} | Required: {}",
+            available.len(),
+            minimum
+        );
+        return available;
+    }
+
     let client = match Client::builder()
         .timeout(TARGET_HEALTH_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
@@ -3019,21 +3347,27 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
         .build()
     {
         Ok(client) => client,
-        Err(_) => return targets.to_vec(),
+        Err(_) => return available,
     };
 
-    let checks = stream::iter(targets.iter().cloned())
+    let checks = stream::iter(available.iter().cloned())
         .map(|target| {
             let client = client.clone();
             async move {
                 let healthy = match client.get(target.as_str()).send().await {
-                    Ok(response) => target_status_is_healthy(response.status().as_u16()),
+                    Ok(response) => {
+                        let status = response.status().as_u16();
+                        if status == 429 {
+                            record_target_rate_limit(target.as_str());
+                        }
+                        target_status_is_healthy(status)
+                    }
                     Err(_) => false,
                 };
                 (target, healthy)
             }
         })
-        .buffer_unordered(targets.len().clamp(1, 8))
+        .buffer_unordered(available.len().clamp(1, 8))
         .collect::<Vec<_>>()
         .await;
 
@@ -3043,13 +3377,13 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
         .collect::<HashSet<_>>();
 
     if healthy.len() >= minimum {
-        targets
+        available
             .iter()
             .filter(|target| healthy.contains(*target))
             .cloned()
             .collect()
     } else {
-        targets.to_vec()
+        available
     }
 }
 
@@ -3095,6 +3429,27 @@ pub async fn validate_candidates_with_target_once(
         batch_size,
         timeout_seconds,
         ValidationPolicy::new(max_latency_ms, 1, 1, 1),
+    )
+    .await
+}
+
+pub async fn validate_candidates_with_target_pool_once(
+    binary: &str,
+    candidates: &[String],
+    target: &str,
+    workers: usize,
+    batch_size: usize,
+    timeout_seconds: f64,
+    max_latency_ms: f64,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    validate_candidates_targets_inner(
+        binary,
+        candidates,
+        &[target],
+        workers,
+        batch_size,
+        timeout_seconds,
+        ValidationPolicy::new(max_latency_ms, 1, 1, 1).with_target_pool(),
     )
     .await
 }
@@ -3147,6 +3502,36 @@ pub async fn validate_candidates_with_targets_once_with_minimum_body(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub async fn validate_candidates_with_target_pool_once_with_minimum_body(
+    binary: &str,
+    candidates: &[String],
+    targets: &[&str],
+    workers: usize,
+    batch_size: usize,
+    timeout_seconds: f64,
+    max_latency_ms: f64,
+    minimum_body_bytes: usize,
+    minimum_successful_targets: usize,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    if minimum_successful_targets == 0 || minimum_successful_targets > targets.len() {
+        return Err("target-pool minimum must be between 1 and the number of targets".to_string());
+    }
+
+    validate_candidates_targets_inner(
+        binary,
+        candidates,
+        targets,
+        workers,
+        batch_size,
+        timeout_seconds,
+        ValidationPolicy::new(max_latency_ms, 1, 1, minimum_successful_targets)
+            .with_minimum_body_bytes(minimum_body_bytes)
+            .with_target_pool(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn validate_candidates_with_targets_once_with_sustained_stream(
     binary: &str,
     candidates: &[String],
@@ -3172,6 +3557,38 @@ pub async fn validate_candidates_with_targets_once_with_sustained_stream(
             minimum_body_bytes,
             max_idle_gap,
         ),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn validate_candidates_with_target_pool_once_with_sustained_stream(
+    binary: &str,
+    candidates: &[String],
+    targets: &[&str],
+    workers: usize,
+    batch_size: usize,
+    timeout_seconds: f64,
+    max_latency_ms: f64,
+    segments: usize,
+    minimum_body_bytes: usize,
+    max_idle_gap: Duration,
+    minimum_successful_targets: usize,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    if minimum_successful_targets == 0 || minimum_successful_targets > targets.len() {
+        return Err("target-pool minimum must be between 1 and the number of targets".to_string());
+    }
+
+    validate_candidates_targets_inner(
+        binary,
+        candidates,
+        targets,
+        workers,
+        batch_size,
+        timeout_seconds,
+        ValidationPolicy::new(max_latency_ms, 1, 1, minimum_successful_targets)
+            .with_sustained_stream(segments, minimum_body_bytes, max_idle_gap)
+            .with_target_pool(),
     )
     .await
 }
@@ -3292,10 +3709,18 @@ async fn validate_candidates_targets_inner(
     targets = healthy_targets(&targets, policy.min_successful_targets).await;
     if targets.len() != original_target_count {
         println!(
-            "[INFO] 🔎 [Targets] Health | {}/{} Usable",
+            "[INFO] 🔎 [Targets] Health/Circuit Breaker | {}/{} Usable",
             targets.len(),
             original_target_count
         );
+    }
+    if targets.len() < policy.min_successful_targets {
+        println!(
+            "[WARN] ⚠️ [Targets] Not enough non-throttled targets | Available: {} | Required: {} | Skipping this batch",
+            targets.len(),
+            policy.min_successful_targets
+        );
+        return Ok(HashMap::new());
     }
 
     let (parsed, mut rejected) = unique_parsed(candidates);
@@ -3489,6 +3914,48 @@ async fn check_batch_targets(
             }
         }
 
+        if policy.target_pool_mode {
+            let pooled =
+                validate_clients_with_target_pool(&clients, targets, workers, policy).await;
+
+            // A core crash invalidates this batch's results, just as it does in the
+            // non-pooled path. Split the batch so one bad config cannot poison others.
+            if child.try_wait().ok().flatten().is_some() {
+                core_failures += 1;
+                if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
+                    let mid = batch_entries.len() / 2;
+                    pending_batches.push(batch_entries[..mid].to_vec());
+                    pending_batches.push(batch_entries[mid..].to_vec());
+                } else {
+                    println!(
+                        "[WARN] ⚠️ [Xray] Core exited during pooled validation | {}",
+                        config_label(&batch_entries[0].0)
+                    );
+                }
+
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = fs::remove_dir_all(&work);
+                if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
+                    println!(
+                        "[WARN] ⚠️ [Xray] Core failure budget exhausted | Stopping further batch splits"
+                    );
+                    break;
+                }
+                continue;
+            }
+
+            for (index, metrics) in pooled.into_iter().enumerate() {
+                if let Some(metrics) = metrics {
+                    combined.insert(batch_entries[index].0.clone(), metrics);
+                }
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_dir_all(&work);
+            continue;
+        }
+
         let count = batch_entries.len();
         let mut successes = vec![0usize; count];
         let mut attempts = vec![0usize; count];
@@ -3547,7 +4014,11 @@ async fn check_batch_targets(
                                 .push(sample.bytes as f64 * 8.0 / sample.latency_ms);
                         }
                     }
-                    Err(ProbeError::Failed) => late_streak[entry_index] = 0,
+                    Err(
+                        ProbeError::Failed
+                        | ProbeError::RateLimited
+                        | ProbeError::TargetCoolingDown,
+                    ) => late_streak[entry_index] = 0,
                 }
             }
 
@@ -4045,6 +4516,36 @@ mod tests {
         assert!(!target_status_is_healthy(429));
         assert!(!target_status_is_healthy(500));
         assert!(!target_status_is_healthy(404));
+    }
+
+    #[test]
+    fn target_pool_chunk_size_ramps_on_clean_chunks_and_resets_after_rate_limits() {
+        assert_eq!(next_target_pool_probe_chunk_size(8, 32, 0), 16);
+        assert_eq!(next_target_pool_probe_chunk_size(16, 32, 0), 32);
+        assert_eq!(next_target_pool_probe_chunk_size(32, 32, 0), 32);
+        assert_eq!(next_target_pool_probe_chunk_size(32, 32, 1), 8);
+        assert_eq!(next_target_pool_probe_chunk_size(4, 4, 1), 4);
+    }
+
+    #[test]
+    fn target_rate_limit_circuit_is_host_specific_and_opens_after_a_burst() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after the Unix epoch")
+            .as_nanos();
+        let target = format!("https://rate-limit-circuit-{suffix}.invalid/10mb.bin");
+        let unrelated = "https://unrelated-rate-limit-circuit.invalid/10mb.bin";
+
+        assert!(!target_is_rate_limited(&target));
+        record_target_rate_limit(&target);
+        assert!(!target_is_rate_limited(&target));
+        record_target_rate_limit(&target);
+        assert!(!target_is_rate_limited(&target));
+        record_target_rate_limit(&target);
+
+        assert!(target_is_rate_limited(&target));
+        assert_eq!(target_rate_limit_events(&target), 3);
+        assert!(!target_is_rate_limited(unrelated));
     }
 
     #[test]
