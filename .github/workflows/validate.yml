@@ -61,7 +61,7 @@ jobs:
             ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-
 
       - name: Shell syntax check
-        run: bash -n scripts/*.sh scripts/update/*.sh
+        run: for script in scripts/*.sh scripts/update/*.sh; do bash -n "$script" || exit 1; done
 
       - name: Install native LightGBM runtime
         env:
