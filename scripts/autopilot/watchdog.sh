@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
 repo="$GH_REPOSITORY"
@@ -27,7 +28,7 @@ validate_published_outputs() {
   local base="https://raw.githubusercontent.com/$repo/main/subscriptions"
   local tmp
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
+  trap 'rm -rf "$tmp"' EXIT
 
   local files=(
     all.txt light.txt
