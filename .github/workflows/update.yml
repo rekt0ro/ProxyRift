@@ -21,8 +21,8 @@ jobs:
   collect:
     name: "🔎 Collect & Validate"
     runs-on: ubuntu-latest
-    # Bound the main pipeline so timeouts leave room for final cache cleanup.
-    timeout-minutes: 27
+    # Preserve a 30-minute nominal workflow budget while leaving more room for collection.
+    timeout-minutes: 29
     permissions:
       actions: read
       contents: write
@@ -853,8 +853,8 @@ jobs:
     name: "🧹 Cleanup Caches"
     needs: collect
     runs-on: ubuntu-latest
-    # Together with the 27-minute collection job, keep the workflow at 30 minutes max.
-    timeout-minutes: 3
+    # Cache cleanup normally completes in seconds; keep a bounded 1-minute allowance.
+    timeout-minutes: 1
     permissions:
       actions: write
 
