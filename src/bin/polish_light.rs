@@ -63,15 +63,10 @@ const STABILITY_TRANSFER_WORKERS: usize = 16;
 const STABILITY_TEST_MAX_PER_ENDPOINT: usize = 2;
 const STABILITY_TEST_MAX_PER_FAMILY: usize = 6;
 const STABILITY_TRANSFER_MAX_LATENCY_MS: f64 = 15000.0;
-const STABILITY_TRANSFER_MAX_ELAPSED_SECS: u64 = 7 * 60;
 const STABILITY_TARGET_SAFETY_FACTOR: f64 = 1.15;
 const STABILITY_TARGET_MIN_RESERVE: usize = 24;
 const STABILITY_COMPLETION_GRACE_REMAINING: usize = 24;
-const STABILITY_COMPLETION_GRACE_SECS: u64 = 90;
 const STABILITY_COMPLETION_BATCH_SIZE: usize = 8;
-const FINAL_TRANSFER_MAX_ELAPSED_SECS: u64 = 8 * 60;
-const FINAL_TRANSFER_COMPLETION_GRACE_SECS: u64 = 3 * 60;
-const FINAL_TRANSFER_COMPLETION_GRACE_REMAINING: usize = 32;
 const STREAM_CONTINUITY_TEST_LIMIT: usize = 240;
 const STREAM_CONTINUITY_RESERVE_PERCENT: usize = 5;
 const STREAM_CONTINUITY_RESERVE_MAX: usize = 16;
@@ -81,7 +76,6 @@ const STREAM_START_TRANSFER_THRESHOLD: usize = 96;
 const STREAM_CONTINUITY_SEGMENTS: usize = 3;
 const STREAM_CONTINUITY_SEGMENT_BYTES: usize = 1_048_576;
 const STREAM_CONTINUITY_MAX_IDLE_SECS: u64 = 4;
-const STREAM_CONTINUITY_MAX_ELAPSED_SECS: u64 = 5 * 60;
 const FINAL_TRANSFER_TIMEOUT_SECS: f64 = 15.0;
 const FINAL_TRANSFER_LATENCY_LIMIT_MS: f64 = 15000.0;
 const HISTORY_MAX_ENTRIES: usize = 10000;
@@ -1584,6 +1578,16 @@ fn adjust_transfer_workers(
     }
 }
 
+const FINAL_TRANSFER_TARGET_PROBE_SIZE: usize = 12;
+
+fn transfer_target_batch_limit(state: &TransferTargetState, requested: usize) -> usize {
+    if state.batches == 0 {
+        requested.min(FINAL_TRANSFER_TARGET_PROBE_SIZE)
+    } else {
+        requested
+    }
+}
+
 fn adaptive_stability_pool_target(
     selection_limit: usize,
     stability_tested: usize,
@@ -1638,8 +1642,6 @@ async fn fill_transfer_stability_gate(
     max_per_endpoint: usize,
     max_per_family: usize,
 ) -> Result<(usize, HashMap<String, ProxyMetrics>, HashSet<String>), String> {
-    let stability_started = Instant::now();
-
     if !stability_verified.is_empty() {
         let initial = stability_verified.keys().cloned().collect::<Vec<_>>();
         if !initial.is_empty() {
@@ -1697,24 +1699,6 @@ async fn fill_transfer_stability_gate(
                 .len()
                 .saturating_add(STABILITY_COMPLETION_GRACE_REMAINING)
                 >= stability_target;
-        let completion_grace = if completion_mode {
-            STABILITY_COMPLETION_GRACE_SECS
-        } else {
-            0
-        };
-        let elapsed_limit = STABILITY_TRANSFER_MAX_ELAPSED_SECS.saturating_add(completion_grace);
-
-        if stability_started.elapsed().as_secs() >= elapsed_limit {
-            println!(
-                "[INFO] ⏱️ [1 MiB] Stability time budget reached | Stable: {} | Target: {} | Tested: {} | Grace: {}s",
-                stability_verified.len(),
-                stability_target,
-                stability_tested.len(),
-                completion_grace
-            );
-            break;
-        }
-
         let remaining_budget = STABILITY_TRANSFER_TEST_LIMIT.saturating_sub(stability_tested.len());
         let batch_limit = if completion_mode {
             remaining_budget.clamp(1, STABILITY_COMPLETION_BATCH_SIZE)
@@ -1803,20 +1787,9 @@ async fn fill_stream_continuity_gate(
         return Ok(0);
     }
 
-    let started = Instant::now();
     let test_limit = STREAM_CONTINUITY_TEST_LIMIT.min(transfer_verified.len());
 
     loop {
-        if started.elapsed().as_secs() >= STREAM_CONTINUITY_MAX_ELAPSED_SECS {
-            println!(
-                "[INFO] ⏱️ [Stream] Continuity time budget reached | Passed: {} | Tested: {} | Limit: {}",
-                stream_verified.len(),
-                stream_tested.len(),
-                test_limit
-            );
-            return Ok(stream_verified.len());
-        }
-
         if stream_tested.len() >= test_limit {
             println!(
                 "[INFO] 🎯 [Stream] Continuity test limit reached | Passed: {} | Tested: {} | Limit: {}",
@@ -1900,8 +1873,6 @@ async fn run_transfer_gate_consumer(
         vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     let mut pending = VecDeque::<String>::new();
     let mut receiver_closed = false;
-    let gate_started = Instant::now();
-
     loop {
         if transfer_done.load(Ordering::Relaxed) {
             break;
@@ -1928,46 +1899,14 @@ async fn run_transfer_gate_consumer(
         }
 
         let remaining = transfer_target.saturating_sub(selected.len());
-        let completion_grace = if remaining <= FINAL_TRANSFER_COMPLETION_GRACE_REMAINING {
-            FINAL_TRANSFER_COMPLETION_GRACE_SECS
-        } else {
-            0
-        };
-        let elapsed_limit = FINAL_TRANSFER_MAX_ELAPSED_SECS.saturating_add(completion_grace);
-        if gate_started.elapsed().as_secs() >= elapsed_limit {
-            println!(
-                "[WARN] ⏱️ [10 MiB] Time budget reached | Tested: {} | Selectable: {} | Validation target: {} | Publish target: {} | Stopping best-effort gate",
-                transfer_tested.len(),
-                selected.len(),
-                transfer_target,
-                selection_limit
-            );
-            break;
-        }
-
         if pending.is_empty() {
             if receiver_closed {
                 break;
             }
 
-            let remaining_wait = std::time::Duration::from_secs(
-                elapsed_limit
-                    .saturating_sub(gate_started.elapsed().as_secs())
-                    .max(1),
-            );
-            match tokio::time::timeout(remaining_wait, stability_receiver.recv()).await {
-                Ok(Some(batch)) => pending.extend(batch),
-                Ok(None) => receiver_closed = true,
-                Err(_) => {
-                    println!(
-                        "[WARN] ⏱️ [10 MiB] Time budget reached while waiting for 1 MiB results | Tested: {} | Selectable: {} | Validation target: {} | Publish target: {}",
-                        transfer_tested.len(),
-                        selected.len(),
-                        transfer_target,
-                        selection_limit
-                    );
-                    break;
-                }
+            match stability_receiver.recv().await {
+                Some(batch) => pending.extend(batch),
+                None => receiver_closed = true,
             }
 
             if receiver_closed && pending.is_empty() {
@@ -1987,24 +1926,9 @@ async fn run_transfer_gate_consumer(
                 break;
             }
 
-            let remaining_wait = std::time::Duration::from_secs(
-                elapsed_limit
-                    .saturating_sub(gate_started.elapsed().as_secs())
-                    .max(1),
-            );
-            match tokio::time::timeout(remaining_wait, stability_receiver.recv()).await {
-                Ok(Some(batch)) => pending.extend(batch),
-                Ok(None) => receiver_closed = true,
-                Err(_) => {
-                    println!(
-                        "[WARN] ⏱️ [10 MiB] Adaptive test budget held while waiting for additional 1 MiB results | Tested: {} | Selectable: {} | Validation target: {} | Publish target: {}",
-                        transfer_tested.len(),
-                        selected.len(),
-                        transfer_target,
-                        selection_limit
-                    );
-                    break;
-                }
+            match stability_receiver.recv().await {
+                Some(batch) => pending.extend(batch),
+                None => receiver_closed = true,
             }
             continue;
         }
@@ -2049,15 +1973,21 @@ async fn run_transfer_gate_consumer(
             continue;
         }
 
+        let target_index = select_transfer_target(&target_states)
+            .ok_or_else(|| "no Light transfer validation targets configured".to_string())?;
+        let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
+        let target_state_before = target_states[target_index];
+
         let queue_window = transfer_workers
             .saturating_mul(FINAL_TRANSFER_QUEUE_MULTIPLIER)
             .max(8);
-        let batch_limit = dynamic_test_limit
+        let requested_batch_limit = dynamic_test_limit
             .saturating_sub(transfer_tested.len())
             .min(FINAL_TRANSFER_BATCH_SIZE)
             .min(queue_window)
             .min(eligible_untested.len())
             .max(1);
+        let batch_limit = transfer_target_batch_limit(&target_state_before, requested_batch_limit);
 
         let batch = diversify_recheck_candidates(&eligible_untested, batch_limit, 1);
         let batch_set = batch.iter().cloned().collect::<HashSet<_>>();
@@ -2077,10 +2007,6 @@ async fn run_transfer_gate_consumer(
 
         transfer_tested.extend(batch.iter().cloned());
 
-        let target_index = select_transfer_target(&target_states)
-            .ok_or_else(|| "no Light transfer validation targets configured".to_string())?;
-        let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
-        let target_state_before = target_states[target_index];
         target_tested_candidates[target_index].extend(batch.iter().cloned());
 
         println!(
@@ -4364,6 +4290,18 @@ mod tests {
         states[3].passed = 3;
         states[3].batches = 1;
         assert_eq!(select_transfer_target(&states), Some(2));
+    }
+
+    #[test]
+    fn transfer_target_probe_starts_small_then_uses_normal_batches() {
+        let mut state = TransferTargetState::default();
+        assert_eq!(transfer_target_batch_limit(&state, 32), 12);
+
+        state.tested = 12;
+        state.passed = 9;
+        state.batches = 1;
+        assert_eq!(transfer_target_batch_limit(&state, 32), 32);
+        assert_eq!(transfer_target_batch_limit(&state, 5), 5);
     }
 
     #[test]
