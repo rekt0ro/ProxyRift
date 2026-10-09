@@ -4446,6 +4446,27 @@ mod tests {
     }
 
     #[test]
+    fn target_rate_limit_circuit_is_host_specific_and_opens_after_a_burst() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after the Unix epoch")
+            .as_nanos();
+        let target = format!("https://rate-limit-circuit-{suffix}.invalid/10mb.bin");
+        let unrelated = "https://unrelated-rate-limit-circuit.invalid/10mb.bin";
+
+        assert!(!target_is_rate_limited(&target));
+        record_target_rate_limit(&target);
+        assert!(!target_is_rate_limited(&target));
+        record_target_rate_limit(&target);
+        assert!(!target_is_rate_limited(&target));
+        record_target_rate_limit(&target);
+
+        assert!(target_is_rate_limited(&target));
+        assert_eq!(target_rate_limit_events(&target), 3);
+        assert!(!target_is_rate_limited(unrelated));
+    }
+
+    #[test]
     fn primary_probe_requires_http_204() {
         let primary = Url::parse(PRIMARY_TARGET).expect("primary target should parse");
         assert!(valid_probe_status(&primary, 204));
