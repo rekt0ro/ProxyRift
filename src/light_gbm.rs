@@ -969,10 +969,22 @@ fn train_target_model(
 }
 
 fn training_feature_vector(fields: &serde_json::Map<String, Value>) -> Option<Vec<f64>> {
-    let protocol = fields.get("protocol")?.as_str()?.to_ascii_lowercase();
-    let backend = fields.get("backend")?.as_str()?.to_ascii_lowercase();
-    let transport = fields.get("transport")?.as_str()?.to_ascii_lowercase();
-    let security = fields.get("security")?.as_str()?.to_ascii_lowercase();
+    // Keep stored and live-candidate encodings identical. Historical rows include
+    // legacy enum values such as "vmess-default", which map to the live default bucket.
+    let protocol = normalize_protocol(fields.get("protocol")?.as_str()?.to_ascii_lowercase().as_str());
+    let raw_backend = fields.get("backend")?.as_str()?.to_ascii_lowercase();
+    let backend = if BACKENDS.contains(&raw_backend.as_str()) {
+        raw_backend
+    } else {
+        "other".to_string()
+    };
+    let raw_transport = fields.get("transport")?.as_str()?.to_ascii_lowercase();
+    let transport = normalize_transport(if raw_transport == "vmess-default" {
+        "default"
+    } else {
+        raw_transport.as_str()
+    });
+    let security = normalize_security(fields.get("security")?.as_str()?.to_ascii_lowercase().as_str());
     let port = fields.get("port")?.as_u64().unwrap_or_default();
 
     Some(structural_vector(
@@ -1121,10 +1133,8 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
         .map(u64::from)
         .unwrap_or_else(|| known_port(&protocol));
 
-    let mut query_parameter_names = HashSet::new();
-    for (name, _) in &query {
-        query_parameter_names.insert(name.to_string());
-    }
+    // Match the persisted training feature, which counts query pairs, not distinct keys.
+    let query_parameter_count = query.len() as u64;
 
     let has_sni = has_query_key(&query, &["sni", "serverName", "servername"]);
     let has_host = has_query_key(&query, &["host", "authority"]);
@@ -1138,7 +1148,7 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
         transport,
         security,
         port,
-        query_parameter_names.len() as u64,
+        query_parameter_count,
         has_sni,
         has_host,
         has_path,
@@ -1340,11 +1350,69 @@ fn structural_vector(
 
 #[cfg(test)]
 mod tests {
-    use super::{config_feature_vector, parse_config_features, port_bucket};
+    use super::{
+        candidate_fingerprint, config_feature_vector, feature_signature, history_feature_vector,
+        load_training, parse_config_features, port_bucket, RollingStats, RawTrainingRow,
+        ModelTarget, TrainingExample, MODEL_FEATURE_COUNT, HISTORY_FEATURE_COUNT,
+    };
+    use serde_json::{json, Map, Value};
+    use std::collections::HashMap;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path() -> String {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        format!(
+            "{}/proxyrift-light-gbm-{nonce}.jsonl",
+            std::env::temp_dir().display()
+        )
+    }
+
+    fn stored_row(timestamp: u64, fingerprint: &str, passed: bool) -> Value {
+        json!({
+            "schema_version": 2,
+            "observed_at": timestamp,
+            "candidate_fingerprint": fingerprint,
+            "observation_id": format!("{timestamp}:{fingerprint}:{passed}"),
+            "features": {
+                "protocol": "vless",
+                "backend": "sing-box",
+                "transport": "tcp",
+                "security": "tls",
+                "port": 443,
+                "query_parameter_count": 0,
+                "has_sni": true,
+                "has_host": false,
+                "has_path": false,
+                "tls_enabled": true,
+                "reality_enabled": false,
+                "early_attempts": 0,
+                "early_success_rate": 0.0,
+                "early_median_ms": 0.0,
+                "early_min_ms": 0.0,
+                "early_jitter_ms": 0.0,
+                "early_throughput_kbps": 0.0,
+                "history_checks": 0,
+                "history_pass_rate": 0.5
+            },
+            "label": {
+                "strict_pass": passed,
+                "strict_checks": 1,
+                "transfer_tested": false,
+                "transfer_pass": null,
+                "stream_tested": false,
+                "stream_pass": null
+            }
+        })
+    }
 
     #[test]
     fn structural_feature_vector_has_stable_width() {
         assert_eq!(config_feature_vector("vless://example.com:443").len(), 53);
+        assert_eq!(MODEL_FEATURE_COUNT, 53 + HISTORY_FEATURE_COUNT);
     }
 
     #[test]
@@ -1370,5 +1438,68 @@ mod tests {
         assert!(features.has_host);
         assert!(features.has_path);
         assert!(features.tls_enabled);
+    }
+
+    #[test]
+    fn query_parameter_feature_counts_pairs_consistently() {
+        let config = "vless://token@example.com:443?type=ws&fp=chrome&fp=safari";
+        let parsed = parse_config_features(config);
+        let structural = config_feature_vector(config);
+        let fields = Map::from_iter([
+            ("protocol".to_string(), Value::from("vless")),
+            ("backend".to_string(), Value::from("sing-box")),
+            ("transport".to_string(), Value::from("ws")),
+            ("security".to_string(), Value::from("default")),
+            ("port".to_string(), Value::from(443_u64)),
+            ("query_parameter_count".to_string(), Value::from(3_u64)),
+            ("has_sni".to_string(), Value::from(false)),
+            ("has_host".to_string(), Value::from(false)),
+            ("has_path".to_string(), Value::from(false)),
+            ("tls_enabled".to_string(), Value::from(false)),
+            ("reality_enabled".to_string(), Value::from(false)),
+        ]);
+        let stored = super::training_feature_vector(&fields).expect("stored features");
+        assert_eq!(parsed.query_parameter_count, 3);
+        assert_eq!(structural, stored);
+    }
+
+    #[test]
+    fn temporal_history_features_do_not_leak_same_run_labels() {
+        let path = temp_path();
+        let mut rows = Vec::new();
+        for index in 0..3 {
+            rows.push(serde_json::to_string(&stored_row(100, "same-candidate", true)).unwrap());
+            if index == 0 {
+                rows.push(serde_json::to_string(&stored_row(100, "other-candidate", false)).unwrap());
+            }
+        }
+        rows.push(serde_json::to_string(&stored_row(200, "same-candidate", true)).unwrap());
+        fs::write(&path, rows.join("\n") + "\n").expect("write training data");
+
+        let data = load_training(&path).expect("load training data");
+        let same_time = data.examples.iter().filter(|row| row.observed_at == 100).collect::<Vec<_>>();
+        assert!(same_time.iter().all(|row| row.features[53] == 0.0));
+        let later = data.examples.iter().find(|row| row.observed_at == 200).expect("later row");
+        assert!((later.features[54] - (5.0 / 7.0)).abs() < 1e-9);
+        assert_eq!(later.features.len(), MODEL_FEATURE_COUNT);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn fingerprints_ignore_config_labels() {
+        assert_eq!(
+            candidate_fingerprint("vless://token@example.com:443#label-a"),
+            candidate_fingerprint("vless://token@example.com:443#label-b")
+        );
+    }
+
+    #[test]
+    fn history_vector_uses_neutral_priors_for_unseen_candidates() {
+        let vector = history_feature_vector(None, None, 100);
+        assert_eq!(vector.len(), HISTORY_FEATURE_COUNT);
+        assert_eq!(vector[0], 0.0);
+        assert_eq!(vector[1], 0.5);
+        assert_eq!(vector[5], 0.5);
+        assert_eq!(vector[12], 0.0);
     }
 }
