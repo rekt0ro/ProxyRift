@@ -2877,24 +2877,33 @@ async fn probe_request_with_validation_policy(
         policy.minimum_body_bytes,
     ) {
         (Some(segments), Some(max_idle_gap), Some(minimum_body_bytes)) if segments > 1 => {
-            probe_request_sustained_mode(
-                client,
-                url,
-                segments,
-                minimum_body_bytes,
-                max_idle_gap,
-                policy.target_pool_mode,
-            )
-            .await
+            if policy.target_pool_mode {
+                probe_request_sustained_mode(
+                    client,
+                    url,
+                    segments,
+                    minimum_body_bytes,
+                    max_idle_gap,
+                    true,
+                )
+                .await
+            } else {
+                probe_request_sustained(client, url, segments, minimum_body_bytes, max_idle_gap)
+                    .await
+            }
         }
         _ => {
-            probe_request_with_minimum_mode(
-                client,
-                url,
-                policy.minimum_body_bytes,
-                policy.target_pool_mode,
-            )
-            .await
+            if policy.target_pool_mode {
+                probe_request_with_minimum_mode(
+                    client,
+                    url,
+                    policy.minimum_body_bytes,
+                    true,
+                )
+                .await
+            } else {
+                probe_request_with_minimum(client, url, policy.minimum_body_bytes).await
+            }
         }
     }
 }
@@ -3453,7 +3462,6 @@ pub async fn validate_candidates_with_targets_once_with_minimum_body(
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 pub async fn validate_candidates_with_target_pool_once_with_minimum_body(
     binary: &str,
