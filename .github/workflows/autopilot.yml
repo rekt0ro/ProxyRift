@@ -1,0 +1,41 @@
+name: ProxyRift Autopilot
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Update Configs
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: proxyrift-autopilot
+  cancel-in-progress: false
+
+jobs:
+  oversee:
+    name: Monitor and recover updates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          show-progress: false
+
+      - name: Inspect update health and recover safely
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
+        shell: bash
+        run: bash scripts/autopilot/watchdog.sh

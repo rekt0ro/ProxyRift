@@ -61,7 +61,10 @@ jobs:
             ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-
 
       - name: Shell syntax check
-        run: for script in scripts/*.sh scripts/update/*.sh; do bash -n "$script" || exit 1; done
+        run: for script in scripts/*.sh scripts/update/*.sh scripts/autopilot/*.sh; do bash -n "$script" || exit 1; done
+
+      - name: Test publication quality gate
+        run: bash scripts/autopilot/test_publication_gate.sh
 
       - name: Install native LightGBM runtime
         env:
