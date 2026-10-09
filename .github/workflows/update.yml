@@ -21,7 +21,8 @@ jobs:
   collect:
     name: "🔎 Collect & Validate"
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Bound the main pipeline so timeouts leave room for final cache cleanup.
+    timeout-minutes: 27
     permissions:
       actions: read
       contents: write
@@ -295,7 +296,8 @@ jobs:
         id: build_light
         env:
           LIGHT_MAX_CANDIDATES: "15000"
-          LIGHT_SELECTION_LIMIT: "200"
+          # Aim for a midrange pool; 200 remains an upper bound, not a quota.
+          LIGHT_SELECTION_LIMIT: "130"
           LIGHT_MIN_PUBLISH: "50"
         run: |
           mkdir -p /tmp/proxyrift
@@ -851,7 +853,8 @@ jobs:
     name: "🧹 Cleanup Caches"
     needs: collect
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Together with the 27-minute collection job, keep the workflow at 30 minutes max.
+    timeout-minutes: 3
     permissions:
       actions: write
 
