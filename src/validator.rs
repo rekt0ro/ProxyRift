@@ -3288,12 +3288,10 @@ async fn check_batch(
                     .rev()
                     .collect::<String>();
 
-                if !(crate::compact_logs_enabled()) {
-                    println!(
+                println!(
                     "[INFO] 🧹 [Xray] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
-                    );
-                }
+                );
                 if !tail.is_empty()
                     && !tail.contains(
                         "The feature HTTP transport (without header padding, etc.) has been removed"
@@ -3926,22 +3924,18 @@ async fn validate_candidates_targets_inner(
     let (parsed, mut compatibility_rejected) = xray_compatibility_filter(parsed);
     rejected.append(&mut compatibility_rejected);
 
-    if !(crate::compact_logs_enabled()) {
-        println!(
+    crate::emit_log_if!(!crate::compact_logs_enabled();
         "[INFO] 🔬 [Xray] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
-        );
-    }
+    );
 
     for (config, reason) in rejected.iter().take(8) {
-        if !(crate::compact_logs_enabled()) {
-            println!(
+        crate::emit_log_if!(!crate::compact_logs_enabled();
             "[INFO] 🧹 [Xray] Rejected | {} | {reason}",
             config_label(config)
-            );
-        }
+        );
     }
 
     if !rejected.is_empty() {
@@ -3973,8 +3967,7 @@ async fn validate_candidates_targets_inner(
         )
         .await?;
 
-        if !(crate::compact_logs_enabled()) {
-            println!(
+        crate::emit_log_if!(!crate::compact_logs_enabled();
             "[INFO] ✅ [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Destinations: {}",
             index + 1,
             total_batches,
@@ -3983,14 +3976,12 @@ async fn validate_candidates_targets_inner(
             policy.min_successful_attempts,
             policy.stability_attempts,
             policy.min_successful_targets
-            );
-        }
+        );
 
         metadata.extend(batch_metadata);
     }
 
-    if !(crate::compact_logs_enabled()) {
-        println!(
+    crate::emit_log_if!(!crate::compact_logs_enabled();
         "[INFO] ✅ [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Destinations: {}",
         metadata.len(),
         candidates.len(),
@@ -3998,8 +3989,7 @@ async fn validate_candidates_targets_inner(
         policy.min_successful_attempts,
         policy.stability_attempts,
         policy.min_successful_targets
-        );
-    }
+    );
 
     Ok(metadata)
 }
@@ -4087,12 +4077,10 @@ async fn check_batch_targets(
                     .rev()
                     .collect::<String>();
 
-                if !(crate::compact_logs_enabled()) {
-                    println!(
+                println!(
                     "[INFO] 🧹 [Xray] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
-                    );
-                }
+                );
                 if !tail.is_empty() {
                     println!("[INFO] ℹ️ [Xray] Core log | {tail}");
                 } else {
@@ -4404,22 +4392,18 @@ async fn validate_candidates_inner(
 ) -> Result<HashMap<String, ProxyMetrics>, String> {
     let (parsed, rejected) = unique_parsed(candidates);
 
-    if !(crate::compact_logs_enabled()) {
-        println!(
+    crate::emit_log_if!(!crate::compact_logs_enabled();
         "[INFO] 🔬 [Xray] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
-        );
-    }
+    );
 
     for (config, reason) in rejected.iter().take(8) {
-        if !(crate::compact_logs_enabled()) {
-            println!(
+        crate::emit_log_if!(!crate::compact_logs_enabled();
             "[INFO] 🧹 [Xray] Rejected | {} | {reason}",
             config_label(config)
-            );
-        }
+        );
     }
 
     if !rejected.is_empty() {
@@ -4457,8 +4441,7 @@ async fn validate_candidates_inner(
         )
         .await?;
 
-        if !(crate::compact_logs_enabled()) {
-            println!(
+        crate::emit_log_if!(!crate::compact_logs_enabled();
             "[INFO] ✅ [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: {}",
             index + 1,
             total_batches,
@@ -4467,14 +4450,12 @@ async fn validate_candidates_inner(
             MIN_SUCCESSFUL_ATTEMPTS,
             STABILITY_ATTEMPTS,
             target_count
-            );
-        }
+        );
 
         metadata.extend(batch_metadata);
     }
 
-    if !(crate::compact_logs_enabled()) {
-        println!(
+    crate::emit_log_if!(!crate::compact_logs_enabled();
         "[INFO] ✅ [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Latency ≤ {}ms",
         metadata.len(),
         candidates.len(),
@@ -4482,8 +4463,7 @@ async fn validate_candidates_inner(
         MIN_SUCCESSFUL_ATTEMPTS,
         STABILITY_ATTEMPTS,
         MAX_LATENCY_MS
-        );
-    }
+    );
 
     Ok(metadata)
 }
