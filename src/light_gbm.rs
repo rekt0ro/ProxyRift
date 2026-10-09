@@ -12,9 +12,9 @@ use std::sync::Arc;
 const DEFAULT_SCORE: f64 = 0.5;
 const DEFAULT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
 const DEFAULT_SCORE_PATH: &str = "/tmp/proxyrift/lightgbm-scores.json";
-const MIN_TRAINING_ROWS: usize = 500;
-const MIN_POSITIVE_ROWS: usize = 50;
-const MIN_NEGATIVE_ROWS: usize = 50;
+const MIN_TRAINING_ROWS: usize = 5_000;
+const MIN_POSITIVE_ROWS: usize = 500;
+const MIN_NEGATIVE_ROWS: usize = 500;
 const TRAINING_ITERATIONS: usize = 140;
 const MAX_SCORE: f64 = 1.0;
 const MIN_SCORE: f64 = 0.0;
@@ -64,7 +64,15 @@ pub struct LightGbmScores {
     scores: HashMap<String, f64>,
     training_rows: usize,
     trained: bool,
+    model_report: Value,
 }
+
+const STRUCTURAL_FEATURE_COUNT: usize = 53;
+const HISTORY_FEATURE_COUNT: usize = 13;
+const MODEL_FEATURE_COUNT: usize = STRUCTURAL_FEATURE_COUNT + HISTORY_FEATURE_COUNT;
+const HOLDOUT_FRACTION_NUMERATOR: usize = 1;
+const HOLDOUT_FRACTION_DENOMINATOR: usize = 5;
+const MIN_RELATIVE_BRIER_IMPROVEMENT: f64 = 0.005;
 
 impl LightGbmScores {
     pub fn train_and_score(candidates: &[String]) -> Result<Self, String> {
@@ -72,116 +80,145 @@ impl LightGbmScores {
             return Ok(Self::default());
         }
 
-        let (training_features, training_labels, positive, negative) =
-            load_training(DEFAULT_TRAINING_PATH)?;
-
-        if training_features.len() < MIN_TRAINING_ROWS
-            || positive < MIN_POSITIVE_ROWS
-            || negative < MIN_NEGATIVE_ROWS
-        {
-            let scores = candidates
-                .iter()
-                .map(|config| (config.clone(), DEFAULT_SCORE))
-                .collect::<HashMap<_, _>>();
-            let result = Self {
-                scores,
-                training_rows: training_features.len(),
-                trained: false,
-            };
-            result.save(DEFAULT_SCORE_PATH)?;
-            return Ok(result);
-        }
-
-        let train_mat = MatBuf::from_rows_non_empty(&training_features)
-            .map_err(|error| format!("failed to build LightGBM training matrix: {error}"))?
-            .ok_or_else(|| "LightGBM training matrix is empty".to_string())?;
-
-        let mut parameters = Parameters::new();
-        parameters.push("objective", Objective::Binary);
-        parameters.push("boosting", Boosting::Gbdt);
-        parameters.push("verbosity", Verbosity::Fatal);
-        parameters.push("learning_rate", 0.05);
-        parameters.push("num_leaves", 15i32);
-        parameters.push("min_data_in_leaf", 40i32);
-        parameters.push("feature_fraction", 0.90);
-        parameters.push("bagging_fraction", 0.90);
-        parameters.push("bagging_freq", 1i32);
-        parameters.push("lambda_l1", 0.10);
-        parameters.push("lambda_l2", 0.10);
-        parameters.push("scale_pos_weight", negative as f64 / positive as f64);
-        parameters.push("seed", 42i32);
-        parameters.push("feature_fraction_seed", 42i32);
-        parameters.push("bagging_seed", 42i32);
-        parameters.push("num_threads", 4i32);
-        parameters.push("force_col_wise", true);
-        parameters.push("deterministic", true);
-
-        let mut train = Dataset::from_mat(&train_mat, None, &parameters)
-            .map_err(|error| format!("failed to create LightGBM dataset: {error}"))?;
-        train
-            .set_field(Field::LABEL, &training_labels)
-            .map_err(|error| format!("failed to attach LightGBM labels: {error}"))?;
-
-        let mut booster = Booster::new(Arc::new(train), &parameters)
-            .map_err(|error| format!("failed to create LightGBM booster: {error}"))?;
-
-        for _ in 0..TRAINING_ITERATIONS {
-            if booster
-                .update_one_iter()
-                .map_err(|error| format!("LightGBM training failed: {error}"))?
-            {
-                break;
-            }
-        }
-
+        let data = load_training(DEFAULT_TRAINING_PATH)?;
+        let prediction_time = current_epoch_seconds();
         let candidate_features = candidates
             .iter()
-            .map(|config| config_feature_vector(config))
+            .map(|config| {
+                let mut features = config_feature_vector(config);
+                let fingerprint = candidate_fingerprint(config);
+                let family = feature_signature(&features);
+                features.extend(history_feature_vector(
+                    data.exact_history.get(&fingerprint),
+                    data.family_history.get(&family),
+                    prediction_time,
+                ));
+                features
+            })
             .collect::<Vec<_>>();
 
-        let candidate_mat = MatBuf::from_rows_non_empty(&candidate_features)
-            .map_err(|error| format!("failed to build LightGBM candidate matrix: {error}"))?
-            .ok_or_else(|| "LightGBM candidate matrix is empty".to_string())?;
+        let strict = match train_target_model(
+            &data.examples,
+            candidates,
+            &candidate_features,
+            ModelTarget::Strict,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("[WARN] [LightGBM] Strict model unavailable: {error}");
+                TargetResult::unavailable(ModelTarget::Strict, error)
+            }
+        };
+        let transfer = match train_target_model(
+            &data.examples,
+            candidates,
+            &candidate_features,
+            ModelTarget::Transfer,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("[WARN] [LightGBM] Transfer model unavailable: {error}");
+                TargetResult::unavailable(ModelTarget::Transfer, error)
+            }
+        };
+        let stream = match train_target_model(
+            &data.examples,
+            candidates,
+            &candidate_features,
+            ModelTarget::Stream,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("[WARN] [LightGBM] Stream model unavailable: {error}");
+                TargetResult::unavailable(ModelTarget::Stream, error)
+            }
+        };
 
-        let prediction_parameters = Parameters::new();
-        let prediction = booster
-            .predict_for_mat(
-                &candidate_mat,
-                PredictType::Normal,
-                0,
-                None,
-                &prediction_parameters,
-            )
-            .map_err(|error| format!("LightGBM prediction failed: {error}"))?;
-
-        if prediction.values().len() != candidates.len() {
-            return Err(format!(
-                "LightGBM returned {} scores for {} candidates",
-                prediction.values().len(),
-                candidates.len()
-            ));
+        let mut models = Vec::new();
+        if strict.accepted {
+            models.push((&strict, 0.50_f64));
+        }
+        if transfer.accepted {
+            models.push((&transfer, 0.30_f64));
+        }
+        if stream.accepted {
+            models.push((&stream, 0.20_f64));
+        }
+        let weight_sum = models.iter().map(|(_, weight)| *weight).sum::<f64>();
+        let mut scores = HashMap::with_capacity(candidates.len());
+        for candidate in candidates {
+            let score = if weight_sum > 0.0 {
+                models
+                    .iter()
+                    .map(|(model, weight)| {
+                        weight
+                            * model
+                                .predictions
+                                .get(candidate)
+                                .copied()
+                                .unwrap_or(DEFAULT_SCORE)
+                    })
+                    .sum::<f64>()
+                    / weight_sum
+            } else {
+                DEFAULT_SCORE
+            };
+            scores.insert(
+                candidate.clone(),
+                if score.is_finite() {
+                    score.clamp(MIN_SCORE, MAX_SCORE)
+                } else {
+                    DEFAULT_SCORE
+                },
+            );
         }
 
-        let scores = candidates
-            .iter()
-            .zip(prediction.values())
-            .map(|(config, score)| (config.clone(), score.clamp(MIN_SCORE, MAX_SCORE)))
-            .collect::<HashMap<_, _>>();
-
+        let trained = weight_sum > 0.0;
+        let model_report = serde_json::json!({
+            "validation": "walk_forward_time_split",
+            "baseline": "training_prevalence_brier",
+            "composite_weights": {"strict": 0.50, "transfer": 0.30, "stream": 0.20},
+            "promotion_minimum_relative_brier_improvement": MIN_RELATIVE_BRIER_IMPROVEMENT,
+            "history_features": HISTORY_FEATURE_COUNT,
+            "model_feature_count": MODEL_FEATURE_COUNT,
+            "targets": {
+                "strict": strict.report,
+                "transfer": transfer.report,
+                "stream": stream.report,
+            }
+        });
         let result = Self {
             scores,
-            training_rows: training_features.len(),
-            trained: true,
+            training_rows: data.examples.len(),
+            trained,
+            model_report,
         };
         result.save(DEFAULT_SCORE_PATH)?;
+
         println!(
-            "[INFO] 🧠 [LightGBM] Rust model trained | Rows: {} | Pass: {} | Fail: {} | Features: {} | Candidates: {}",
-            training_features.len(),
-            positive,
-            negative,
-            config_feature_vector("").len(),
-            candidates.len()
+            "[INFO] 🧠 [LightGBM] Temporal multi-target training | Rows: {} | Features: {} | Candidates: {} | Promoted models: {}",
+            data.examples.len(),
+            MODEL_FEATURE_COUNT,
+            candidates.len(),
+            models.len()
         );
+        for (name, target) in [
+            ("strict", &strict),
+            ("transfer", &transfer),
+            ("stream", &stream),
+        ] {
+            println!(
+                "[INFO] 🧠 [LightGBM] Temporal validation | Target: {} | Accepted: {} | Train: {} | Holdout: {} | Brier: {} | Baseline: {} | Reason: {}",
+                name,
+                target.accepted,
+                target.report.get("train_rows").and_then(Value::as_u64).unwrap_or(0),
+                target.report.get("holdout_rows").and_then(Value::as_u64).unwrap_or(0),
+                target.report.get("model_brier").and_then(Value::as_f64).map(|v| format!("{v:.5}")).unwrap_or_else(|| "n/a".to_string()),
+                target.report.get("baseline_brier").and_then(Value::as_f64).map(|v| format!("{v:.5}")).unwrap_or_else(|| "n/a".to_string()),
+                target.report.get("reason").and_then(Value::as_str).unwrap_or("unknown")
+            );
+        }
+
         Ok(result)
     }
 
@@ -192,10 +229,11 @@ impl LightGbmScores {
         }
 
         let payload = serde_json::json!({
-            "version": 2,
+            "version": 3,
             "trained": self.trained,
             "training_rows": self.training_rows,
-            "feature_count": config_feature_vector("").len(),
+            "feature_count": MODEL_FEATURE_COUNT,
+            "model_report": self.model_report,
             "scores": self.scores,
         });
         let body = serde_json::to_vec(&payload)
@@ -221,6 +259,7 @@ impl LightGbmScores {
             .get("trained")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let model_report = value.get("model_report").cloned().unwrap_or(Value::Null);
 
         let mut scores = HashMap::new();
         if let Some(entries) = value.get("scores").and_then(Value::as_object) {
@@ -228,7 +267,9 @@ impl LightGbmScores {
                 let Some(score) = score.as_f64() else {
                     continue;
                 };
-                scores.insert(config.clone(), score.clamp(MIN_SCORE, MAX_SCORE));
+                if score.is_finite() {
+                    scores.insert(config.clone(), score.clamp(MIN_SCORE, MAX_SCORE));
+                }
             }
         }
 
@@ -236,6 +277,7 @@ impl LightGbmScores {
             scores,
             training_rows,
             trained,
+            model_report,
         })
     }
 
@@ -262,18 +304,220 @@ impl LightGbmScores {
     pub fn trained(&self) -> bool {
         self.trained
     }
+
+    pub fn model_report(&self) -> &Value {
+        &self.model_report
+    }
 }
 
-#[allow(clippy::type_complexity)]
-fn load_training(path: &str) -> Result<(Vec<Vec<f64>>, Vec<f32>, usize, usize), String> {
+#[derive(Clone, Copy, Debug)]
+enum ModelTarget {
+    Strict,
+    Transfer,
+    Stream,
+}
+
+impl ModelTarget {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Strict => "strict",
+            Self::Transfer => "transfer",
+            Self::Stream => "stream",
+        }
+    }
+
+    fn label(self, row: &TrainingExample) -> Option<bool> {
+        match self {
+            Self::Strict => Some(row.strict_pass),
+            Self::Transfer => row.transfer_pass,
+            Self::Stream => row.stream_pass,
+        }
+    }
+
+    fn minimum_rows(self) -> usize {
+        match self {
+            Self::Strict => MIN_TRAINING_ROWS,
+            Self::Transfer => 1_000,
+            Self::Stream => 500,
+        }
+    }
+
+    fn minimum_training_class_rows(self) -> usize {
+        match self {
+            Self::Strict => MIN_POSITIVE_ROWS.max(MIN_NEGATIVE_ROWS),
+            Self::Transfer => 100,
+            Self::Stream => 50,
+        }
+    }
+
+    fn minimum_timestamps(self) -> usize {
+        match self {
+            Self::Strict => 20,
+            Self::Transfer | Self::Stream => 10,
+        }
+    }
+
+    fn minimum_holdout_class_rows(self) -> usize {
+        match self {
+            Self::Strict => 100,
+            Self::Transfer => 50,
+            Self::Stream => 25,
+        }
+    }
+
+    fn minimum_unique_candidates(self) -> usize {
+        match self {
+            Self::Strict => 1_000,
+            Self::Transfer => 100,
+            Self::Stream => 50,
+        }
+    }
+
+    fn seed(self) -> i32 {
+        match self {
+            Self::Strict => 42,
+            Self::Transfer => 43,
+            Self::Stream => 44,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct TrainingExample {
+    observed_at: u64,
+    candidate_fingerprint: String,
+    features: Vec<f64>,
+    strict_pass: bool,
+    transfer_pass: Option<bool>,
+    stream_pass: Option<bool>,
+}
+
+#[derive(Clone, Debug)]
+struct RawTrainingRow {
+    observed_at: u64,
+    candidate_fingerprint: String,
+    structural: Vec<f64>,
+    family: String,
+    strict_pass: bool,
+    transfer_pass: Option<bool>,
+    stream_pass: Option<bool>,
+    early_attempts: u64,
+    early_success_rate: f64,
+    early_median_ms: f64,
+    early_jitter_ms: f64,
+    early_throughput_kbps: f64,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RollingStats {
+    observations: usize,
+    strict_passes: usize,
+    transfer_tests: usize,
+    transfer_passes: usize,
+    stream_tests: usize,
+    stream_passes: usize,
+    early_metrics: usize,
+    early_success_rate_sum: f64,
+    early_median_ms_sum: f64,
+    early_jitter_ms_sum: f64,
+    early_throughput_kbps_sum: f64,
+    last_seen: u64,
+}
+
+impl RollingStats {
+    fn record(&mut self, row: &RawTrainingRow) {
+        self.observations += 1;
+        self.strict_passes += usize::from(row.strict_pass);
+        if let Some(passed) = row.transfer_pass {
+            self.transfer_tests += 1;
+            self.transfer_passes += usize::from(passed);
+        }
+        if let Some(passed) = row.stream_pass {
+            self.stream_tests += 1;
+            self.stream_passes += usize::from(passed);
+        }
+        if row.early_attempts > 0 {
+            self.early_metrics += 1;
+            self.early_success_rate_sum += row.early_success_rate.clamp(0.0, 1.0);
+            self.early_median_ms_sum += row.early_median_ms.clamp(0.0, 30_000.0);
+            self.early_jitter_ms_sum += row.early_jitter_ms.clamp(0.0, 30_000.0);
+            self.early_throughput_kbps_sum += row.early_throughput_kbps.clamp(0.0, 1_000_000.0);
+        }
+        self.last_seen = self.last_seen.max(row.observed_at);
+    }
+
+    fn strict_rate(&self) -> f64 {
+        (self.strict_passes as f64 + 2.0) / (self.observations as f64 + 4.0)
+    }
+
+    fn transfer_rate(&self) -> f64 {
+        (self.transfer_passes as f64 + 2.0) / (self.transfer_tests as f64 + 4.0)
+    }
+
+    fn stream_rate(&self) -> f64 {
+        (self.stream_passes as f64 + 2.0) / (self.stream_tests as f64 + 4.0)
+    }
+
+    fn performance_features(&self) -> [f64; 4] {
+        if self.early_metrics == 0 {
+            return [0.5, 0.5, 0.5, 0.5];
+        }
+        let count = self.early_metrics as f64;
+        [
+            (self.early_success_rate_sum / count).clamp(0.0, 1.0),
+            normalized_log(self.early_median_ms_sum / count, 30_000.0),
+            normalized_log(self.early_jitter_ms_sum / count, 30_000.0),
+            normalized_log(self.early_throughput_kbps_sum / count, 1_000_000.0),
+        ]
+    }
+}
+
+struct TrainingData {
+    examples: Vec<TrainingExample>,
+    exact_history: HashMap<String, RollingStats>,
+    family_history: HashMap<String, RollingStats>,
+}
+
+struct TargetResult {
+    accepted: bool,
+    predictions: HashMap<String, f64>,
+    report: Value,
+}
+
+impl TargetResult {
+    fn unavailable(target: ModelTarget, reason: String) -> Self {
+        Self {
+            accepted: false,
+            predictions: HashMap::new(),
+            report: serde_json::json!({
+                "target": target.name(),
+                "accepted": false,
+                "reason": reason,
+            }),
+        }
+    }
+}
+
+fn current_epoch_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
+fn finite_feature(fields: &serde_json::Map<String, Value>, name: &str) -> f64 {
+    fields
+        .get(name)
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite())
+        .unwrap_or_default()
+}
+
+fn load_training(path: &str) -> Result<TrainingData, String> {
     let file = fs::File::open(path)
         .map_err(|error| format!("failed to open LightGBM training data {path}: {error}"))?;
     let reader = std::io::BufReader::new(file);
-
-    let mut features = Vec::new();
-    let mut labels = Vec::new();
-    let mut positive = 0usize;
-    let mut negative = 0usize;
+    let mut raw_rows = Vec::new();
 
     for line in reader.lines() {
         let line =
@@ -281,11 +525,9 @@ fn load_training(path: &str) -> Result<(Vec<Vec<f64>>, Vec<f32>, usize, usize), 
         if line.trim().is_empty() {
             continue;
         }
-
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-
         let Some(label) = value.get("label").and_then(Value::as_object) else {
             continue;
         };
@@ -300,32 +542,500 @@ fn load_training(path: &str) -> Result<(Vec<Vec<f64>>, Vec<f32>, usize, usize), 
         {
             continue;
         }
-
         let Some(stored_features) = value.get("features").and_then(Value::as_object) else {
             continue;
         };
-
-        let Some(vector) = training_feature_vector(stored_features) else {
+        let Some(structural) = training_feature_vector(stored_features) else {
             continue;
         };
-
-        features.push(vector);
-        labels.push(if strict_pass { 1.0 } else { 0.0 });
-        if strict_pass {
-            positive += 1;
+        let Some(candidate_fingerprint) = value
+            .get("candidate_fingerprint")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+        else {
+            continue;
+        };
+        let transfer_tested = label
+            .get("transfer_tested")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let transfer_pass = if transfer_tested {
+            label.get("transfer_pass").and_then(Value::as_bool)
         } else {
-            negative += 1;
-        }
+            None
+        };
+        let stream_tested = label
+            .get("stream_tested")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let stream_pass = if stream_tested {
+            label.get("stream_pass").and_then(Value::as_bool)
+        } else {
+            None
+        };
+        let observed_at = value
+            .get("observed_at")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let family = feature_signature(&structural);
+        raw_rows.push(RawTrainingRow {
+            observed_at,
+            candidate_fingerprint,
+            structural,
+            family,
+            strict_pass,
+            transfer_pass,
+            stream_pass,
+            early_attempts: stored_features
+                .get("early_attempts")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            early_success_rate: finite_feature(stored_features, "early_success_rate"),
+            early_median_ms: finite_feature(stored_features, "early_median_ms"),
+            early_jitter_ms: finite_feature(stored_features, "early_jitter_ms"),
+            early_throughput_kbps: finite_feature(stored_features, "early_throughput_kbps"),
+        });
     }
 
-    Ok((features, labels, positive, negative))
+    raw_rows.sort_unstable_by_key(|row| row.observed_at);
+    let mut exact_history = HashMap::<String, RollingStats>::new();
+    let mut family_history = HashMap::<String, RollingStats>::new();
+    let mut examples = Vec::with_capacity(raw_rows.len());
+    let mut index = 0usize;
+
+    // Rows sharing the same observation timestamp are treated as one batch, so no row
+    // can learn from another result produced during the same run.
+    while index < raw_rows.len() {
+        let timestamp = raw_rows[index].observed_at;
+        let mut end = index + 1;
+        while end < raw_rows.len() && raw_rows[end].observed_at == timestamp {
+            end += 1;
+        }
+
+        for row in &raw_rows[index..end] {
+            let exact = exact_history.get(&row.candidate_fingerprint);
+            let family = family_history.get(&row.family);
+            let mut features = row.structural.clone();
+            features.extend(history_feature_vector(exact, family, timestamp));
+            if features.len() != MODEL_FEATURE_COUNT {
+                return Err(format!(
+                    "LightGBM feature contract mismatch: expected {MODEL_FEATURE_COUNT}, got {}",
+                    features.len()
+                ));
+            }
+            examples.push(TrainingExample {
+                observed_at: row.observed_at,
+                candidate_fingerprint: row.candidate_fingerprint.clone(),
+                features,
+                strict_pass: row.strict_pass,
+                transfer_pass: row.transfer_pass,
+                stream_pass: row.stream_pass,
+            });
+        }
+
+        for row in &raw_rows[index..end] {
+            exact_history
+                .entry(row.candidate_fingerprint.clone())
+                .or_default()
+                .record(row);
+            family_history
+                .entry(row.family.clone())
+                .or_default()
+                .record(row);
+        }
+        index = end;
+    }
+
+    Ok(TrainingData {
+        examples,
+        exact_history,
+        family_history,
+    })
+}
+
+fn normalized_log(value: f64, maximum: f64) -> f64 {
+    if !value.is_finite() || maximum <= 0.0 {
+        return 0.0;
+    }
+    ((1.0 + value.clamp(0.0, maximum)).ln() / (1.0 + maximum).ln()).clamp(0.0, 1.0)
+}
+
+fn history_feature_vector(
+    exact: Option<&RollingStats>,
+    family: Option<&RollingStats>,
+    now: u64,
+) -> Vec<f64> {
+    let exact = exact.cloned().unwrap_or_default();
+    let family = family.cloned().unwrap_or_default();
+    let family_performance = family.performance_features();
+    let age_secs = now.saturating_sub(family.last_seen) as f64;
+    let recency = if family.observations == 0 {
+        0.0
+    } else {
+        (-age_secs / (30.0 * 24.0 * 60.0 * 60.0)).exp()
+    };
+
+    vec![
+        normalized_log(exact.observations as f64, 50_000.0),
+        exact.strict_rate(),
+        exact.transfer_rate(),
+        exact.stream_rate(),
+        normalized_log(family.observations as f64, 50_000.0),
+        family.strict_rate(),
+        family.transfer_rate(),
+        family.stream_rate(),
+        family_performance[0],
+        family_performance[1],
+        family_performance[2],
+        family_performance[3],
+        recency.clamp(0.0, 1.0),
+    ]
+}
+
+fn feature_signature(features: &[f64]) -> String {
+    features
+        .iter()
+        .map(|feature| format!("{:016x}", feature.to_bits()))
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn candidate_fingerprint(config: &str) -> String {
+    let cleaned = config.split('#').next().unwrap_or(config);
+    let identity = if cleaned
+        .split_once("://")
+        .map(|(scheme, _)| scheme.eq_ignore_ascii_case("vmess"))
+        .unwrap_or(false)
+    {
+        decode_vmess(cleaned)
+            .and_then(|mut value| {
+                if let Value::Object(object) = &mut value {
+                    object.remove("ps");
+                }
+                serde_json::to_string(&value).ok()
+            })
+            .unwrap_or_else(|| cleaned.to_string())
+    } else {
+        cleaned.to_string()
+    };
+    let first = fnv64(identity.as_bytes(), 0xcbf29ce484222325);
+    let second = fnv64(identity.as_bytes(), 0x9e3779b97f4a7c15);
+    format!("{first:016x}{second:016x}")
+}
+
+fn fnv64(input: &[u8], seed: u64) -> u64 {
+    let mut hash = seed;
+    for byte in input {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn brier_score(predictions: &[f64], labels: &[f32]) -> f64 {
+    if predictions.is_empty() || predictions.len() != labels.len() {
+        return f64::INFINITY;
+    }
+    predictions
+        .iter()
+        .zip(labels)
+        .map(|(prediction, label)| {
+            let difference = prediction.clamp(0.0, 1.0) - f64::from(*label);
+            difference * difference
+        })
+        .sum::<f64>()
+        / predictions.len() as f64
+}
+
+fn fit_booster(features: &[Vec<f64>], labels: &[f32], seed: i32) -> Result<Booster, String> {
+    if features.is_empty() || features.len() != labels.len() {
+        return Err("cannot train LightGBM with empty or mismatched training rows".to_string());
+    }
+    let matrix = MatBuf::from_rows_non_empty(features)
+        .map_err(|error| format!("failed to build LightGBM training matrix: {error}"))?
+        .ok_or_else(|| "LightGBM training matrix is empty".to_string())?;
+    let mut parameters = Parameters::new();
+    parameters.push("objective", Objective::Binary);
+    parameters.push("boosting", Boosting::Gbdt);
+    parameters.push("verbosity", Verbosity::Fatal);
+    parameters.push("learning_rate", 0.05);
+    parameters.push("num_leaves", 15i32);
+    parameters.push("min_data_in_leaf", 40i32);
+    parameters.push("feature_fraction", 0.90);
+    parameters.push("bagging_fraction", 0.90);
+    parameters.push("bagging_freq", 1i32);
+    parameters.push("lambda_l1", 0.10);
+    parameters.push("lambda_l2", 0.10);
+    parameters.push("seed", seed);
+    parameters.push("feature_fraction_seed", seed);
+    parameters.push("bagging_seed", seed);
+    parameters.push("num_threads", 4i32);
+    parameters.push("force_col_wise", true);
+    parameters.push("deterministic", true);
+
+    let mut train = Dataset::from_mat(&matrix, None, &parameters)
+        .map_err(|error| format!("failed to create LightGBM dataset: {error}"))?;
+    train
+        .set_field(Field::LABEL, labels)
+        .map_err(|error| format!("failed to attach LightGBM labels: {error}"))?;
+    let mut booster = Booster::new(Arc::new(train), &parameters)
+        .map_err(|error| format!("failed to create LightGBM booster: {error}"))?;
+    for _ in 0..TRAINING_ITERATIONS {
+        if booster
+            .update_one_iter()
+            .map_err(|error| format!("LightGBM training failed: {error}"))?
+        {
+            break;
+        }
+    }
+    Ok(booster)
+}
+
+fn predict_booster(booster: &Booster, features: &[Vec<f64>]) -> Result<Vec<f64>, String> {
+    if features.is_empty() {
+        return Ok(Vec::new());
+    }
+    let matrix = MatBuf::from_rows_non_empty(features)
+        .map_err(|error| format!("failed to build LightGBM prediction matrix: {error}"))?
+        .ok_or_else(|| "LightGBM prediction matrix is empty".to_string())?;
+    let prediction = booster
+        .predict_for_mat(&matrix, PredictType::Normal, 0, None, &Parameters::new())
+        .map_err(|error| format!("LightGBM prediction failed: {error}"))?;
+    if prediction.values().len() != features.len() {
+        return Err(format!(
+            "LightGBM returned {} scores for {} rows",
+            prediction.values().len(),
+            features.len()
+        ));
+    }
+    Ok(prediction
+        .values()
+        .iter()
+        .map(|score| {
+            if score.is_finite() {
+                score.clamp(MIN_SCORE, MAX_SCORE)
+            } else {
+                DEFAULT_SCORE
+            }
+        })
+        .collect())
+}
+
+fn train_target_model(
+    examples: &[TrainingExample],
+    candidates: &[String],
+    candidate_features: &[Vec<f64>],
+    target: ModelTarget,
+) -> Result<TargetResult, String> {
+    let mut rows = examples
+        .iter()
+        .filter_map(|row| target.label(row).map(|label| (row, label)))
+        .collect::<Vec<_>>();
+    rows.sort_unstable_by_key(|(row, _)| row.observed_at);
+    let positive = rows.iter().filter(|(_, label)| *label).count();
+    let negative = rows.len().saturating_sub(positive);
+    let unique_candidates = rows
+        .iter()
+        .map(|(row, _)| row.candidate_fingerprint.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    if rows.len() < target.minimum_rows()
+        || positive < target.minimum_training_class_rows()
+        || negative < target.minimum_training_class_rows()
+        || unique_candidates < target.minimum_unique_candidates()
+    {
+        return Ok(TargetResult::unavailable(
+            target,
+            format!(
+                "insufficient labelled data (rows={}, pass={}, fail={}, unique_candidates={})",
+                rows.len(),
+                positive,
+                negative,
+                unique_candidates
+            ),
+        ));
+    }
+
+    let mut timestamps = rows
+        .iter()
+        .map(|(row, _)| row.observed_at)
+        .collect::<Vec<_>>();
+    timestamps.sort_unstable();
+    timestamps.dedup();
+    if timestamps.len() < target.minimum_timestamps() {
+        return Ok(TargetResult::unavailable(
+            target,
+            format!(
+                "insufficient distinct observation timestamps (found={}, required={})",
+                timestamps.len(),
+                target.minimum_timestamps()
+            ),
+        ));
+    }
+    let holdout_start_index = (timestamps.len()
+        * (HOLDOUT_FRACTION_DENOMINATOR - HOLDOUT_FRACTION_NUMERATOR))
+        / HOLDOUT_FRACTION_DENOMINATOR;
+    let holdout_start_index = holdout_start_index.clamp(1, timestamps.len() - 1);
+    let cutoff = timestamps[holdout_start_index];
+    let training = rows
+        .iter()
+        .filter(|(row, _)| row.observed_at < cutoff)
+        .collect::<Vec<_>>();
+    let holdout = rows
+        .iter()
+        .filter(|(row, _)| row.observed_at >= cutoff)
+        .collect::<Vec<_>>();
+    let training_positive = training.iter().filter(|(_, label)| *label).count();
+    let training_negative = training.len().saturating_sub(training_positive);
+    let holdout_positive = holdout.iter().filter(|(_, label)| *label).count();
+    let holdout_negative = holdout.len().saturating_sub(holdout_positive);
+
+    if training.len() < target.minimum_rows() / 2
+        || training_positive < target.minimum_training_class_rows()
+        || training_negative < target.minimum_training_class_rows()
+        || holdout.len() < 100
+        || holdout_positive < target.minimum_holdout_class_rows()
+        || holdout_negative < target.minimum_holdout_class_rows()
+    {
+        let mut result = TargetResult::unavailable(
+            target,
+            format!(
+                "time holdout lacks representative classes (train={}/{}/{}, holdout={}/{}/{})",
+                training.len(),
+                training_positive,
+                training_negative,
+                holdout.len(),
+                holdout_positive,
+                holdout_negative
+            ),
+        );
+        result.report["train_rows"] = Value::from(training.len() as u64);
+        result.report["holdout_rows"] = Value::from(holdout.len() as u64);
+        return Ok(result);
+    }
+
+    let train_features = training
+        .iter()
+        .map(|(row, _)| row.features.clone())
+        .collect::<Vec<_>>();
+    let train_labels = training
+        .iter()
+        .map(|(_, label)| if *label { 1.0_f32 } else { 0.0_f32 })
+        .collect::<Vec<_>>();
+    let holdout_features = holdout
+        .iter()
+        .map(|(row, _)| row.features.clone())
+        .collect::<Vec<_>>();
+    let holdout_labels = holdout
+        .iter()
+        .map(|(_, label)| if *label { 1.0_f32 } else { 0.0_f32 })
+        .collect::<Vec<_>>();
+    let baseline_rate = train_labels
+        .iter()
+        .map(|label| f64::from(*label))
+        .sum::<f64>()
+        / train_labels.len() as f64;
+    let evaluation_booster = fit_booster(&train_features, &train_labels, target.seed())?;
+    let holdout_predictions = predict_booster(&evaluation_booster, &holdout_features)?;
+    let model_brier = brier_score(&holdout_predictions, &holdout_labels);
+    let baseline_brier = brier_score(&vec![baseline_rate; holdout_labels.len()], &holdout_labels);
+    let relative_improvement = if baseline_brier > 0.0 {
+        (baseline_brier - model_brier) / baseline_brier
+    } else {
+        0.0
+    };
+    let accepted = model_brier.is_finite()
+        && baseline_brier.is_finite()
+        && relative_improvement >= MIN_RELATIVE_BRIER_IMPROVEMENT;
+
+    let mut report = serde_json::json!({
+        "target": target.name(),
+        "accepted": accepted,
+        "labelled_rows": rows.len(),
+        "pass_rows": positive,
+        "fail_rows": negative,
+        "train_rows": training.len(),
+        "train_pass_rows": training_positive,
+        "train_fail_rows": training_negative,
+        "holdout_rows": holdout.len(),
+        "holdout_pass_rows": holdout_positive,
+        "holdout_fail_rows": holdout_negative,
+        "cutoff_timestamp": cutoff,
+        "model_brier": model_brier,
+        "baseline_brier": baseline_brier,
+        "relative_brier_improvement": relative_improvement,
+        "reason": if accepted { "better_than_temporal_baseline" } else { "model_did_not_beat_temporal_baseline" },
+    });
+    if !accepted {
+        return Ok(TargetResult {
+            accepted: false,
+            predictions: HashMap::new(),
+            report,
+        });
+    }
+
+    let all_features = rows
+        .iter()
+        .map(|(row, _)| row.features.clone())
+        .collect::<Vec<_>>();
+    let all_labels = rows
+        .iter()
+        .map(|(_, label)| if *label { 1.0_f32 } else { 0.0_f32 })
+        .collect::<Vec<_>>();
+    let production_booster = fit_booster(&all_features, &all_labels, target.seed())?;
+    let predictions = predict_booster(&production_booster, candidate_features)?;
+    if predictions.len() != candidates.len() {
+        return Err(format!(
+            "{} model produced {} candidate predictions for {} candidates",
+            target.name(),
+            predictions.len(),
+            candidates.len()
+        ));
+    }
+    let predictions = candidates
+        .iter()
+        .zip(predictions)
+        .map(|(config, score)| (config.clone(), score))
+        .collect();
+
+    report["reason"] = Value::from("promoted_after_temporal_validation");
+    Ok(TargetResult {
+        accepted: true,
+        predictions,
+        report,
+    })
 }
 
 fn training_feature_vector(fields: &serde_json::Map<String, Value>) -> Option<Vec<f64>> {
-    let protocol = fields.get("protocol")?.as_str()?.to_ascii_lowercase();
-    let backend = fields.get("backend")?.as_str()?.to_ascii_lowercase();
-    let transport = fields.get("transport")?.as_str()?.to_ascii_lowercase();
-    let security = fields.get("security")?.as_str()?.to_ascii_lowercase();
+    // Keep stored and live-candidate encodings identical. Historical rows include
+    // legacy enum values such as "vmess-default", which map to the live default bucket.
+    let protocol = normalize_protocol(
+        fields
+            .get("protocol")?
+            .as_str()?
+            .to_ascii_lowercase()
+            .as_str(),
+    );
+    let raw_backend = fields.get("backend")?.as_str()?.to_ascii_lowercase();
+    let backend = if BACKENDS.contains(&raw_backend.as_str()) {
+        raw_backend
+    } else {
+        "other".to_string()
+    };
+    let raw_transport = fields.get("transport")?.as_str()?.to_ascii_lowercase();
+    let transport = normalize_transport(if raw_transport == "vmess-default" {
+        "default"
+    } else {
+        raw_transport.as_str()
+    });
+    let security = normalize_security(
+        fields
+            .get("security")?
+            .as_str()?
+            .to_ascii_lowercase()
+            .as_str(),
+    );
     let port = fields.get("port")?.as_u64().unwrap_or_default();
 
     Some(structural_vector(
@@ -474,10 +1184,8 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
         .map(u64::from)
         .unwrap_or_else(|| known_port(&protocol));
 
-    let mut query_parameter_names = HashSet::new();
-    for (name, _) in &query {
-        query_parameter_names.insert(name.to_string());
-    }
+    // Match the persisted training feature, which counts query pairs, not distinct keys.
+    let query_parameter_count = query.len() as u64;
 
     let has_sni = has_query_key(&query, &["sni", "serverName", "servername"]);
     let has_host = has_query_key(&query, &["host", "authority"]);
@@ -491,7 +1199,7 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
         transport,
         security,
         port,
-        query_parameter_names.len() as u64,
+        query_parameter_count,
         has_sni,
         has_host,
         has_path,
@@ -693,11 +1401,67 @@ fn structural_vector(
 
 #[cfg(test)]
 mod tests {
-    use super::{config_feature_vector, parse_config_features, port_bucket};
+    use super::{
+        candidate_fingerprint, config_feature_vector, history_feature_vector, load_training,
+        parse_config_features, port_bucket, HISTORY_FEATURE_COUNT, MODEL_FEATURE_COUNT,
+    };
+    use serde_json::{json, Map, Value};
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path() -> String {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        format!(
+            "{}/proxyrift-light-gbm-{nonce}.jsonl",
+            std::env::temp_dir().display()
+        )
+    }
+
+    fn stored_row(timestamp: u64, fingerprint: &str, passed: bool) -> Value {
+        json!({
+            "schema_version": 2,
+            "observed_at": timestamp,
+            "candidate_fingerprint": fingerprint,
+            "observation_id": format!("{timestamp}:{fingerprint}:{passed}"),
+            "features": {
+                "protocol": "vless",
+                "backend": "sing-box",
+                "transport": "tcp",
+                "security": "tls",
+                "port": 443,
+                "query_parameter_count": 0,
+                "has_sni": true,
+                "has_host": false,
+                "has_path": false,
+                "tls_enabled": true,
+                "reality_enabled": false,
+                "early_attempts": 0,
+                "early_success_rate": 0.0,
+                "early_median_ms": 0.0,
+                "early_min_ms": 0.0,
+                "early_jitter_ms": 0.0,
+                "early_throughput_kbps": 0.0,
+                "history_checks": 0,
+                "history_pass_rate": 0.5
+            },
+            "label": {
+                "strict_pass": passed,
+                "strict_checks": 1,
+                "transfer_tested": false,
+                "transfer_pass": null,
+                "stream_tested": false,
+                "stream_pass": null
+            }
+        })
+    }
 
     #[test]
     fn structural_feature_vector_has_stable_width() {
         assert_eq!(config_feature_vector("vless://example.com:443").len(), 53);
+        assert_eq!(MODEL_FEATURE_COUNT, 53 + HISTORY_FEATURE_COUNT);
     }
 
     #[test]
@@ -723,5 +1487,82 @@ mod tests {
         assert!(features.has_host);
         assert!(features.has_path);
         assert!(features.tls_enabled);
+    }
+
+    #[test]
+    fn query_parameter_feature_counts_pairs_consistently() {
+        let config = "vless://token@example.com:443?type=ws&fp=chrome&fp=safari";
+        let parsed = parse_config_features(config);
+        let structural = config_feature_vector(config);
+        let fields = Map::from_iter([
+            ("protocol".to_string(), Value::from("vless")),
+            ("backend".to_string(), Value::from("sing-box")),
+            ("transport".to_string(), Value::from("ws")),
+            ("security".to_string(), Value::from("default")),
+            ("port".to_string(), Value::from(443_u64)),
+            ("query_parameter_count".to_string(), Value::from(3_u64)),
+            ("has_sni".to_string(), Value::from(false)),
+            ("has_host".to_string(), Value::from(false)),
+            ("has_path".to_string(), Value::from(false)),
+            ("tls_enabled".to_string(), Value::from(false)),
+            ("reality_enabled".to_string(), Value::from(false)),
+        ]);
+        let stored = super::training_feature_vector(&fields).expect("stored features");
+        assert_eq!(parsed.query_parameter_count, 3);
+        assert_eq!(structural, stored);
+    }
+
+    #[test]
+    fn temporal_history_features_do_not_leak_same_run_labels() {
+        let path = temp_path();
+        let mut rows = Vec::new();
+        for index in 0..3 {
+            rows.push(serde_json::to_string(&stored_row(100, "same-candidate", true)).unwrap());
+            if index == 0 {
+                rows.push(
+                    serde_json::to_string(&stored_row(100, "other-candidate", false)).unwrap(),
+                );
+            }
+        }
+        rows.push(serde_json::to_string(&stored_row(200, "same-candidate", true)).unwrap());
+        fs::write(&path, rows.join("\n") + "\n").expect("write training data");
+
+        let data = load_training(&path).expect("load training data");
+        assert!(data
+            .examples
+            .iter()
+            .all(|row| row.transfer_pass.is_none() && row.stream_pass.is_none()));
+        let same_time = data
+            .examples
+            .iter()
+            .filter(|row| row.observed_at == 100)
+            .collect::<Vec<_>>();
+        assert!(same_time.iter().all(|row| row.features[53] == 0.0));
+        let later = data
+            .examples
+            .iter()
+            .find(|row| row.observed_at == 200)
+            .expect("later row");
+        assert!((later.features[54] - (5.0 / 7.0)).abs() < 1e-9);
+        assert_eq!(later.features.len(), MODEL_FEATURE_COUNT);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn fingerprints_ignore_config_labels() {
+        assert_eq!(
+            candidate_fingerprint("vless://token@example.com:443#label-a"),
+            candidate_fingerprint("vless://token@example.com:443#label-b")
+        );
+    }
+
+    #[test]
+    fn history_vector_uses_neutral_priors_for_unseen_candidates() {
+        let vector = history_feature_vector(None, None, 100);
+        assert_eq!(vector.len(), HISTORY_FEATURE_COUNT);
+        assert_eq!(vector[0], 0.0);
+        assert_eq!(vector[1], 0.5);
+        assert_eq!(vector[5], 0.5);
+        assert_eq!(vector[12], 0.0);
     }
 }
