@@ -777,8 +777,7 @@ fn top_quintile_pass_rate(predictions: &[f64], labels: &[f32]) -> f64 {
             .iter()
             .filter(|index| labels[**index] >= 0.5)
             .count();
-        selected_passes +=
-            (selected_from_group as f64 / group_size as f64) * group_passes as f64;
+        selected_passes += (selected_from_group as f64 / group_size as f64) * group_passes as f64;
         remaining -= selected_from_group;
         start = end;
     }
