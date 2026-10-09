@@ -28,10 +28,10 @@ jobs:
     steps:
       - name: Inspect update health and recover safely
         env:
-          GH_TOKEN: \${{ github.token }}
-          GH_REPOSITORY: \${{ github.repository }}
-          EVENT_NAME: \${{ github.event_name }}
-          EVENT_PATH: \${{ github.event_path }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
         shell: bash
         run: |
           set -euo pipefail
@@ -72,7 +72,7 @@ jobs:
               all-singbox.json light-singbox.json
             )
 
-            for file in "\${files[@]}"; do
+            for file in "${files[@]}"; do
               echo "[INFO] Checking subscriptions/$file"
               if ! curl --fail --silent --show-error --location \
                   --retry 3 --retry-delay 3 --retry-all-errors \
@@ -186,11 +186,11 @@ jobs:
             age=$(( now - started_epoch ))
 
             if (( age >= 4500 )); then
-              echo "[WARN] Update Configs run $run_id has been $status for \${age}s; cancelling the stale run and dispatching a replacement."
+              echo "[WARN] Update Configs run $run_id has been $status for ${age}s; cancelling the stale run and dispatching a replacement."
               gh api --method POST "/repos/$repo/actions/runs/$run_id/cancel" >/dev/null || true
               dispatch_update
             else
-              echo "[OK] Update Configs run $run_id is $status and is not stale (\${age}s)."
+              echo "[OK] Update Configs run $run_id is $status and is not stale (${age}s)."
               {
                 echo "## ProxyRift Autopilot"
                 echo
@@ -213,11 +213,11 @@ jobs:
           age=$(( now - latest_epoch ))
 
           if (( age >= 5400 )); then
-            echo "[WARN] Latest Update Configs run $latest_id was created \${age}s ago; dispatching a recovery run."
+            echo "[WARN] Latest Update Configs run $latest_id was created ${age}s ago; dispatching a recovery run."
             dispatch_update
           else
             conclusion="$(jq -r '.conclusion // .status' <<< "$latest_run")"
-            echo "[OK] Update Configs has recent activity (latest run $latest_id, state=$conclusion, age=\${age}s)."
+            echo "[OK] Update Configs has recent activity (latest run $latest_id, state=$conclusion, age=${age}s)."
             {
               echo "## ProxyRift Autopilot"
               echo
