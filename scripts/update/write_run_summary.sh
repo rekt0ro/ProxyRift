@@ -265,51 +265,51 @@ collect_delta_display="$(format_delta "$collect_elapsed" "$previous_collect_elap
 light_delta_display="$(format_delta "$light_elapsed" "$previous_light_elapsed")"
 
 {
-  echo "## 🔄 ProxyRift Update"
+  echo "# ProxyRift Update"
   echo
-  echo "| Stage | Status |"
-  echo "|---|---|"
-  echo "| Workflow | $overall_status |"
-  echo "| Collection & validation | $collection_status |"
-  echo "| Subscription generation | $generation_status |"
-  echo "| Publish | $publish_status |"
+  echo "## Run status"
   echo
-  echo "### ⏱️ Benchmark"
+  echo "| Workflow | Collection & validation | Generation | Publish |"
+  echo "|---|---|---|---|"
+  echo "| $overall_status | $collection_status | $generation_status | $publish_status |"
   echo
-  echo "| Stage | This run | Previous run | Δ |"
-  echo "|---|---:|---:|---:|"
+  echo "## Runtime"
+  echo
   if [ -n "$previous_run_number" ]; then
+    echo "| Stage | This run | Previous (#$previous_run_number) | Change |"
+    echo "|---|---:|---:|---:|"
     echo "| Total pipeline | $current_total_display | $previous_total_display | $total_delta_display |"
     echo "| Collection & transport | $current_collect_display | $previous_collect_display | $collect_delta_display |"
     echo "| Light validation | $current_light_display | $previous_light_display | $light_delta_display |"
-    echo
-    echo "_Comparison is against the immediately preceding completed update run (#$previous_run_number)._"
   else
-    echo "| Total pipeline | $current_total_display | — | — |"
-    echo "| Collection & transport | $current_collect_display | — | — |"
-    echo "| Light validation | $current_light_display | — | — |"
+    echo "| Stage | This run |"
+    echo "|---|---:|"
+    echo "| Total pipeline | $current_total_display |"
+    echo "| Collection & transport | $current_collect_display |"
+    echo "| Light validation | $current_light_display |"
     echo
-    echo "_No preceding completed update run was found._"
+    echo "_No preceding completed update run was found for comparison._"
   fi
   echo
-  echo "### 🧠 LightGBM ranking"
+  echo "## Published outputs"
   echo
-  echo "| Metric | Value |"
-  echo "|---|---:|"
-  echo "| Model | $lightgbm_trained |"
-  echo "| Training rows | $lightgbm_training_rows |"
-  echo "| Model features | $lightgbm_feature_count |"
-  echo "| Candidates scored | $lightgbm_scored |"
-  echo "| Ranking | Consumer evidence + LightGBM |"
+  echo "| Subscription | Config entries | Formats |"
+  echo "|---|---:|---|"
+  echo "| All | $all_count | Base64, Clash/Mihomo YAML, sing-box JSON |"
+  echo "| Light | $light_count | Base64, Clash/Mihomo YAML, sing-box JSON |"
   echo
-  echo "### 🔬 Light validation"
+  echo "## Light selection"
+  echo
+  echo "| Input candidates | Strictly verified | Selection target | Published by validator |"
+  echo "|---:|---:|---:|---:|"
+  echo "| $input_candidates | $strict_verified | $selection_target | $published |"
+  echo
+  echo "<details>"
+  echo "<summary>Light validation and transport-test details</summary>"
   echo
   echo "| Metric | Count |"
   echo "|---|---:|"
-  echo "| Input candidates | $input_candidates |"
   echo "| TLS bypass rejected | $security_rejected |"
-  echo "| Strictly verified | $strict_verified |"
-  echo "| Selection target | $selection_target |"
   echo "| Strict selectable | $strict_selectable |"
   echo "| 1 MiB selectable | $stability_selectable |"
   echo "| 10 MiB selectable | $transfer_selectable |"
@@ -319,36 +319,30 @@ light_delta_display="$(format_delta "$light_elapsed" "$previous_light_elapsed")"
   echo "| 10 MiB passed | $transfer_passed |"
   echo "| Stream continuity tested | $stream_tested |"
   echo "| Stream continuity passed | $stream_passed |"
-  echo "| Published by validator | $published |"
+  echo "</details>"
   echo
-  echo "### 🧪 ML dataset health"
+  echo "## LightGBM ranking"
   echo
-  echo "| Metric | Value |"
+  echo "| Model | Training rows | Features | Candidates scored |"
+  echo "|---|---:|---:|---:|"
+  echo "| $lightgbm_trained | $lightgbm_training_rows | $lightgbm_feature_count | $lightgbm_scored |"
+  echo
+  echo "<details>"
+  echo "<summary>Training dataset health</summary>"
+  echo
+  echo "| Metric | Result |"
   echo "|---|---:|"
   echo "| Dataset rows | $ml_rows |"
-  echo "| Strict pass rate | $ml_strict_rate% |"
-  echo "| Transfer labels | $ml_transfer_passes/$ml_transfer_tests passed |"
-  echo "| Stream labels | $stream_passed/$stream_tested passed |"
+  echo "| Strict passes | $ml_strict_passes / $ml_rows ($ml_strict_rate%) |"
+  echo "| Transfer labels passed | $ml_transfer_passes / $ml_transfer_tests |"
+  echo "| Stream continuity passed | $stream_passed / $stream_tested |"
+  echo "</details>"
   echo
-  echo "### 📦 Published outputs"
+  echo "## Validation cores"
   echo
-  echo "| Output | Config entries |"
-  echo "|---|---:|"
-  echo "| All | $all_count |"
-  echo "| Light | $light_count |"
-  echo "| All Base64 | encoded from All |"
-  echo "| Light Base64 | encoded from Light |"
-  echo "| All Clash / Mihomo YAML | generated from All |"
-  echo "| Light Clash / Mihomo YAML | generated from Light |"
-  echo "| All sing-box JSON | generated from All |"
-  echo "| Light sing-box JSON | generated from Light |"
-  echo
-  echo "### 🛡️ Validation cores"
-  echo
-  echo "| Core | Version |"
+  echo "| Xray | sing-box |"
   echo "|---|---|"
-  echo "| Xray | $xray_summary_version |"
-  echo "| sing-box | $singbox_summary_version |"
+  echo "| $xray_summary_version | $singbox_summary_version |"
   echo
   echo "_Generated by the ProxyRift update workflow._"
 } >> "$GITHUB_STEP_SUMMARY"
