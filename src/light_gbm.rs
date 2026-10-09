@@ -358,8 +358,6 @@ impl ModelTarget {
 #[derive(Clone, Debug)]
 struct TrainingExample {
     observed_at: u64,
-    candidate_fingerprint: String,
-    family: String,
     features: Vec<f64>,
     strict_pass: bool,
     transfer_pass: Option<bool>,
@@ -600,8 +598,6 @@ fn load_training(path: &str) -> Result<TrainingData, String> {
             }
             examples.push(TrainingExample {
                 observed_at: row.observed_at,
-                candidate_fingerprint: row.candidate_fingerprint.clone(),
-                family: row.family.clone(),
                 features,
                 strict_pass: row.strict_pass,
                 transfer_pass: row.transfer_pass,
@@ -1351,12 +1347,10 @@ fn structural_vector(
 #[cfg(test)]
 mod tests {
     use super::{
-        candidate_fingerprint, config_feature_vector, feature_signature, history_feature_vector,
-        load_training, parse_config_features, port_bucket, RollingStats, RawTrainingRow,
-        ModelTarget, TrainingExample, MODEL_FEATURE_COUNT, HISTORY_FEATURE_COUNT,
+        candidate_fingerprint, config_feature_vector, history_feature_vector, load_training,
+        parse_config_features, port_bucket, MODEL_FEATURE_COUNT, HISTORY_FEATURE_COUNT,
     };
     use serde_json::{json, Map, Value};
-    use std::collections::HashMap;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
