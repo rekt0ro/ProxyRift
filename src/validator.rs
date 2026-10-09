@@ -67,6 +67,8 @@ const TARGET_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 const TARGET_RATE_LIMIT_THRESHOLD: u8 = 3;
 const TARGET_POOL_PROBE_CHUNK_SIZE: usize = 8;
 const TARGET_POOL_MAX_PROBE_CHUNK_SIZE: usize = 32;
+const TARGET_POOL_FAST_SCORE_THRESHOLD: f64 = 0.78;
+const TARGET_PERFORMANCE_EXPLORATION_WEIGHT: f64 = 0.50;
 
 fn next_target_pool_probe_chunk_size(current: usize, maximum: usize, rate_limits: u64) -> usize {
     let maximum = maximum.max(1);
@@ -88,6 +90,17 @@ struct TargetRateLimitState {
 }
 
 static TARGET_RATE_LIMIT_STATES: OnceLock<Mutex<HashMap<String, TargetRateLimitState>>> =
+    OnceLock::new();
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TargetPerformanceState {
+    probes: u64,
+    successes: u64,
+    rate_limits: u64,
+    successful_latency_ms_per_mib: f64,
+}
+
+static TARGET_PERFORMANCE_STATES: OnceLock<Mutex<HashMap<String, TargetPerformanceState>>> =
     OnceLock::new();
 
 fn target_rate_limit_key(target: &str) -> Option<String> {
@@ -167,6 +180,121 @@ pub fn target_rate_limit_events(target: &str) -> u64 {
         .get(&key)
         .map(|state| state.total_events)
         .unwrap_or(0)
+}
+
+fn record_target_performance(
+    target: &str,
+    probes: u64,
+    successes: u64,
+    rate_limits: u64,
+    successful_latency_ms_per_mib: f64,
+) {
+    if probes == 0 {
+        return;
+    }
+
+    let Some(key) = target_rate_limit_key(target) else {
+        return;
+    };
+    let states = TARGET_PERFORMANCE_STATES.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut states = states
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let state = states.entry(key).or_default();
+
+    state.probes = state.probes.saturating_add(probes);
+    state.successes = state.successes.saturating_add(successes.min(probes));
+    state.rate_limits = state.rate_limits.saturating_add(rate_limits.min(probes));
+    if successful_latency_ms_per_mib.is_finite() && successful_latency_ms_per_mib > 0.0 {
+        state.successful_latency_ms_per_mib += successful_latency_ms_per_mib;
+    }
+}
+
+/// Scores download hosts using observed reliability, rate-limit pressure, and
+/// latency normalized to MiB. Unproven hosts retain an exploration bonus.
+pub fn target_performance_score(target: &str) -> f64 {
+    let Some(key) = target_rate_limit_key(target) else {
+        return TARGET_PERFORMANCE_EXPLORATION_WEIGHT;
+    };
+    let Some(states) = TARGET_PERFORMANCE_STATES.get() else {
+        return TARGET_PERFORMANCE_EXPLORATION_WEIGHT;
+    };
+    let states = states
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(state) = states.get(&key) else {
+        return TARGET_PERFORMANCE_EXPLORATION_WEIGHT;
+    };
+    if state.probes == 0 {
+        return TARGET_PERFORMANCE_EXPLORATION_WEIGHT;
+    }
+
+    let probes = state.probes as f64;
+    let confidence = probes / (probes + 8.0);
+    let pass_rate = ((state.successes as f64 + 2.0) / (probes + 4.0)).clamp(0.05, 0.98);
+    let average_latency_ms_per_mib = if state.successes == 0 {
+        60_000.0
+    } else {
+        (state.successful_latency_ms_per_mib / state.successes as f64).clamp(0.0, 60_000.0)
+    };
+    let speed_factor = 10_000.0 / (10_000.0 + average_latency_ms_per_mib);
+    let rate_limit_rate = (state.rate_limits as f64 / probes).clamp(0.0, 1.0);
+    let quality = pass_rate * speed_factor * (1.0 - rate_limit_rate.min(0.90));
+    let exploration = TARGET_PERFORMANCE_EXPLORATION_WEIGHT * (8.0 / (probes + 8.0));
+
+    (confidence * quality + exploration).clamp(0.0, 1.0)
+}
+
+fn target_performance_diagnostics(target: &str) -> String {
+    let score = target_performance_score(target);
+    let Some(key) = target_rate_limit_key(target) else {
+        return format!("probes=0 score={score:.3}");
+    };
+    let Some(states) = TARGET_PERFORMANCE_STATES.get() else {
+        return format!("probes=0 score={score:.3}");
+    };
+    let states = states
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(state) = states.get(&key) else {
+        return format!("probes=0 score={score:.3}");
+    };
+    if state.probes == 0 {
+        return format!("probes=0 score={score:.3}");
+    }
+
+    let pass_rate = state.successes as f64 * 100.0 / state.probes as f64;
+    let average_latency = if state.successes == 0 {
+        0.0
+    } else {
+        state.successful_latency_ms_per_mib / state.successes as f64
+    };
+    format!(
+        "probes={} pass={pass_rate:.0}% rate-limits={} avg={average_latency:.0}ms/MiB score={score:.3}",
+        state.probes, state.rate_limits
+    )
+}
+
+fn sort_targets_by_performance(targets: &mut [Url]) {
+    let mut ranked = targets
+        .iter()
+        .cloned()
+        .map(|target| (target_performance_score(target.as_str()), target))
+        .collect::<Vec<_>>();
+    ranked.sort_by(|(left_score, _), (right_score, _)| right_score.total_cmp(left_score));
+
+    for (slot, (_, target)) in targets.iter_mut().zip(ranked) {
+        *slot = target;
+    }
+}
+
+fn initial_target_pool_probe_chunk_size(maximum: usize, performance_score: f64) -> usize {
+    let maximum = maximum.max(1);
+    if performance_score >= TARGET_POOL_FAST_SCORE_THRESHOLD {
+        maximum
+    } else {
+        TARGET_POOL_PROBE_CHUNK_SIZE.min(maximum).max(1)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -2946,7 +3074,10 @@ pub(crate) async fn validate_clients_with_target_pool(
         let mut target_throttled = false;
 
         let maximum_chunk_size = workers.clamp(1, TARGET_POOL_MAX_PROBE_CHUNK_SIZE);
-        let mut chunk_size = TARGET_POOL_PROBE_CHUNK_SIZE.min(maximum_chunk_size);
+        let mut chunk_size = initial_target_pool_probe_chunk_size(
+            maximum_chunk_size,
+            target_performance_score(target.as_str()),
+        );
         let mut offset = 0usize;
         while offset < eligible.len() {
             if target_is_rate_limited(target.as_str()) {
@@ -2972,18 +3103,40 @@ pub(crate) async fn validate_clients_with_target_pool(
                 .collect::<Vec<_>>()
                 .await;
 
+            let mut chunk_probes = 0u64;
+            let mut chunk_successes = 0u64;
+            let mut chunk_rate_limits = 0u64;
+            let mut chunk_successful_latency_ms_per_mib = 0.0;
+
             for (index, result) in results {
+                chunk_probes = chunk_probes.saturating_add(1);
                 attempts[index] = attempts[index].saturating_add(1);
-                if let Ok(sample) = result {
-                    if sample.latency_ms <= policy.max_latency_ms {
+                match result {
+                    Ok(sample) if sample.latency_ms <= policy.max_latency_ms => {
+                        chunk_successes = chunk_successes.saturating_add(1);
+                        chunk_successful_latency_ms_per_mib += sample.latency_ms
+                            * LIGHT_TRANSFER_STABILITY_BYTES as f64
+                            / sample.bytes.max(1) as f64;
                         successful_targets[index] = successful_targets[index].saturating_add(1);
                         latencies[index].push(sample.latency_ms);
                         if sample.latency_ms > 0.0 && is_throughput_target(target.as_str()) {
                             throughputs[index].push(sample.bytes as f64 * 8.0 / sample.latency_ms);
                         }
                     }
+                    Err(ProbeError::RateLimited) => {
+                        chunk_rate_limits = chunk_rate_limits.saturating_add(1);
+                    }
+                    Ok(_) | Err(ProbeError::Failed | ProbeError::TargetCoolingDown) => {}
                 }
             }
+
+            record_target_performance(
+                target.as_str(),
+                chunk_probes,
+                chunk_successes,
+                chunk_rate_limits,
+                chunk_successful_latency_ms_per_mib,
+            );
 
             let rate_limits_in_chunk =
                 target_rate_limit_events(target.as_str()).saturating_sub(rate_limits_before);
@@ -3312,7 +3465,7 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
         return Vec::new();
     }
 
-    let available = targets
+    let mut available = targets
         .iter()
         .filter(|target| {
             let cooling = target_is_rate_limited(target.as_str());
@@ -3326,6 +3479,21 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
         })
         .cloned()
         .collect::<Vec<_>>();
+    sort_targets_by_performance(&mut available);
+    if !available.is_empty() {
+        let host_order = available
+            .iter()
+            .map(|target| {
+                format!(
+                    "{} [{}]",
+                    target.host_str().unwrap_or(target.as_str()),
+                    target_performance_diagnostics(target.as_str())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        println!("[INFO] 🧭 [Targets] Adaptive host order | {host_order}");
+    }
 
     if available.is_empty() {
         return available;
@@ -4300,6 +4468,40 @@ mod tests {
     use reqwest::header::{HeaderMap, HeaderValue};
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
+
+    #[test]
+    fn target_scheduler_prefers_fast_reliable_hosts_and_explores_unknowns() {
+        let fast = "https://scheduler-fast-test.invalid/data";
+        let slow = "https://scheduler-slow-test.invalid/data";
+        let limited = "https://scheduler-limited-test.invalid/data";
+        let unknown = "https://scheduler-unknown-test.invalid/data";
+
+        record_target_performance(fast, 40, 38, 0, 4_000.0);
+        record_target_performance(slow, 40, 37, 0, 400_000.0);
+        record_target_performance(limited, 40, 32, 16, 20_000.0);
+
+        let fast_score = target_performance_score(fast);
+        let unknown_score = target_performance_score(unknown);
+        assert!(fast_score > unknown_score);
+        assert!(unknown_score > target_performance_score(slow));
+        assert!(unknown_score > target_performance_score(limited));
+
+        let mut targets = vec![
+            Url::parse(slow).unwrap(),
+            Url::parse(unknown).unwrap(),
+            Url::parse(fast).unwrap(),
+        ];
+        sort_targets_by_performance(&mut targets);
+        assert_eq!(targets[0].host_str(), Some("scheduler-fast-test.invalid"));
+        assert_eq!(
+            targets[1].host_str(),
+            Some("scheduler-unknown-test.invalid")
+        );
+
+        assert_eq!(initial_target_pool_probe_chunk_size(16, fast_score), 16);
+        assert_eq!(initial_target_pool_probe_chunk_size(16, unknown_score), 8);
+        assert_eq!(initial_target_pool_probe_chunk_size(1, fast_score), 1);
+    }
 
     #[tokio::test]
     async fn sustained_stream_reader_rejects_long_idle_gap() {

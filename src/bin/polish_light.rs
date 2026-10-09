@@ -13,7 +13,7 @@ use proxyrift::singbox::{
 };
 use proxyrift::validator::{
     endpoint, is_light_consumer_compatible, read_lines, target_is_rate_limited,
-    target_rate_limit_events, validate_candidates_with_consumer_targets,
+    target_performance_score, target_rate_limit_events, validate_candidates_with_consumer_targets,
     validate_candidates_with_target_once,
     validate_candidates_with_target_pool_once_with_minimum_body,
     validate_candidates_with_target_pool_once_with_sustained_stream, write_lines, ProxyMetrics,
@@ -33,7 +33,8 @@ use url::Url;
 
 const DISCOVERY_BATCH_MIN: usize = 24;
 const DISCOVERY_BATCH_MAX: usize = 300;
-const DISCOVERY_STALL_BATCH_SIZE: usize = DISCOVERY_BATCH_MAX;
+const DISCOVERY_BATCH_HARD_MAX: usize = 600;
+const DISCOVERY_STALL_BATCH_SIZE: usize = DISCOVERY_BATCH_HARD_MAX;
 const DISCOVERY_STAGNATION_WAVES: usize = 4;
 const MAX_DISCOVERY_CANDIDATES: usize = 10000;
 const DISCOVERY_SAFETY_FACTOR: f64 = 1.15;
@@ -992,6 +993,34 @@ fn adaptive_discovery_batch_size(
         .min(available_candidates)
 }
 
+fn adjust_discovery_batch_for_yield(
+    suggested: usize,
+    current_batch: usize,
+    newly_selectable: usize,
+    tested_candidates: usize,
+    available_candidates: usize,
+) -> usize {
+    if available_candidates == 0 {
+        return 0;
+    }
+
+    let suggested = suggested.clamp(1, DISCOVERY_BATCH_MAX);
+    let low_yield =
+        tested_candidates > 0 && newly_selectable.saturating_mul(100) < tested_candidates;
+    if !low_yield {
+        return suggested.min(available_candidates);
+    }
+
+    suggested
+        .max(
+            current_batch
+                .saturating_mul(2)
+                .min(DISCOVERY_BATCH_HARD_MAX),
+        )
+        .min(DISCOVERY_BATCH_HARD_MAX)
+        .min(available_candidates)
+}
+
 fn family_key(config: &str) -> String {
     let cleaned = config.split('#').next().unwrap_or(config);
     let Ok(url) = Url::parse(cleaned) else {
@@ -1515,11 +1544,22 @@ fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
         return None;
     }
 
-    if let Some((index, _)) = states
-        .iter()
-        .enumerate()
-        .find(|(_, state)| !state.quarantined && state.batches == 0)
-    {
+    let mut best_untested: Option<(usize, f64)> = None;
+    for (index, state) in states.iter().enumerate() {
+        if state.quarantined || state.batches != 0 {
+            continue;
+        }
+        let score =
+            target_performance_score(proxyrift::validator::STRICT_THROUGHPUT_TARGETS[index]);
+        if best_untested
+            .as_ref()
+            .map(|(_, best_score)| score > *best_score)
+            .unwrap_or(true)
+        {
+            best_untested = Some((index, score));
+        }
+    }
+    if let Some((index, _)) = best_untested {
         return Some(index);
     }
 
@@ -1744,6 +1784,7 @@ async fn fill_transfer_stability_gate(
             );
         }
 
+        let batch_started = Instant::now();
         let metadata = validate_light_transfer_stability_batch(
             xray,
             singbox,
@@ -1751,6 +1792,7 @@ async fn fill_transfer_stability_gate(
             STABILITY_TRANSFER_WORKERS,
         )
         .await?;
+        let batch_elapsed = batch_started.elapsed().as_secs();
         let batch_passed = metadata.len();
         let passed_configs = metadata.keys().cloned().collect::<Vec<_>>();
         stability_verified.extend(metadata);
@@ -1760,9 +1802,10 @@ async fn fill_transfer_stability_gate(
         }
 
         println!(
-            "[INFO] ✅ [1 MiB] {}/{} Passed both transfer destinations | Stable pool: {} | Transfer pipeline: active",
+            "[INFO] ✅ [1 MiB] {}/{} Passed both transfer destinations | Batch: {}s | Stable pool: {} | Transfer pipeline: active",
             batch_passed,
             batch.len(),
+            batch_elapsed,
             stability_verified.len()
         );
     }
@@ -3305,6 +3348,7 @@ async fn main() -> Result<(), String> {
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
     let mut stagnant_waves = 0usize;
+    let mut discovery_batch_floor = DISCOVERY_BATCH_MIN;
 
     println!(
         "[INFO] 🔬 [Light] Validation started | {} Candidates | Targets: {} | ML/history ranked with {}% exploration",
@@ -3366,6 +3410,7 @@ async fn main() -> Result<(), String> {
             break;
         }
 
+        let candidates_remaining = discovery_candidates.len().saturating_sub(discovery_cursor);
         let mut discovery_batch_size = adaptive_discovery_batch_size(
             selection_limit,
             publishable_selected,
@@ -3375,8 +3420,11 @@ async fn main() -> Result<(), String> {
             transfer_verified.len(),
             stream_tested.len(),
             stream_verified.len(),
-            discovery_candidates.len().saturating_sub(discovery_cursor),
-        );
+            candidates_remaining,
+        )
+        .max(discovery_batch_floor)
+        .min(DISCOVERY_BATCH_HARD_MAX)
+        .min(candidates_remaining);
         if discovery_batch_size == 0 {
             break;
         }
@@ -3402,6 +3450,13 @@ async fn main() -> Result<(), String> {
         let progress_before_final = final_metadata.len();
         let progress_before_transfer = transfer_verified.len();
         let progress_before_stream = stream_verified.len();
+        let strict_selectable_before = select_verified_configs(
+            &final_verified,
+            final_verified.len(),
+            max_per_endpoint,
+            max_per_family,
+        )
+        .len();
         discovery_cursor = batch_end;
         let chunk = &discovery_candidates[batch_start..batch_end];
 
@@ -3581,6 +3636,13 @@ async fn main() -> Result<(), String> {
             max_per_endpoint,
             max_per_family,
         );
+        let strict_eligible = select_verified_configs(
+            &final_verified,
+            final_verified.len(),
+            max_per_endpoint,
+            max_per_family,
+        )
+        .len();
 
         println!(
             "[INFO] 🧭 [Light discovery] Wave {wave} complete | Prefilter verified: {} | Global verified: {} | Strict verified: {} | Publish-selectable strict: {}",
@@ -3686,7 +3748,7 @@ async fn main() -> Result<(), String> {
                 break;
             }
 
-            let next_batch = adaptive_discovery_batch_size(
+            let estimated_next_batch = adaptive_discovery_batch_size(
                 selection_limit,
                 select_verified_configs(
                     &stream_verified.keys().cloned().collect::<Vec<_>>(),
@@ -3703,11 +3765,30 @@ async fn main() -> Result<(), String> {
                 stream_verified.len(),
                 discovery_candidates.len().saturating_sub(discovery_cursor),
             );
+            let newly_selectable = strict_eligible.saturating_sub(strict_selectable_before);
+            let candidates_remaining = discovery_candidates.len().saturating_sub(discovery_cursor);
+            let next_batch = adjust_discovery_batch_for_yield(
+                estimated_next_batch,
+                discovery_batch_size,
+                newly_selectable,
+                chunk.len(),
+                candidates_remaining,
+            );
+            if next_batch > estimated_next_batch {
+                println!(
+                    "[INFO] 🚀 [Light discovery] Low selectable yield | New strict-selectable: {}/{} | Expanding next batch: {} -> {}",
+                    newly_selectable,
+                    chunk.len(),
+                    estimated_next_batch,
+                    next_batch
+                );
+            }
             println!(
                 "[INFO] 🔁 [Light adaptive funnel] Downstream yield measured | Next discovery batch: {} | Candidates remaining: {}",
                 next_batch,
-                discovery_candidates.len().saturating_sub(discovery_cursor)
+                candidates_remaining
             );
+            discovery_batch_floor = next_batch;
 
             let progressed = final_metadata.len() > progress_before_final
                 || transfer_verified.len() > progress_before_transfer
@@ -3734,6 +3815,29 @@ async fn main() -> Result<(), String> {
             } else {
                 stagnant_waves = 0;
             }
+        } else {
+            // Before the strict pool is full, low yield must still influence the
+            // next discovery wave; otherwise this path scans the whole candidate
+            // set in fixed-size waves before running the downstream gates.
+            let newly_selectable = strict_eligible.saturating_sub(strict_selectable_before);
+            let candidates_remaining = discovery_candidates.len().saturating_sub(discovery_cursor);
+            let next_floor = adjust_discovery_batch_for_yield(
+                DISCOVERY_BATCH_MIN,
+                discovery_batch_size,
+                newly_selectable,
+                chunk.len(),
+                candidates_remaining,
+            );
+            if next_floor > discovery_batch_size {
+                println!(
+                    "[INFO] 🚀 [Light discovery] Low selectable yield | New strict-selectable: {}/{} | Expanding next batch: {} -> {}",
+                    newly_selectable,
+                    chunk.len(),
+                    discovery_batch_size,
+                    next_floor
+                );
+            }
+            discovery_batch_floor = next_floor;
         }
     }
 
@@ -3940,11 +4044,11 @@ mod tests {
     use super::{
         adaptive_discovery_batch_size, adaptive_recheck_limit, adaptive_stability_pool_target,
         adaptive_stability_target, adaptive_strict_validation_target, adaptive_transfer_test_limit,
-        adjust_transfer_workers, has_disabled_tls_verification, history_fingerprint, light_backend,
-        light_training_features, merge_light_metadata, normalize_light_config,
-        observation_fingerprint, rank_discovery_candidates, recheck_exploration_limit,
-        select_recheck_candidates, select_stability_test_batch, select_transfer_target,
-        select_verified_configs, select_verified_configs_with_cohort_floor,
+        adjust_discovery_batch_for_yield, adjust_transfer_workers, has_disabled_tls_verification,
+        history_fingerprint, light_backend, light_training_features, merge_light_metadata,
+        normalize_light_config, observation_fingerprint, rank_discovery_candidates,
+        recheck_exploration_limit, select_recheck_candidates, select_stability_test_batch,
+        select_transfer_target, select_verified_configs, select_verified_configs_with_cohort_floor,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, strict_validation_target,
         transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
@@ -3954,6 +4058,24 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn discovery_batch_expands_when_selectable_yield_stalls() {
+        assert_eq!(
+            adjust_discovery_batch_for_yield(300, 250, 0, 250, 8000),
+            500
+        );
+        assert_eq!(
+            adjust_discovery_batch_for_yield(300, 500, 0, 500, 8000),
+            600
+        );
+        assert_eq!(
+            adjust_discovery_batch_for_yield(300, 250, 3, 250, 8000),
+            300
+        );
+        assert_eq!(adjust_discovery_batch_for_yield(300, 600, 0, 600, 120), 120);
+        assert_eq!(adjust_discovery_batch_for_yield(300, 250, 0, 250, 0), 0);
+    }
 
     #[test]
     fn cohort_floor_retains_previous_and_older_candidates() {
