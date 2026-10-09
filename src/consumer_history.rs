@@ -1072,7 +1072,7 @@ impl ConsumerEvidence {
             .unwrap_or(archetype_rate);
         let family_rate = smoothed_rate(family_stats, learned_family_rate, FAMILY_PRIOR_STRENGTH);
         let consumer_rate = if let Some(performance_rate) = self.performance_family_score(config) {
-            0.60 * family_rate + 0.40 * performance_rate
+            0.40 * family_rate + 0.60 * performance_rate
         } else {
             family_rate
         };
