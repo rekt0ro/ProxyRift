@@ -81,6 +81,7 @@ impl LightGbmScores {
         }
 
         let data = load_training(DEFAULT_TRAINING_PATH)?;
+        let prediction_time = current_epoch_seconds();
         let candidate_features = candidates
             .iter()
             .map(|config| {
@@ -90,7 +91,7 @@ impl LightGbmScores {
                 features.extend(history_feature_vector(
                     data.exact_history.get(&fingerprint),
                     data.family_history.get(&family),
-                    current_epoch_seconds(),
+                    prediction_time,
                 ));
                 features
             })
@@ -176,6 +177,7 @@ impl LightGbmScores {
         let model_report = serde_json::json!({
             "validation": "walk_forward_time_split",
             "baseline": "training_prevalence_brier",
+            "composite_weights": {"strict": 0.50, "transfer": 0.30, "stream": 0.20},
             "promotion_minimum_relative_brier_improvement": MIN_RELATIVE_BRIER_IMPROVEMENT,
             "history_features": HISTORY_FEATURE_COUNT,
             "model_feature_count": MODEL_FEATURE_COUNT,
@@ -1526,6 +1528,10 @@ mod tests {
         fs::write(&path, rows.join("\n") + "\n").expect("write training data");
 
         let data = load_training(&path).expect("load training data");
+        assert!(data
+            .examples
+            .iter()
+            .all(|row| row.transfer_pass.is_none() && row.stream_pass.is_none()));
         let same_time = data
             .examples
             .iter()
