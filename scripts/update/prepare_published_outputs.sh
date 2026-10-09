@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-minimum_light="\${LIGHT_MIN_PUBLISH:-50}"
-minimum_all="\${ALL_MIN_PUBLISH:-1}"
+minimum_light="${LIGHT_MIN_PUBLISH:-50}"
+minimum_all="${ALL_MIN_PUBLISH:-1}"
 
 for f in subscriptions/all.txt subscriptions/light.txt subscriptions/all-base64.txt subscriptions/light-base64.txt subscriptions/all-clash.yaml subscriptions/light-clash.yaml subscriptions/all-singbox.json subscriptions/light-singbox.json; do
   if [ ! -s "$f" ]; then
