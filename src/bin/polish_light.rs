@@ -1797,7 +1797,8 @@ async fn fill_transfer_stability_gate(
         stability_tested.extend(batch.iter().cloned());
 
         if completion_mode {
-            println!(
+            if !(proxyrift::compact_logs_enabled() && !(stability_tested.len() / 100 > stability_tested.len().saturating_sub(batch.len()) / 100 || stable_selected.len() >= stability_target)) {
+                println!(
                 "[INFO] 🎯 [1 MiB] Completion mode | Stable: {} | Need: {} | Prioritizing {} highest-ranked untested candidates | Test caps: {}/{} endpoint/family | Tested: {}/{} | Pipeline: 10 MiB consuming concurrently",
                 stable_selected.len(),
                 stability_target.saturating_sub(stable_selected.len()),
@@ -1806,9 +1807,11 @@ async fn fill_transfer_stability_gate(
                 STABILITY_TEST_MAX_PER_FAMILY,
                 stability_tested.len(),
                 STABILITY_TRANSFER_TEST_LIMIT
-            );
+                );
+            }
         } else {
-            println!(
+            if !(proxyrift::compact_logs_enabled() && !(stability_tested.len() / 100 > stability_tested.len().saturating_sub(batch.len()) / 100 || stable_selected.len() >= stability_target)) {
+                println!(
                 "[INFO] 📥 [1 MiB] Stable pool: {}/{} | Testing {} candidates | Test caps: {}/{} endpoint/family | Tested: {}/{} | Pipeline: 10 MiB consuming concurrently",
                 stable_selected.len(),
                 stability_target,
@@ -1817,7 +1820,8 @@ async fn fill_transfer_stability_gate(
                 STABILITY_TEST_MAX_PER_FAMILY,
                 stability_tested.len(),
                 STABILITY_TRANSFER_TEST_LIMIT
-            );
+                );
+            }
         }
 
         let batch_started = Instant::now();
@@ -1837,13 +1841,15 @@ async fn fill_transfer_stability_gate(
             let _ = stability_sender.send(passed_configs);
         }
 
-        println!(
+        if !(proxyrift::compact_logs_enabled() && !(stability_tested.len() / 100 > stability_tested.len().saturating_sub(batch.len()) / 100 || stable_selected.len() >= stability_target)) {
+            println!(
             "[INFO] ✅ [1 MiB] {}/{} Passed both transfer destinations | Batch: {}s | Stable pool: {} | Transfer pipeline: active",
             batch_passed,
             batch.len(),
             batch_elapsed,
             stability_verified.len()
-        );
+            );
+        }
     }
 
     Ok((
@@ -1922,14 +1928,16 @@ async fn fill_stream_continuity_gate(
         }
 
         stream_tested.extend(batch.iter().cloned());
-        println!(
+        if !(proxyrift::compact_logs_enabled() && !(stream_tested.len() / (STREAM_CONTINUITY_BATCH_SIZE * 4) > stream_tested.len().saturating_sub(batch.len()) / (STREAM_CONTINUITY_BATCH_SIZE * 4))) {
+            println!(
             "[INFO] 📥 [Stream] Continuity pool: {}/{} | Testing {} | Tested: {}/{}",
             stream_verified.len(),
             test_limit,
             batch.len(),
             stream_tested.len(),
             test_limit
-        );
+            );
+        }
 
         let batch_started = Instant::now();
         let metadata = validate_light_stream_continuity_batch(
@@ -1942,13 +1950,15 @@ async fn fill_stream_continuity_gate(
         let batch_passed = metadata.len();
         stream_verified.extend(metadata);
 
-        println!(
+        if !(proxyrift::compact_logs_enabled() && !(stream_tested.len() / (STREAM_CONTINUITY_BATCH_SIZE * 4) > stream_tested.len().saturating_sub(batch.len()) / (STREAM_CONTINUITY_BATCH_SIZE * 4))) {
+            println!(
             "[INFO] ✅ [Stream] {}/{} Passed continuity | Stream pool: {} | Batch: {}s",
             batch_passed,
             batch.len(),
             stream_verified.len(),
             batch_started.elapsed().as_secs()
-        );
+            );
+        }
 
         let selectable = stream_selection_count(
             stream_verified,
@@ -2145,7 +2155,8 @@ async fn run_transfer_gate_consumer(
 
         target_tested_candidates[target_index].extend(batch.iter().cloned());
 
-        println!(
+        if !(proxyrift::compact_logs_enabled() && !(transfer_tested.len() / 100 > transfer_tested.len().saturating_sub(batch.len()) / 100 || transfer_tested.len() >= dynamic_test_limit)) {
+            println!(
             "[INFO] 📥 [10 MiB] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {} | Pipeline: 1 MiB producer active",
             remaining,
             batch.len(),
@@ -2153,7 +2164,8 @@ async fn run_transfer_gate_consumer(
             target,
             transfer_target_score(&target_state_before),
             target_state_before.quarantined
-        );
+            );
+        }
 
         let rate_limits_before = target_rate_limit_events(target);
         let batch_started = Instant::now();
@@ -2259,22 +2271,24 @@ async fn run_transfer_gate_consumer(
             );
         }
 
-        println!(
+        if !(proxyrift::compact_logs_enabled() && !(transfer_tested.len() / 100 > transfer_tested.len().saturating_sub(batch.len()) / 100 || transfer_verified.len() >= transfer_target || (receiver_closed && pending.is_empty()))) {
+            println!(
             "[INFO] ✅ [10 MiB] {}/{} Passed in {}s | Total passed: {} | Validation slots remaining: {}",
             batch_passed,
             batch.len(),
             batch_elapsed,
             transfer_verified.len(),
             transfer_target.saturating_sub(
-                select_verified_configs(
-                    &transfer_verified.keys().cloned().collect::<Vec<_>>(),
-                    transfer_target,
-                    max_per_endpoint,
-                    max_per_family,
-                )
-                .len(),
+            select_verified_configs(
+            &transfer_verified.keys().cloned().collect::<Vec<_>>(),
+            transfer_target,
+            max_per_endpoint,
+            max_per_family,
+            )
+            .len(),
             ),
-        );
+            );
+        }
     }
 
     transfer_done.store(true, Ordering::Relaxed);
