@@ -18,3 +18,26 @@ pub fn compact_logs_enabled() -> bool {
             .is_ok_and(|mode| mode.trim().eq_ignore_ascii_case("compact"))
     })
 }
+
+/// Emits a progress line only when verbose logging or a compact checkpoint is enabled.
+pub fn should_emit_compact_progress(
+    completed: usize,
+    batch_size: usize,
+    interval: usize,
+    terminal: bool,
+) -> bool {
+    if !compact_logs_enabled() || terminal || interval == 0 {
+        return true;
+    }
+
+    completed / interval > completed.saturating_sub(batch_size) / interval
+}
+
+#[macro_export]
+macro_rules! emit_log_if {
+    ($condition:expr; $($arg:tt)*) => {
+        if $condition {
+            println!($($arg)*);
+        }
+    };
+}
