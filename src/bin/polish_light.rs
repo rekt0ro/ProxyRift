@@ -8,16 +8,17 @@ use proxyrift::light_training::{
 use proxyrift::singbox::{
     validate_candidates_with_consumer_targets as validate_singbox_consumer_targets,
     validate_candidates_with_target_once as validate_singbox_target_once,
-    validate_candidates_with_targets_once_with_minimum_body as validate_singbox_targets_once_with_minimum_body,
-    validate_candidates_with_targets_once_with_sustained_stream as validate_singbox_targets_once_with_sustained_stream,
+    validate_candidates_with_target_pool_once_with_minimum_body as validate_singbox_target_pool_once_with_minimum_body,
+    validate_candidates_with_target_pool_once_with_sustained_stream as validate_singbox_target_pool_once_with_sustained_stream,
 };
 use proxyrift::validator::{
-    endpoint, is_light_consumer_compatible, rate_limit_events, read_lines,
+    endpoint, is_light_consumer_compatible, read_lines,
+    target_is_rate_limited, target_rate_limit_events,
     validate_candidates_with_consumer_targets, validate_candidates_with_target_once,
-    validate_candidates_with_targets_once, validate_candidates_with_targets_once_with_minimum_body,
-    validate_candidates_with_targets_once_with_sustained_stream, write_lines, ProxyMetrics,
-    LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES, LIGHT_TRANSFER_STABILITY_TARGETS,
-    PRIMARY_TARGET,
+    validate_candidates_with_target_pool_once_with_minimum_body,
+    validate_candidates_with_target_pool_once_with_sustained_stream, write_lines, ProxyMetrics,
+    LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_MINIMUM_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES,
+    LIGHT_TRANSFER_STABILITY_TARGETS, PRIMARY_TARGET,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -1286,7 +1287,7 @@ async fn validate_light_transfer_stability_batch(
         if singbox_validation_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            validate_singbox_targets_once_with_minimum_body(
+            validate_singbox_target_pool_once_with_minimum_body(
                 singbox,
                 &singbox_validation_candidates,
                 LIGHT_TRANSFER_STABILITY_TARGETS,
@@ -1294,6 +1295,7 @@ async fn validate_light_transfer_stability_batch(
                 request_timeout,
                 STABILITY_TRANSFER_MAX_LATENCY_MS,
                 LIGHT_TRANSFER_STABILITY_BYTES,
+                LIGHT_TRANSFER_MINIMUM_TARGETS,
             )
             .await
         }
@@ -1303,7 +1305,7 @@ async fn validate_light_transfer_stability_batch(
         if xray_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            validate_candidates_with_targets_once_with_minimum_body(
+            validate_candidates_with_target_pool_once_with_minimum_body(
                 xray,
                 &xray_candidates,
                 LIGHT_TRANSFER_STABILITY_TARGETS,
@@ -1312,6 +1314,7 @@ async fn validate_light_transfer_stability_batch(
                 FINAL_TRANSFER_TIMEOUT_SECS,
                 STABILITY_TRANSFER_MAX_LATENCY_MS,
                 LIGHT_TRANSFER_STABILITY_BYTES,
+                LIGHT_TRANSFER_MINIMUM_TARGETS,
             )
             .await
         }
@@ -1327,7 +1330,7 @@ async fn validate_light_transfer_stability_batch(
         .collect::<Vec<_>>();
 
     if !fallback_retry.is_empty() {
-        let fallback_xray = validate_candidates_with_targets_once(
+        let fallback_xray = validate_candidates_with_target_pool_once_with_minimum_body(
             xray,
             &fallback_retry,
             LIGHT_TRANSFER_STABILITY_TARGETS,
@@ -1335,6 +1338,8 @@ async fn validate_light_transfer_stability_batch(
             STABILITY_TRANSFER_BATCH_SIZE,
             FINAL_TRANSFER_TIMEOUT_SECS,
             STABILITY_TRANSFER_MAX_LATENCY_MS,
+            LIGHT_TRANSFER_STABILITY_BYTES,
+            LIGHT_TRANSFER_MINIMUM_TARGETS,
         )
         .await?;
         xray_metadata.extend(fallback_xray);
@@ -1376,7 +1381,7 @@ async fn validate_light_stream_continuity_batch(
         if singbox_validation_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            validate_singbox_targets_once_with_sustained_stream(
+            validate_singbox_target_pool_once_with_sustained_stream(
                 singbox,
                 &singbox_validation_candidates,
                 LIGHT_TRANSFER_STABILITY_TARGETS,
@@ -1386,6 +1391,7 @@ async fn validate_light_stream_continuity_batch(
                 STREAM_CONTINUITY_SEGMENTS,
                 STREAM_CONTINUITY_SEGMENT_BYTES,
                 max_idle_gap,
+                LIGHT_TRANSFER_MINIMUM_TARGETS,
             )
             .await
         }
@@ -1395,7 +1401,7 @@ async fn validate_light_stream_continuity_batch(
         if xray_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            validate_candidates_with_targets_once_with_sustained_stream(
+            validate_candidates_with_target_pool_once_with_sustained_stream(
                 xray,
                 &xray_candidates,
                 LIGHT_TRANSFER_STABILITY_TARGETS,
@@ -1406,6 +1412,7 @@ async fn validate_light_stream_continuity_batch(
                 STREAM_CONTINUITY_SEGMENTS,
                 STREAM_CONTINUITY_SEGMENT_BYTES,
                 max_idle_gap,
+                LIGHT_TRANSFER_MINIMUM_TARGETS,
             )
             .await
         }
@@ -1421,7 +1428,7 @@ async fn validate_light_stream_continuity_batch(
         .collect::<Vec<_>>();
 
     if !fallback_retry.is_empty() {
-        let fallback_xray = validate_candidates_with_targets_once_with_sustained_stream(
+        let fallback_xray = validate_candidates_with_target_pool_once_with_sustained_stream(
             xray,
             &fallback_retry,
             LIGHT_TRANSFER_STABILITY_TARGETS,
@@ -1432,6 +1439,7 @@ async fn validate_light_stream_continuity_batch(
             STREAM_CONTINUITY_SEGMENTS,
             STREAM_CONTINUITY_SEGMENT_BYTES,
             max_idle_gap,
+            LIGHT_TRANSFER_MINIMUM_TARGETS,
         )
         .await?;
         xray_metadata.extend(fallback_xray);
@@ -1529,15 +1537,7 @@ fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
         return Some(index);
     }
 
-    states
-        .iter()
-        .enumerate()
-        .max_by(|(_, left), (_, right)| {
-            transfer_target_score(left)
-                .partial_cmp(&transfer_target_score(right))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|(index, _)| index)
+    None
 }
 
 fn update_transfer_target_state(
@@ -1973,8 +1973,21 @@ async fn run_transfer_gate_consumer(
             continue;
         }
 
-        let target_index = select_transfer_target(&target_states)
-            .ok_or_else(|| "no Light transfer validation targets configured".to_string())?;
+        for (index, state) in target_states.iter_mut().enumerate() {
+            let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[index];
+            if target_is_rate_limited(target) {
+                state.quarantined = true;
+            }
+        }
+        let Some(target_index) = select_transfer_target(&target_states) else {
+            println!(
+                "[WARN] ⛔ [10 MiB] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
+                transfer_tested.len(),
+                transfer_verified.len()
+            );
+            transfer_done.store(true, Ordering::Relaxed);
+            break;
+        };
         let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
         let target_state_before = target_states[target_index];
 
@@ -2019,7 +2032,7 @@ async fn run_transfer_gate_consumer(
             target_state_before.quarantined
         );
 
-        let rate_limits_before = rate_limit_events();
+        let rate_limits_before = target_rate_limit_events(target);
         let batch_started = Instant::now();
         let metadata =
             match validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target)
@@ -2035,8 +2048,9 @@ async fn run_transfer_gate_consumer(
         let batch_passed = metadata.len();
         transfer_verified.extend(metadata);
 
-        let rate_limits_after = rate_limit_events();
-        let rate_limits = rate_limits_after.saturating_sub(rate_limits_before);
+        let rate_limits = target_rate_limit_events(target)
+            .saturating_sub(rate_limits_before)
+            .min(batch.len() as u64);
 
         let target_state_before = target_states[target_index];
         update_transfer_target_state(
@@ -2046,6 +2060,9 @@ async fn run_transfer_gate_consumer(
             rate_limits,
             batch_elapsed,
         );
+        if target_is_rate_limited(target) {
+            target_states[target_index].quarantined = true;
+        }
         if target_states[target_index].quarantined && !target_state_before.quarantined {
             let alternative_target_available = target_states
                 .iter()
@@ -4291,6 +4308,15 @@ mod tests {
         states[3].passed = 3;
         states[3].batches = 1;
         assert_eq!(select_transfer_target(&states), Some(2));
+    }
+
+    #[test]
+    fn transfer_target_selector_stops_when_every_host_is_quarantined() {
+        let states = vec![
+            TransferTargetState { quarantined: true, ..TransferTargetState::default() };
+            4
+        ];
+        assert_eq!(select_transfer_target(&states), None);
     }
 
     #[test]
