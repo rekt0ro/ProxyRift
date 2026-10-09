@@ -2894,8 +2894,7 @@ async fn probe_request_with_validation_policy(
         }
         _ => {
             if policy.target_pool_mode {
-                probe_request_with_minimum_mode(client, url, policy.minimum_body_bytes, true)
-                    .await
+                probe_request_with_minimum_mode(client, url, policy.minimum_body_bytes, true).await
             } else {
                 probe_request_with_minimum(client, url, policy.minimum_body_bytes).await
             }
