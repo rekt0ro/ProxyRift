@@ -2945,7 +2945,7 @@ pub(crate) async fn validate_clients_with_target_pool(
             .collect::<Vec<_>>();
         let mut target_throttled = false;
 
-        let maximum_chunk_size = workers.max(1).min(TARGET_POOL_MAX_PROBE_CHUNK_SIZE);
+        let maximum_chunk_size = workers.clamp(1, TARGET_POOL_MAX_PROBE_CHUNK_SIZE);
         let mut chunk_size = TARGET_POOL_PROBE_CHUNK_SIZE.min(maximum_chunk_size);
         let mut offset = 0usize;
         while offset < eligible.len() {
