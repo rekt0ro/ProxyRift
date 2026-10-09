@@ -2295,7 +2295,7 @@ fn select_new_active_urls_ranked(candidates: &[Candidate], limit: usize) -> Vec<
     let mut repo_counts = HashMap::<String, usize>::new();
     let mut family_counts = HashMap::<&'static str, usize>::new();
 
-    while selected.len() < limit && selected.len() < pool.len() {
+    while selected.len() < limit && !pool.is_empty() {
         let mut best_index = None;
         let mut best_key = None::<(i32, i32, i32, i32, i32, String)>;
 
