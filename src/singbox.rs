@@ -1412,10 +1412,12 @@ async fn check_batch_targets(
                     .rev()
                     .collect::<String>();
 
-                println!(
+                if !(crate::compact_logs_enabled()) {
+                    println!(
                     "[INFO] 🧹 [Sing-Box] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
-                );
+                    );
+                }
                 if !tail.is_empty() {
                     println!("[INFO] ℹ️ [Sing-Box] Core log | {tail}");
                 }
@@ -1689,21 +1691,29 @@ async fn check_batch_targets(
                 policy.sustained_stream_segments,
                 policy.sustained_stream_max_idle,
             ) {
-                println!(
+                if !(crate::compact_logs_enabled()) {
+                    println!(
                     "[INFO] 🔎 [Stream] Target 1 | {primary_successes}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
-                );
-                println!(
+                    );
+                }
+                if !(crate::compact_logs_enabled()) {
+                    println!(
                     "[INFO] 🔎 [Stream] Target 2 | {secondary_successes_count}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
-                );
+                    );
+                }
             } else {
-                println!(
+                if !(crate::compact_logs_enabled()) {
+                    println!(
                     "[INFO] 🔎 [Transfer] Target 1 | {primary_successes}/{count} Responded | Min body: {minimum} bytes"
-                );
-                println!(
+                    );
+                }
+                if !(crate::compact_logs_enabled()) {
+                    println!(
                     "[INFO] 🔎 [Transfer] Target 2 | {secondary_successes_count}/{count} Responded | Min body: {minimum} bytes"
-                );
+                    );
+                }
             }
         }
 
@@ -1817,10 +1827,12 @@ async fn check_batch(
                     .chars()
                     .rev()
                     .collect::<String>();
-                println!(
+                if !(crate::compact_logs_enabled()) {
+                    println!(
                     "[INFO] 🧹 [Sing-Box] Rejected | {}",
                     config_label(&batch_entries[0].0)
-                );
+                    );
+                }
                 if !tail.is_empty() {
                     println!("[INFO] ℹ️ [Sing-Box] Core log | {tail}");
                 }
@@ -2189,18 +2201,22 @@ async fn validate_candidates_with_targets_policy(
         }
     }
 
-    println!(
+    if !(crate::compact_logs_enabled()) {
+        println!(
         "[INFO] 🔬 [Sing-Box] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
-    );
+        );
+    }
 
     for (config, reason) in rejected.iter().take(8) {
-        println!(
+        if !(crate::compact_logs_enabled()) {
+            println!(
             "[INFO] 🧹 [Sing-Box] Rejected | {} | {reason}",
             config_label(config)
-        );
+            );
+        }
     }
 
     if parsed.is_empty() {
@@ -2241,7 +2257,8 @@ async fn validate_candidates_with_targets_policy(
         )
         .await?;
 
-        println!(
+        if !(crate::compact_logs_enabled()) {
+            println!(
             "[INFO] ✅ [Sing-Box] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Destinations: {}",
             index + 1,
             total_batches,
@@ -2250,12 +2267,14 @@ async fn validate_candidates_with_targets_policy(
             policy.min_successful_attempts,
             policy.stability_attempts,
             policy.min_successful_targets
-        );
+            );
+        }
 
         metadata.extend(batch_metadata);
     }
 
-    println!(
+    if !(crate::compact_logs_enabled()) {
+        println!(
         "[INFO] ✅ [Sing-Box] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Destinations: {}",
         metadata.len(),
         candidates.len(),
@@ -2263,7 +2282,8 @@ async fn validate_candidates_with_targets_policy(
         policy.min_successful_attempts,
         policy.stability_attempts,
         policy.min_successful_targets
-    );
+        );
+    }
 
     Ok(metadata)
 }
@@ -2292,18 +2312,22 @@ pub async fn validate_candidates_with_target(
         }
     }
 
-    println!(
+    if !(crate::compact_logs_enabled()) {
+        println!(
         "[INFO] 🔬 [Sing-Box] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
-    );
+        );
+    }
 
     for (config, reason) in rejected.iter().take(8) {
-        println!(
+        if !(crate::compact_logs_enabled()) {
+            println!(
             "[INFO] 🧹 [Sing-Box] Rejected | {} | {reason}",
             config_label(config)
-        );
+            );
+        }
     }
 
     if parsed.is_empty() {
@@ -2327,7 +2351,8 @@ pub async fn validate_candidates_with_target(
         )
         .await?;
 
-        println!(
+        if !(crate::compact_logs_enabled()) {
+            println!(
             "[INFO] ✅ [Sing-Box] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: 1",
             index + 1,
             total_batches,
@@ -2335,19 +2360,22 @@ pub async fn validate_candidates_with_target(
             batch_metadata.len(),
             MIN_SUCCESSFUL_ATTEMPTS,
             STABILITY_ATTEMPTS
-        );
+            );
+        }
 
         metadata.extend(batch_metadata);
     }
 
-    println!(
+    if !(crate::compact_logs_enabled()) {
+        println!(
         "[INFO] ✅ [Sing-Box] Complete | {}/{} Verified | Targets: 1 | Requirement: {}/{} | Latency ≤ {}ms",
         metadata.len(),
         candidates.len(),
         MIN_SUCCESSFUL_ATTEMPTS,
         STABILITY_ATTEMPTS,
         max_latency_ms
-    );
+        );
+    }
 
     Ok(metadata)
 }
