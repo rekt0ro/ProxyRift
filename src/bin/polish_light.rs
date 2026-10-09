@@ -1180,7 +1180,7 @@ async fn validate_light_transfer_batch(
         if singbox_validation_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            proxyrift::singbox::validate_candidates_with_target_once(
+            proxyrift::singbox::validate_candidates_with_target_pool_once(
                 singbox,
                 &singbox_validation_candidates,
                 target,
@@ -1196,7 +1196,7 @@ async fn validate_light_transfer_batch(
         if xray_validation_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            proxyrift::validator::validate_candidates_with_target_once(
+            proxyrift::validator::validate_candidates_with_target_pool_once(
                 xray,
                 &xray_validation_candidates,
                 target,
@@ -2082,6 +2082,9 @@ async fn run_transfer_gate_consumer(
                 let mut requeued = 0usize;
                 for config in &target_tested_candidates[target_index] {
                     if !transfer_verified.contains_key(config) && transfer_tested.remove(config) {
+                        if !pending.iter().any(|queued| queued == config) {
+                            pending.push_back(config.clone());
+                        }
                         requeued += 1;
                     }
                 }
