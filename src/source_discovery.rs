@@ -46,6 +46,9 @@ const MAX_README_CANDIDATES: usize = 150;
 const MAX_README_URLS_SCANNED: usize = 750;
 const MAX_DISCOVERED_CANDIDATES: usize = 12_000;
 const MAX_NEW_ACTIVE_SOURCES_PER_REPO: usize = 8;
+const README_CANDIDATE_PRIORITY: u8 = 100;
+const TREE_CANDIDATE_PRIORITY: u8 = 50;
+const TREE_EXPLORATION_DIVISOR: usize = 5;
 const MAX_GITHUB_SEARCH_REQUESTS_PER_RUN: usize = 16;
 const GITHUB_SEARCH_MIN_INTERVAL_MS: u64 = 1_200;
 const GITHUB_SEARCH_MAX_INTERVAL_MS: u64 = 8_000;
@@ -1365,6 +1368,22 @@ pub async fn record_collection_results(
     Ok(quarantined)
 }
 
+fn count_candidates_by_origin_repo(
+    repos: &[Repository],
+    candidates: &[Candidate],
+) -> HashMap<String, usize> {
+    let mut counts = HashMap::new();
+
+    for candidate in candidates {
+        let Some(repository) = repos.get(candidate.repo_rank) else {
+            continue;
+        };
+        *counts.entry(repository.name.clone()).or_default() += 1;
+    }
+
+    counts
+}
+
 async fn discover_from_repos(
     client: &Client,
     repos: &[Repository],
@@ -1392,12 +1411,7 @@ async fn discover_from_repos(
         }
     }
 
-    let readme_counts =
-        all.iter()
-            .fold(HashMap::<String, usize>::new(), |mut counts, candidate| {
-                *counts.entry(candidate.repo.clone()).or_default() += 1;
-                counts
-            });
+    let readme_counts = count_candidates_by_origin_repo(repos, &all);
 
     let mut tree_targets = repos
         .iter()
@@ -1629,7 +1643,7 @@ async fn scan_repo_tree(
                 url,
                 repo: name.clone(),
                 repo_rank,
-                priority: 50,
+                priority: TREE_CANDIDATE_PRIORITY,
             })
         })
         .collect())
@@ -2022,7 +2036,7 @@ fn extract_source_urls(text: &str, repo: &str, repo_rank: usize) -> Vec<Candidat
                     url,
                     repo: source_repo,
                     repo_rank,
-                    priority: 100,
+                    priority: README_CANDIDATE_PRIORITY,
                 });
             }
         }
@@ -2162,6 +2176,47 @@ fn select_new_active_urls(candidates: &[Candidate], limit: usize) -> Vec<String>
         return Vec::new();
     }
 
+    let has_readme_candidates = candidates
+        .iter()
+        .any(|candidate| candidate.priority >= README_CANDIDATE_PRIORITY);
+    let tree_candidates = candidates
+        .iter()
+        .filter(|candidate| candidate.priority < README_CANDIDATE_PRIORITY)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !has_readme_candidates || tree_candidates.is_empty() || limit < TREE_EXPLORATION_DIVISOR {
+        return select_new_active_urls_ranked(candidates, limit);
+    }
+
+    // Keep a small, predictable share for tree-only discoveries so a large
+    // README candidate pool cannot starve the fallback discovery path.
+    let exploration_limit = (limit / TREE_EXPLORATION_DIVISOR).min(tree_candidates.len());
+    if exploration_limit == 0 {
+        return select_new_active_urls_ranked(candidates, limit);
+    }
+
+    let mut selected = select_new_active_urls_ranked(&tree_candidates, exploration_limit);
+    let selected_urls = selected.iter().cloned().collect::<HashSet<_>>();
+    let remaining = candidates
+        .iter()
+        .filter(|candidate| !selected_urls.contains(&candidate.url))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    selected.extend(select_new_active_urls_ranked(
+        &remaining,
+        limit.saturating_sub(selected.len()),
+    ));
+    selected.truncate(limit);
+    selected
+}
+
+fn select_new_active_urls_ranked(candidates: &[Candidate], limit: usize) -> Vec<String> {
+    if limit == 0 || candidates.is_empty() {
+        return Vec::new();
+    }
+
     let mut pool = candidates.to_vec();
     let mut selected = Vec::with_capacity(limit.min(pool.len()));
     let mut selected_urls = HashSet::new();
@@ -2226,7 +2281,6 @@ fn select_new_active_urls(candidates: &[Candidate], limit: usize) -> Vec<String>
 
     selected
 }
-
 fn source_path_family(url: &str) -> &'static str {
     let Some(path) = github_source_path(url) else {
         return "generic";
@@ -3153,6 +3207,93 @@ mod tests {
 
         assert_eq!(active, vec![healthy.url]);
         assert_eq!(registry.sources().len(), 2);
+    }
+
+    #[test]
+    fn readme_candidate_counts_use_the_repository_that_was_scanned() {
+        let repos = vec![
+            Repository {
+                name: "reader/repo".to_string(),
+                branch: "main".to_string(),
+                pushed_at: String::new(),
+                search_hits: 1,
+                best_search_rank: 0,
+                stars: 0,
+            },
+            Repository {
+                name: "source/repo".to_string(),
+                branch: "main".to_string(),
+                pushed_at: String::new(),
+                search_hits: 1,
+                best_search_rank: 1,
+                stars: 0,
+            },
+        ];
+        let candidates = vec![Candidate {
+            url: "https://raw.githubusercontent.com/source/repo/main/subscriptions/all.txt"
+                .to_string(),
+            repo: "source/repo".to_string(),
+            repo_rank: 0,
+            priority: super::README_CANDIDATE_PRIORITY,
+        }];
+
+        let counts = super::count_candidates_by_origin_repo(&repos, &candidates);
+
+        assert_eq!(counts.get("reader/repo"), Some(&1));
+        assert!(!counts.contains_key("source/repo"));
+    }
+
+    #[test]
+    fn tree_candidates_receive_exploration_slots_when_readme_candidates_dominate() {
+        let readme = (0..20)
+            .map(|index| Candidate {
+                url: format!(
+                    "https://raw.githubusercontent.com/example/readme-{index}/main/subscriptions/all.txt"
+                ),
+                repo: format!("example/readme-{index}"),
+                repo_rank: index,
+                priority: super::README_CANDIDATE_PRIORITY,
+            })
+            .collect::<Vec<_>>();
+        let tree = (0..5)
+            .map(|index| Candidate {
+                url: format!(
+                    "https://raw.githubusercontent.com/example/tree-{index}/main/subscriptions/all.txt"
+                ),
+                repo: format!("example/tree-{index}"),
+                repo_rank: 100 + index,
+                priority: super::TREE_CANDIDATE_PRIORITY,
+            })
+            .collect::<Vec<_>>();
+        let candidates = readme.into_iter().chain(tree).collect::<Vec<_>>();
+
+        let selected = super::select_new_active_urls(&candidates, 10);
+        let tree_selected = selected
+            .iter()
+            .filter(|url| url.contains("/tree-"))
+            .count();
+
+        assert_eq!(selected.len(), 10);
+        assert_eq!(tree_selected, 2);
+    }
+
+    #[test]
+    fn tree_candidates_can_fill_slots_when_no_readme_candidates_exist() {
+        let tree = (0..3)
+            .map(|index| Candidate {
+                url: format!(
+                    "https://raw.githubusercontent.com/example/tree-{index}/main/subscriptions/all.txt"
+                ),
+                repo: format!("example/tree-{index}"),
+                repo_rank: index,
+                priority: super::TREE_CANDIDATE_PRIORITY,
+            })
+            .collect::<Vec<_>>();
+
+        let selected = super::select_new_active_urls(&tree, 5);
+
+        assert_eq!(selected.len(), 3);
+        assert!(selected.iter().all(|url| url.contains("/tree-")));
     }
 
     #[test]
