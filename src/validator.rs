@@ -3498,7 +3498,12 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
     if !available.is_empty() {
         let host_names = available
             .iter()
-            .map(|target| target.host_str().unwrap_or(target.as_str()).to_ascii_lowercase())
+            .map(|target| {
+                target
+                    .host_str()
+                    .unwrap_or(target.as_str())
+                    .to_ascii_lowercase()
+            })
             .collect::<Vec<_>>();
 
         if crate::compact_logs_enabled() {
