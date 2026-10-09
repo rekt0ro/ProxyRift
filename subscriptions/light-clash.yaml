@@ -1,18 +1,166 @@
 proxies:
-  - name: 'Shadowsocks 6640'
-    type: 'ss'
-    server: '37.19.198.243'
+  - name: 'SOCKS 380'
+    type: 'socks5'
+    server: '107.167.18.122'
     port: 443
-    cipher: 'aes-128-gcm'
-    password: 'shadowsocks'
     udp: true
-  - name: 'Shadowsocks 6652'
-    type: 'ss'
-    server: '37.19.198.236'
+  - name: 'VLESS 46296'
+    type: 'vless'
+    server: '62.210.91.2'
+    port: 23576
+    udp: true
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+      short-id: '01'
+  - name: 'VLESS 46835'
+    type: 'vless'
+    server: '51.158.206.25'
+    port: 23576
+    udp: true
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+      short-id: '01'
+  - name: 'VLESS 146061'
+    type: 'vless'
+    server: '178.17.57.33'
+    port: 8444
+    udp: true
+    uuid: 'f55e9aba-7b14-4f6f-b59a-d5b3d45c9309'
+    encryption: 'none'
+    tls: true
+    servername: 'github.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'FWitre1jinQR7qz5HQ0q2Q4Gg9xA9B0SyizCziN7Ch0'
+      short-id: '457fab2ac885dbe0'
+    network: 'grpc'
+    grpc-opts:
+      grpc-service-name: 'GunService'
+  - name: 'VLESS 146079'
+    type: 'vless'
+    server: '193.233.74.6'
+    port: 8444
+    udp: true
+    uuid: 'f55e9aba-7b14-4f6f-b59a-d5b3d45c9309'
+    encryption: 'none'
+    tls: true
+    servername: 'github.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'FWitre1jinQR7qz5HQ0q2Q4Gg9xA9B0SyizCziN7Ch0'
+      short-id: '457fab2ac885dbe0'
+    network: 'grpc'
+    grpc-opts:
+      grpc-service-name: 'GunService'
+  - name: 'VLESS 150364'
+    type: 'vless'
+    server: '62.60.233.157'
+    port: 8444
+    udp: true
+    uuid: 'f55e9aba-7b14-4f6f-b59a-d5b3d45c9309'
+    encryption: 'none'
+    tls: true
+    servername: 'github.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'FWitre1jinQR7qz5HQ0q2Q4Gg9xA9B0SyizCziN7Ch0'
+    network: 'grpc'
+    grpc-opts:
+      grpc-service-name: 'GunService'
+  - name: 'VLESS 1610'
+    type: 'vless'
+    server: '20.205.14.234'
+    port: 26480
+    udp: true
+    uuid: '01de63ee-d2d6-4842-b2f0-d54c7eca267a'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'addons.mozilla.org'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'thefrz26hPQjCrKszJ6m_41nLmThPGkTEKBjYVDGM0E'
+  - name: 'VLESS 76687'
+    type: 'vless'
+    server: '67.220.73.204'
+    port: 16016
+    udp: true
+    uuid: '814bd064-544d-4255-a070-5705c03f6da9'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'k2hPp0tTW0Da-HK94wYpSCLbuK44LfGqC2MSJIM1Ti0'
+      short-id: '48050fab'
+  - name: 'VLESS 44138'
+    type: 'vless'
+    server: '15.204.97.195'
+    port: 23576
+    udp: true
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+      short-id: '01'
+  - name: 'VLESS 44347'
+    type: 'vless'
+    server: '15.204.97.219'
+    port: 23576
+    udp: true
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+  - name: 'VLESS 44319'
+    type: 'vless'
+    server: '15.204.97.216'
+    port: 23576
+    udp: true
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+      short-id: '01'
+  - name: 'VLESS 44182'
+    type: 'vless'
+    server: '15.204.97.197'
+    port: 23576
+    udp: true
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+      short-id: '01'
+  - name: 'HTTP 6517'
+    type: 'http'
+    server: '3.211.120.181'
     port: 443
-    cipher: 'aes-128-gcm'
-    password: 'shadowsocks'
-    udp: true
   - name: 'VLESS 45224'
     type: 'vless'
     server: '15.204.97.198'
@@ -41,7 +189,7 @@ proxies:
     reality-opts:
       public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
       short-id: '01'
-  - name: 'VLESS 46800'
+  - name: 'VLESS 44237'
     type: 'vless'
     server: '15.204.97.206'
     port: 23576
@@ -55,80 +203,14 @@ proxies:
     reality-opts:
       public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
       short-id: '01'
-  - name: 'HTTP 1455'
-    type: 'http'
-    server: '107.167.18.122'
-    port: 443
-  - name: 'Trojan 23524'
-    type: 'trojan'
-    server: 'sacred-anemone.rooster465.autos'
+  - name: 'Hysteria2 1733'
+    type: 'hysteria2'
+    server: 'nl-hy-test.tcp-reset-club.net'
     port: 443
     udp: true
-    password: 'UX82473651'
+    password: 'dd50a499-7e43-4589-8490-f3b9c2451473'
     tls: true
-    servername: 'sacred-anemone.rooster465.autos'
-  - name: 'VLESS 150352'
-    type: 'vless'
-    server: '185.115.34.209'
-    port: 8444
-    udp: true
-    uuid: 'f55e9aba-7b14-4f6f-b59a-d5b3d45c9309'
-    encryption: 'none'
-    tls: true
-    servername: 'github.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'FWitre1jinQR7qz5HQ0q2Q4Gg9xA9B0SyizCziN7Ch0'
-    network: 'grpc'
-    grpc-opts:
-      grpc-service-name: 'GunService'
-  - name: 'Trojan 23947'
-    type: 'trojan'
-    server: 'guided-ferret.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'guided-ferret.rooster465.autos'
-  - name: 'VLESS 118460'
-    type: 'vless'
-    server: '137.184.218.169'
-    port: 36925
-    udp: true
-    uuid: 'c9fd0fb1-8251-4106-b09a-f4b426736f67'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'www.cloudflare.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'lJ9INPpO4rdnm2Tek_yg0PGFyUrBB6MoKyvqt_Mfqm0'
-  - name: 'VLESS 45642'
-    type: 'vless'
-    server: '51.158.206.87'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-  - name: 'VLESS 78490'
-    type: 'vless'
-    server: '45.141.118.232'
-    port: 7443
-    udp: true
-    uuid: '81a227e3-cb97-40fe-b7b6-45a60ed065cf'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'node.remnagecsp.ru'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: '0BVxZKOt6wO0jIB1xRkAAtaFUkmyFAbVWfkkKSJBfEI'
-      short-id: '570ffeb12f6e4635'
+    servername: 'tcp-reset-club.net'
   - name: 'VLESS 144221'
     type: 'vless'
     server: '185.200.199.75'
@@ -144,131 +226,6 @@ proxies:
     network: 'grpc'
     grpc-opts:
       grpc-service-name: 'GunService'
-  - name: 'VLESS 144225'
-    type: 'vless'
-    server: '62.60.233.157'
-    port: 8444
-    udp: true
-    uuid: 'f55e9aba-7b14-4f6f-b59a-d5b3d45c9309'
-    encryption: 'none'
-    tls: true
-    servername: 'github.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'FWitre1jinQR7qz5HQ0q2Q4Gg9xA9B0SyizCziN7Ch0'
-    network: 'grpc'
-    grpc-opts:
-      grpc-service-name: 'GunService'
-  - name: 'VLESS 2706'
-    type: 'vless'
-    server: '172.190.134.233'
-    port: 26490
-    udp: true
-    uuid: '03e52750-0c85-42c1-a30b-b2e35da7abbb'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'addons.mozilla.org'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: 'f4aZkLbmSLe874qztsQi5UPJq-9wonTRqOpHnQdiIm8'
-  - name: 'Shadowsocks 6570'
-    type: 'ss'
-    server: '37.19.198.244'
-    port: 443
-    cipher: 'aes-128-gcm'
-    password: 'shadowsocks'
-    udp: true
-  - name: 'HTTP 6518'
-    type: 'http'
-    server: '3.211.120.181'
-    port: 443
-  - name: 'VLESS 86590'
-    type: 'vless'
-    server: '147.182.212.232'
-    port: 56565
-    udp: true
-    uuid: '7b188eea-b08f-42c2-bac7-d3b0e74218b8'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'www.paypal.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'Td03Ae-cuYLq4xg7MSps58c_yRUcbbwtZLXm0ywabjY'
-  - name: 'VLESS 130531'
-    type: 'vless'
-    server: '66.70.179.198'
-    port: 2053
-    udp: true
-    uuid: 'dc620cd6-a9d8-4a0f-8f18-006b895db77e'
-    encryption: 'none'
-    tls: true
-    servername: 'www.cloudflare.com'
-    reality-opts:
-      public-key: 'k4l6TxwkBbx9DhZAFpByq5rfCWFSgyOex3f_eFe9CWU'
-      short-id: '83f8317a948bb769'
-  - name: 'VLESS 46113'
-    type: 'vless'
-    server: '15.204.97.219'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-  - name: 'VLESS 45344'
-    type: 'vless'
-    server: '15.204.97.216'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'VLESS 45948'
-    type: 'vless'
-    server: '15.204.97.197'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'VLESS 45161'
-    type: 'vless'
-    server: '15.204.97.195'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'Hysteria2 2085'
-    type: 'hysteria2'
-    server: 'nl-hy-test.tcp-reset-club.net'
-    port: 443
-    udp: true
-    password: 'dd50a499-7e43-4589-8490-f3b9c2451473'
-    tls: true
-    servername: 'tcp-reset-club.net'
   - name: 'VLESS 43547'
     type: 'vless'
     server: '51.158.206.34'
@@ -282,9 +239,21 @@ proxies:
     reality-opts:
       public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
       short-id: '01'
-  - name: 'VLESS 46246'
+  - name: 'VLESS 96322'
     type: 'vless'
-    server: '51.158.206.25'
+    server: '138.16.141.59'
+    port: 7443
+    udp: true
+    uuid: 'a289a3d3-5833-4b28-8809-ae72898a98d0'
+    encryption: 'none'
+    tls: true
+    servername: 'ibm.com'
+    reality-opts:
+      public-key: 'RY7zkFQ01lI92jxNAyCa8T33UBW1fgpJgg8ZEqMA10k'
+      short-id: 'a09ff9f8'
+  - name: 'VLESS 44457'
+    type: 'vless'
+    server: '51.158.206.20'
     port: 23576
     udp: true
     uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
@@ -296,42 +265,18 @@ proxies:
     reality-opts:
       public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
       short-id: '01'
-  - name: 'VLESS 97452'
+  - name: 'VLESS 44627'
     type: 'vless'
-    server: '194.76.154.31'
-    port: 40443
+    server: '51.158.206.87'
+    port: 23576
     udp: true
-    uuid: '9f0baff8-bdee-4de9-9515-bcc4932b41fa'
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
     encryption: 'none'
     tls: true
-    servername: 'deepl.com'
+    servername: 'fuck.rkn'
     reality-opts:
-      public-key: 'MN6QjUHDUXyteMdR-cDna89fq4X3qgQhLnNqTtRUbBQ'
-      short-id: 'a8ae'
-  - name: 'VLESS 140627'
-    type: 'vless'
-    server: '212.227.235.66'
-    port: 2053
-    udp: true
-    uuid: 'ead0dd61-d398-40ad-80d6-a0e1e516d7d3'
-    tls: true
-    servername: 'www.apple.com'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: '7Y6Xb5Ql_03K25x8yKUSOKI2JTOMyv2nyCcFza90uxk'
-      short-id: '29e8dcd2b37aaa7f'
-  - name: 'VLESS 113677'
-    type: 'vless'
-    server: '51.77.217.70'
-    port: 2053
-    udp: true
-    uuid: 'bf16ee0c-8b3c-41e4-ab3a-8b48033c404e'
-    encryption: 'none'
-    tls: true
-    servername: 'www.apple.com'
-    reality-opts:
-      public-key: 'g63cT3uI0Y5iUtj3m__RYz7nmR1eIK4AYikdnZCl63w'
-      short-id: 'bfe58beb41f1d09f'
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
   - name: 'VLESS 46985'
     type: 'vless'
     server: '51.158.206.19'
@@ -345,9 +290,23 @@ proxies:
     reality-opts:
       public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
       short-id: '01'
-  - name: 'VLESS 147106'
+  - name: 'VLESS 78490'
     type: 'vless'
-    server: '185.200.199.199'
+    server: '45.141.118.232'
+    port: 7443
+    udp: true
+    uuid: '81a227e3-cb97-40fe-b7b6-45a60ed065cf'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'node.remnagecsp.ru'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: '0BVxZKOt6wO0jIB1xRkAAtaFUkmyFAbVWfkkKSJBfEI'
+      short-id: '570ffeb12f6e4635'
+  - name: 'VLESS 140910'
+    type: 'vless'
+    server: '185.115.34.209'
     port: 8444
     udp: true
     uuid: 'f55e9aba-7b14-4f6f-b59a-d5b3d45c9309'
@@ -357,99 +316,77 @@ proxies:
     client-fingerprint: 'chrome'
     reality-opts:
       public-key: 'FWitre1jinQR7qz5HQ0q2Q4Gg9xA9B0SyizCziN7Ch0'
-      short-id: '457fab2ac885dbe0'
     network: 'grpc'
     grpc-opts:
       grpc-service-name: 'GunService'
-  - name: 'Shadowsocks 9413'
-    type: 'ss'
-    server: '149.102.132.184'
-    port: 80
-    cipher: 'aes-256-gcm'
-    password: 'g5h5jleTRSyO3Rk4'
-    udp: true
-  - name: 'VLESS 100492'
+  - name: 'VLESS 108880'
     type: 'vless'
-    server: '138.16.141.59'
-    port: 7443
+    server: '51.77.217.70'
+    port: 2053
     udp: true
-    uuid: 'a289a3d3-5833-4b28-8809-ae72898a98d0'
+    uuid: 'bf16ee0c-8b3c-41e4-ab3a-8b48033c404e'
     encryption: 'none'
     tls: true
-    servername: 'ibm.com'
+    servername: 'www.apple.com'
     reality-opts:
-      public-key: 'RY7zkFQ01lI92jxNAyCa8T33UBW1fgpJgg8ZEqMA10k'
-      short-id: 'a09ff9f8'
-  - name: 'VLESS 71669'
+      public-key: 'g63cT3uI0Y5iUtj3m__RYz7nmR1eIK4AYikdnZCl63w'
+      short-id: 'bfe58beb41f1d09f'
+  - name: 'Shadowsocks 5579'
+    type: 'ss'
+    server: '82.38.31.159'
+    port: 443
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'oZIoA69Q8yhcQV8ka3Pa3A'
+    udp: true
+  - name: 'VLESS 55193'
     type: 'vless'
-    server: '152.53.236.22'
+    server: 'e3k67dwms3-51255166202-direct.tavafog.com'
     port: 443
     udp: true
-    uuid: '711c018e-2692-4aa8-93f3-544d83fcd16c'
+    uuid: '593bf46b-8316-5050-9357-d8a41e4db78b'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'e3k67dwms3-51255166202-direct.tavafog.com'
+  - name: 'VLESS 113899'
+    type: 'vless'
+    server: 'ww9.levikogjgfdd.ir'
+    port: 36925
+    udp: true
+    uuid: 'c9fd0fb1-8251-4106-b09a-f4b426736f67'
     flow: 'xtls-rprx-vision'
     encryption: 'none'
     tls: true
     servername: 'www.cloudflare.com'
-    reality-opts:
-      public-key: 'HyVSZ2OyySwXT-xRhTAqoiuYflIaj_b0Jxm7S1Iq9hs'
-      short-id: '7a76f3c4b9dd'
-  - name: 'VLESS 46599'
-    type: 'vless'
-    server: '62.210.91.2'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'VLESS 43950'
-    type: 'vless'
-    server: '64.188.126.56'
-    port: 43000
-    udp: true
-    uuid: '47f79fc1-0646-40e8-8a58-73e85d183d5a'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: '64.188.126.56'
-    reality-opts:
-      public-key: 'jjbMUO41S9JE7ou_zbbDStzSYLzJVN_0O-j0f6b380E'
-      short-id: 'bf4e20af99d3042d'
-  - name: 'Shadowsocks 5649'
-    type: 'ss'
-    server: '82.38.31.175'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'oZIoA69Q8yhcQV8ka3Pa3A'
-    udp: true
-  - name: 'Shadowsocks 5614'
-    type: 'ss'
-    server: '82.38.31.162'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'oZIoA69Q8yhcQV8ka3Pa3A'
-    udp: true
-  - name: 'VLESS 147096'
-    type: 'vless'
-    server: '178.17.57.33'
-    port: 8444
-    udp: true
-    uuid: 'f55e9aba-7b14-4f6f-b59a-d5b3d45c9309'
-    encryption: 'none'
-    tls: true
-    servername: 'github.com'
     client-fingerprint: 'chrome'
     reality-opts:
-      public-key: 'FWitre1jinQR7qz5HQ0q2Q4Gg9xA9B0SyizCziN7Ch0'
-      short-id: '457fab2ac885dbe0'
-    network: 'grpc'
-    grpc-opts:
-      grpc-service-name: 'GunService'
-  - name: 'VLESS 73513'
+      public-key: 'lJ9INPpO4rdnm2Tek_yg0PGFyUrBB6MoKyvqt_Mfqm0'
+  - name: 'VLESS 126629'
+    type: 'vless'
+    server: '2.27.71.53'
+    port: 443
+    udp: true
+    uuid: 'df53b6c2-8005-475c-9eb9-74e1be785dc8'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'addons.mozilla.org'
+    client-fingerprint: 'randomized'
+    reality-opts:
+      public-key: '5tMM2VdgddmxOKhdNa3b7i_aXno1g-_61SzkppS2UXQ'
+      short-id: 'f3c023cc'
+  - name: 'VLESS 134716'
+    type: 'vless'
+    server: '212.227.235.66'
+    port: 2053
+    udp: true
+    uuid: 'ead0dd61-d398-40ad-80d6-a0e1e516d7d3'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: '7Y6Xb5Ql_03K25x8yKUSOKI2JTOMyv2nyCcFza90uxk'
+      short-id: '29e8dcd2b37aaa7f'
+  - name: 'VLESS 71112'
     type: 'vless'
     server: '152.228.139.33'
     port: 51671
@@ -465,14 +402,7 @@ proxies:
     network: 'grpc'
     grpc-opts:
       grpc-service-name: 'grpc_common3'
-  - name: 'Shadowsocks 5642'
-    type: 'ss'
-    server: '82.38.31.174'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'oZIoA69Q8yhcQV8ka3Pa3A'
-    udp: true
-  - name: 'VLESS 80183'
+  - name: 'VLESS 76870'
     type: 'vless'
     server: 'node.remnagecsp.ru'
     port: 7443
@@ -486,39 +416,20 @@ proxies:
     reality-opts:
       public-key: '0BVxZKOt6wO0jIB1xRkAAtaFUkmyFAbVWfkkKSJBfEI'
       short-id: '570ffeb12f6e4635'
-  - name: 'Shadowsocks 9350'
-    type: 'ss'
-    server: '149.102.132.184'
-    port: 443
-    cipher: 'aes-256-gcm'
-    password: 'g5h5jleTRSyO3Rk4'
-    udp: true
-  - name: 'VLESS 132200'
+  - name: 'VLESS 68747'
     type: 'vless'
-    server: '2.27.71.53'
+    server: '152.53.236.22'
     port: 443
     udp: true
-    uuid: 'df53b6c2-8005-475c-9eb9-74e1be785dc8'
+    uuid: '711c018e-2692-4aa8-93f3-544d83fcd16c'
     flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'addons.mozilla.org'
-    client-fingerprint: 'randomized'
-    reality-opts:
-      public-key: '5tMM2VdgddmxOKhdNa3b7i_aXno1g-_61SzkppS2UXQ'
-      short-id: 'f3c023cc'
-  - name: 'VLESS 139049'
-    type: 'vless'
-    server: '54.37.136.194'
-    port: 2053
-    udp: true
-    uuid: 'e8a432c8-5d84-49a5-b822-67ed761a58f9'
     encryption: 'none'
     tls: true
     servername: 'www.cloudflare.com'
     reality-opts:
-      public-key: 'Vemd9Jjk5xKO8qSC3g8VVagwcb4J1BcTvp86CswQC0A'
-      short-id: '50ba05992b05c1c3'
-  - name: 'VLESS 114421'
+      public-key: 'HyVSZ2OyySwXT-xRhTAqoiuYflIaj_b0Jxm7S1Iq9hs'
+      short-id: '7a76f3c4b9dd'
+  - name: 'VLESS 109584'
     type: 'vless'
     server: '208.69.78.217'
     port: 2053
@@ -530,29 +441,57 @@ proxies:
     reality-opts:
       public-key: 'A49ue7zXSusJZdErPAewg3jqGdUFIO1a9xOunEKJfC0'
       short-id: 'ad86e2d52ff40ebd'
-  - name: 'Hysteria2 1806'
-    type: 'hysteria2'
-    server: '45.192.12.93'
-    port: 443
+  - name: 'VLESS 93352'
+    type: 'vless'
+    server: '194.76.154.31'
+    port: 40443
     udp: true
-    password: 'YutbgyXL1mGaSlBXDoEucWvYbrDCINgUcQ6R6_At5Pjr2xCc'
+    uuid: '9f0baff8-bdee-4de9-9515-bcc4932b41fa'
+    encryption: 'none'
     tls: true
-    servername: 'admin.wwwinternetvideo.click'
-  - name: 'Shadowsocks 6545'
-    type: 'ss'
-    server: '158.173.20.208'
-    port: 443
-    cipher: 'aes-128-gcm'
-    password: 'shadowsocks'
+    servername: 'deepl.com'
+    reality-opts:
+      public-key: 'MN6QjUHDUXyteMdR-cDna89fq4X3qgQhLnNqTtRUbBQ'
+      short-id: 'a8ae'
+  - name: 'VLESS 133192'
+    type: 'vless'
+    server: '54.37.136.194'
+    port: 2053
     udp: true
-  - name: 'Shadowsocks 7466'
-    type: 'ss'
-    server: '149.102.149.207'
-    port: 443
-    cipher: 'aes-256-gcm'
-    password: 'LXchLsIwtCeUAUgu'
+    uuid: 'e8a432c8-5d84-49a5-b822-67ed761a58f9'
+    encryption: 'none'
+    tls: true
+    servername: 'www.cloudflare.com'
+    reality-opts:
+      public-key: 'Vemd9Jjk5xKO8qSC3g8VVagwcb4J1BcTvp86CswQC0A'
+      short-id: '50ba05992b05c1c3'
+  - name: 'VLESS 90809'
+    type: 'vless'
+    server: '136.175.82.85'
+    port: 18775
     udp: true
-  - name: 'VLESS 80309'
+    uuid: '9ae5940b-0278-403d-a1e1-9dddc47bdcf6'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'addons.mozilla.org'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'oR75S6pg_RDAKIuzv_WrCiwaUqqFoek2iuo5N22llQQ'
+      short-id: '6ba85179e30d4fc2'
+  - name: 'VLESS 103997'
+    type: 'vless'
+    server: '46.250.250.149'
+    port: 2053
+    udp: true
+    uuid: 'b4caaf57-ad77-4948-a6f5-51b3513799bf'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'hieuCHb3HYdDYHmTDyWw2SGqyfo36AVuA-wSiZMdU1M'
+      short-id: '9922313fffed1c63'
+  - name: 'VLESS 76993'
     type: 'vless'
     server: '152.228.139.33'
     port: 35108
@@ -568,23 +507,7 @@ proxies:
     network: 'grpc'
     grpc-opts:
       grpc-service-name: 'grpc-common3'
-  - name: 'Trojan 22921'
-    type: 'trojan'
-    server: '202.78.163.237'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'cheerful-swan.rooster465.autos'
-  - name: 'Hysteria2 2053'
-    type: 'hysteria2'
-    server: '144.31.212.253'
-    port: 443
-    udp: true
-    password: 'cf83b611-6cba-4535-adcb-8da06c6a9146'
-    tls: true
-    servername: 'vps155-edge.kermemehori.ru'
-  - name: 'VLESS 9265'
+  - name: 'VLESS 8856'
     type: 'vless'
     server: '151.241.226.201'
     port: 2053
@@ -597,22 +520,88 @@ proxies:
     reality-opts:
       public-key: 'bYW_MmB_CUHrsyoCAUKviI2LZdHf63yY2yOPXbih104'
       short-id: '9e419c0759b54d6f'
-  - name: 'Shadowsocks 7467'
-    type: 'ss'
-    server: '149.102.149.207'
-    port: 80
-    cipher: 'aes-256-gcm'
-    password: 'LXchLsIwtCeUAUgu'
+  - name: 'VLESS 125023'
+    type: 'vless'
+    server: '66.70.179.198'
+    port: 2053
     udp: true
-  - name: 'Trojan 23092'
-    type: 'trojan'
-    server: '34.242.77.118'
+    uuid: 'dc620cd6-a9d8-4a0f-8f18-006b895db77e'
+    encryption: 'none'
+    tls: true
+    servername: 'www.cloudflare.com'
+    reality-opts:
+      public-key: 'k4l6TxwkBbx9DhZAFpByq5rfCWFSgyOex3f_eFe9CWU'
+      short-id: '83f8317a948bb769'
+  - name: 'VLESS 37899'
+    type: 'vless'
+    server: '82.29.36.250'
     port: 443
     udp: true
-    password: 'UX82473651'
+    uuid: '41a7af38-0bb1-4493-aa8d-634af0c2548b'
+    flow: 'xtls-rprx-vision'
     tls: true
-    servername: 'sacred-anemone.rooster465.autos'
+    servername: 'aws.amazon.com'
     client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: '09XPceP705hC-5sEDXDSLeL2eMOrF-mFISK8JaJ7q2g'
+      short-id: '09353d6dc5b789'
+  - name: 'VLESS 140919'
+    type: 'vless'
+    server: '185.200.199.199'
+    port: 8444
+    udp: true
+    uuid: 'f55e9aba-7b14-4f6f-b59a-d5b3d45c9309'
+    encryption: 'none'
+    tls: true
+    servername: 'github.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'FWitre1jinQR7qz5HQ0q2Q4Gg9xA9B0SyizCziN7Ch0'
+      short-id: '457fab2ac885dbe0'
+    network: 'grpc'
+    grpc-opts:
+      grpc-service-name: 'GunService'
+  - name: 'Hysteria2 1707'
+    type: 'hysteria2'
+    server: '144.31.212.253'
+    port: 443
+    udp: true
+    password: 'cf83b611-6cba-4535-adcb-8da06c6a9146'
+    tls: true
+    servername: 'vps155-edge.kermemehori.ru'
+  - name: 'Shadowsocks 159'
+    type: 'ss'
+    server: '47.85.168.157'
+    port: 443
+    cipher: '2022-blake3-chacha20-poly1305'
+    password: '3NBsnBLanPfG6i3S2GTHineswr6EeSJPb0PCeMQoGoA='
+    udp: true
+  - name: 'VLESS 30754'
+    type: 'vless'
+    server: '95.85.224.51'
+    port: 443
+    udp: true
+    uuid: '342ab7e4-5a89-0001-8809-304120d4aa83'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'max.ru'
+    client-fingerprint: 'qq'
+    reality-opts:
+      public-key: 'WWeAHWUVD-phmnjNJ823cer0c4CMIbEs08AhsuEZmDc'
+      short-id: 'a696de84963656de'
+  - name: 'VLESS 113868'
+    type: 'vless'
+    server: '137.184.218.169'
+    port: 36925
+    udp: true
+    uuid: 'c9fd0fb1-8251-4106-b09a-f4b426736f67'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.cloudflare.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'lJ9INPpO4rdnm2Tek_yg0PGFyUrBB6MoKyvqt_Mfqm0'
   - name: 'VLESS 78964'
     type: 'vless'
     server: '198.55.102.59'
@@ -627,131 +616,7 @@ proxies:
     reality-opts:
       public-key: '9gYnZLxZAPxIKzu9e-cOLBpbCn9p9og9gBodOCh5HB8'
       short-id: 'ce6767c3f1'
-  - name: 'VLESS 32042'
-    type: 'vless'
-    server: '95.85.224.51'
-    port: 443
-    udp: true
-    uuid: '342ab7e4-5a89-0001-8809-304120d4aa83'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'max.ru'
-    client-fingerprint: 'qq'
-    reality-opts:
-      public-key: 'WWeAHWUVD-phmnjNJ823cer0c4CMIbEs08AhsuEZmDc'
-      short-id: 'a696de84963656de'
-  - name: 'VLESS 108556'
-    type: 'vless'
-    server: '46.250.250.149'
-    port: 2053
-    udp: true
-    uuid: 'b4caaf57-ad77-4948-a6f5-51b3513799bf'
-    tls: true
-    servername: 'www.apple.com'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: 'hieuCHb3HYdDYHmTDyWw2SGqyfo36AVuA-wSiZMdU1M'
-      short-id: '9922313fffed1c63'
-  - name: 'Trojan 23556'
-    type: 'trojan'
-    server: 'concrete-aardvark.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'concrete-aardvark.rooster465.autos'
-  - name: 'Trojan 23866'
-    type: 'trojan'
-    server: 'musical-terrier.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'musical-terrier.rooster465.autos'
-  - name: 'Trojan 23506'
-    type: 'trojan'
-    server: 'prime-corgi.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'prime-corgi.rooster465.autos'
-  - name: 'Trojan 23505'
-    type: 'trojan'
-    server: 'dynamic-imp.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'dynamic-imp.rooster465.autos'
-  - name: 'Trojan 23764'
-    type: 'trojan'
-    server: 'comic-poodle.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'comic-poodle.rooster465.autos'
-  - name: 'Trojan 23618'
-    type: 'trojan'
-    server: 'evolving-platypus.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'evolving-platypus.rooster465.autos'
-  - name: 'Trojan 23312'
-    type: 'trojan'
-    server: '54.249.36.167'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'comic-poodle.rooster465.autos'
-    client-fingerprint: 'chrome'
-  - name: 'VMess 5526'
-    type: 'vmess'
-    server: '149.88.23.207'
-    port: 18000
-    udp: true
-    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
-    alterId: 0
-    cipher: 'auto'
-  - name: 'Trojan 23996'
-    type: 'trojan'
-    server: 'organic-caribou.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'organic-caribou.rooster465.autos'
-  - name: 'VLESS 39525'
-    type: 'vless'
-    server: '82.29.36.250'
-    port: 443
-    udp: true
-    uuid: '41a7af38-0bb1-4493-aa8d-634af0c2548b'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'aws.amazon.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: '09XPceP705hC-5sEDXDSLeL2eMOrF-mFISK8JaJ7q2g'
-      short-id: '09353d6dc5b789'
-  - name: 'VLESS 99847'
-    type: 'vless'
-    server: '51.161.204.242'
-    port: 443
-    udp: true
-    uuid: 'a14b736b-a92a-48d6-a596-5d31f7378ded'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'www.cloudflare.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'a2qGjvUPq6Nz5FTbn_MSHp-055q2h8YXqIL5VIJ5zwE'
-      short-id: 'd15c17cef9b2e456'
-  - name: 'VLESS 79186'
+  - name: 'VLESS 76641'
     type: 'vless'
     server: '3.39.4.109'
     port: 13672
@@ -765,116 +630,15 @@ proxies:
     reality-opts:
       public-key: 'k2hPp0tTW0Da-HK94wYpSCLbuK44LfGqC2MSJIM1Ti0'
       short-id: '48050fab'
-  - name: 'Trojan 23950'
-    type: 'trojan'
-    server: 'obliging-louse.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'obliging-louse.rooster465.autos'
-  - name: 'VLESS 125015'
+  - name: 'VLESS 2706'
     type: 'vless'
-    server: 'cdn-dynmedia.shalana.shop'
-    port: 443
+    server: '172.190.134.233'
+    port: 26490
     udp: true
-    uuid: 'd3ad7253-2dbd-42fd-9b07-04caea38de54'
-    tls: true
-    servername: 'cdn-dynmedia.shalana.shop'
-    client-fingerprint: 'chrome'
-    alpn:
-      - 'h2'
-      - 'http/1.1'
-  - name: 'Trojan 23657'
-    type: 'trojan'
-    server: 'fancy-javelin.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'fancy-javelin.rooster465.autos'
-  - name: 'Trojan 22823'
-    type: 'trojan'
-    server: 'accurate-frog.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'accurate-frog.rooster465.autos'
-  - name: 'Trojan 23801'
-    type: 'trojan'
-    server: 'kind-stork.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'kind-stork.rooster465.autos'
-  - name: 'Trojan 23749'
-    type: 'trojan'
-    server: 'integral-rodent.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'integral-rodent.rooster465.autos'
-  - name: 'Trojan 23401'
-    type: 'trojan'
-    server: '63.178.198.94'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'pleased-albacore.rooster465.autos'
-    client-fingerprint: 'chrome'
-  - name: 'Trojan 23832'
-    type: 'trojan'
-    server: 'loved-shark.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'loved-shark.rooster465.autos'
-  - name: 'Trojan 23440'
-    type: 'trojan'
-    server: 'actual-squid.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'actual-squid.rooster465.autos'
-  - name: 'VLESS 12837'
-    type: 'vless'
-    server: '159.89.87.21'
-    port: 28190
-    udp: true
-    uuid: '14c80e0e-f7ce-4991-94fc-99a1db4a9b1e'
+    uuid: '03e52750-0c85-42c1-a30b-b2e35da7abbb'
     flow: 'xtls-rprx-vision'
-    encryption: 'none'
     tls: true
-    servername: 'aws.amazon.com'
-    client-fingerprint: 'chrome'
+    servername: 'addons.mozilla.org'
+    client-fingerprint: 'firefox'
     reality-opts:
-      public-key: 'ZJRnFU-1s1JOnO8E9uZ7b00l1fPEh63fGRbdBANFRno'
-  - name: 'Shadowsocks 159'
-    type: 'ss'
-    server: '47.85.168.157'
-    port: 443
-    cipher: '2022-blake3-chacha20-poly1305'
-    password: '3NBsnBLanPfG6i3S2GTHineswr6EeSJPb0PCeMQoGoA='
-    udp: true
-  - name: 'Trojan 23869'
-    type: 'trojan'
-    server: 'meet-goshawk.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'meet-goshawk.rooster465.autos'
-  - name: 'Trojan 24026'
-    type: 'trojan'
-    server: 'pleased-albacore.rooster465.autos'
-    port: 443
-    udp: true
-    password: 'UX82473651'
-    tls: true
-    servername: 'pleased-albacore.rooster465.autos'
+      public-key: 'f4aZkLbmSLe874qztsQi5UPJq-9wonTRqOpHnQdiIm8'
