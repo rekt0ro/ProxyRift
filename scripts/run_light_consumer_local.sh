@@ -193,6 +193,5 @@ cleanup_all
 trap - EXIT
 
 echo
-echo "[INFO] Merge this PR into main. On the next Update Configs run, main will contain the new evidence; then rerun this same command against the refreshed main Light list."
-echo "       Private results remain local in subscriptions/light-consumer-results.json"
+echo "[INFO] Private results remain local in subscriptions/light-consumer-results.json"
 exit 0
