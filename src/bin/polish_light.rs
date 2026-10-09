@@ -1853,6 +1853,7 @@ async fn fill_transfer_stability_gate(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn fill_stream_continuity_gate(
     xray: &str,
     singbox: &str,
@@ -3243,6 +3244,7 @@ async fn validate_light_batch(
     Ok(verified)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_stream_continuity_snapshot(
     xray: String,
     singbox: String,
@@ -4338,7 +4340,7 @@ mod tests {
 
     #[test]
     fn stream_pool_early_exit_uses_final_diversity_selection() {
-        let configs = vec![
+        let configs = [
             "vless://a@example.com:443".to_string(),
             "vless://b@example.net:443".to_string(),
         ];
