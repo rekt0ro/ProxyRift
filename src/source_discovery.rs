@@ -1361,8 +1361,6 @@ fn select_new_candidates(
     let mut counts_by_repo = HashMap::<String, usize>::new();
     let exploration_limit = limit / TREE_EXPLORATION_DIVISOR;
 
-    // Reserve some of the discovery budget before the README-first list can
-    // fill it, otherwise tree-only candidates may never reach active selection.
     for candidate in discovered
         .iter()
         .filter(|candidate| candidate.priority < README_CANDIDATE_PRIORITY)
@@ -1397,8 +1395,6 @@ fn select_new_candidates(
         );
     }
 
-    // If either path has too few eligible sources, let the other path fill
-    // unused capacity rather than leaving discovery slots empty.
     for candidate in discovered {
         if selected.len() >= limit {
             break;
@@ -2261,8 +2257,6 @@ fn select_new_active_urls(candidates: &[Candidate], limit: usize) -> Vec<String>
         return select_new_active_urls_ranked(candidates, limit);
     }
 
-    // Keep a small, predictable share for tree-only discoveries so a large
-    // README candidate pool cannot starve the fallback discovery path.
     let exploration_limit = (limit / TREE_EXPLORATION_DIVISOR).min(tree_candidates.len());
     if exploration_limit == 0 {
         return select_new_active_urls_ranked(candidates, limit);
