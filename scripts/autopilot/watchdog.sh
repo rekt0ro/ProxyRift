@@ -64,7 +64,16 @@ validate_published_outputs() {
     if ! base64 --decode "$tmp/$name-base64.txt" > "$tmp/$name-decoded.txt"; then
       fail "Published $name Base64 subscription cannot be decoded."
     fi
-    if ! cmp --silent "$tmp/$name.txt" "$tmp/$name-decoded.txt"; then
+    if ! python3 - "$tmp/$name.txt" "$tmp/$name-decoded.txt" <<'PY'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_bytes().rstrip(b"\r\n")
+decoded = pathlib.Path(sys.argv[2]).read_bytes()
+if source != decoded:
+    raise SystemExit(1)
+PY
+    then
       fail "Published $name Base64 output does not match $name.txt."
     fi
   done
