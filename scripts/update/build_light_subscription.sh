@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
 mkdir -p /tmp/proxyrift
 light_started_epoch="$(date +%s)"
 set +e
