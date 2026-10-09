@@ -1,11 +1,12 @@
 use crate::validator::{
     adaptive_batch_size, config_label, healthy_targets, is_throughput_target,
-    record_target_rate_limit, read_response_body_at_least, read_response_body_at_least_with_max_idle,
-    read_response_body_limited_to, response_limit_for_target, uses_udp_transport, ProxyMetrics,
-    ValidationPolicy, MIN_RESPONSE_BYTES, MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS,
-    PRIMARY_TARGET, STABILITY_ATTEMPTS, STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK,
-    STRICT_MIN_SUCCESSFUL_ATTEMPTS, STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS,
-    STRICT_STABILITY_ATTEMPTS, SUSTAINED_THROUGHPUT_TIMEOUT,
+    read_response_body_at_least, read_response_body_at_least_with_max_idle,
+    read_response_body_limited_to, record_target_rate_limit, response_limit_for_target,
+    uses_udp_transport, ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
+    MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS,
+    STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS,
+    STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
+    SUSTAINED_THROUGHPUT_TIMEOUT,
 };
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
@@ -1453,9 +1454,10 @@ async fn check_batch_targets(
                 .iter()
                 .map(|target| Url::parse(target).map_err(|error| error.to_string()))
                 .collect::<Result<Vec<_>, _>>()?;
-            let pooled =
-                crate::validator::validate_clients_with_target_pool(&clients, &pool_urls, workers, policy)
-                    .await;
+            let pooled = crate::validator::validate_clients_with_target_pool(
+                &clients, &pool_urls, workers, policy,
+            )
+            .await;
             for (index, metrics) in pooled.into_iter().enumerate() {
                 if let Some(metrics) = metrics {
                     verified.insert(batch_entries[index].0.clone(), metrics);
