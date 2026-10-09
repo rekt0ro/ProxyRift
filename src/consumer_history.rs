@@ -12,7 +12,6 @@ const PROTOCOL_PRIOR_STRENGTH: f64 = 8.0;
 const ARCHETYPE_PRIOR_STRENGTH: f64 = 12.0;
 const FAMILY_PRIOR_STRENGTH: f64 = 16.0;
 const EXPLORATION_BONUS: f64 = 0.03;
-// Keep permanent support bounded so repeated passes strengthen a pattern without growing forever.
 const PERMANENT_SUPPORT_CAP: u32 = 8;
 const RECENT_CONSUMER_WINDOW_SECS: u64 = 7 * 24 * 60 * 60;
 const MAX_RECENT_CONSUMER_RESULTS: usize = 5000;
@@ -1072,7 +1071,7 @@ impl ConsumerEvidence {
             .unwrap_or(archetype_rate);
         let family_rate = smoothed_rate(family_stats, learned_family_rate, FAMILY_PRIOR_STRENGTH);
         let consumer_rate = if let Some(performance_rate) = self.performance_family_score(config) {
-            0.40 * family_rate + 0.60 * performance_rate
+            0.60 * family_rate + 0.40 * performance_rate
         } else {
             family_rate
         };
