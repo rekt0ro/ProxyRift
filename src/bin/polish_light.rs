@@ -12,9 +12,9 @@ use proxyrift::singbox::{
     validate_candidates_with_target_pool_once_with_sustained_stream as validate_singbox_target_pool_once_with_sustained_stream,
 };
 use proxyrift::validator::{
-    endpoint, is_light_consumer_compatible, read_lines,
-    target_is_rate_limited, target_rate_limit_events,
-    validate_candidates_with_consumer_targets, validate_candidates_with_target_once,
+    endpoint, is_light_consumer_compatible, read_lines, target_is_rate_limited,
+    target_rate_limit_events, validate_candidates_with_consumer_targets,
+    validate_candidates_with_target_once,
     validate_candidates_with_target_pool_once_with_minimum_body,
     validate_candidates_with_target_pool_once_with_sustained_stream, write_lines, ProxyMetrics,
     LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_MINIMUM_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES,
@@ -4313,7 +4313,10 @@ mod tests {
     #[test]
     fn transfer_target_selector_stops_when_every_host_is_quarantined() {
         let states = vec![
-            TransferTargetState { quarantined: true, ..TransferTargetState::default() };
+            TransferTargetState {
+                quarantined: true,
+                ..TransferTargetState::default()
+            };
             4
         ];
         assert_eq!(select_transfer_target(&states), None);
