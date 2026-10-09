@@ -294,7 +294,6 @@ jobs:
         id: build_light
         env:
           LIGHT_MAX_CANDIDATES: "15000"
-          # Aim for 100+ verified configs without treating the 130-config ceiling as a quota.
           LIGHT_SELECTION_LIMIT: "130"
           LIGHT_MIN_PUBLISH: "50"
         run: |
