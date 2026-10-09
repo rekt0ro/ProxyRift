@@ -1228,28 +1228,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     }
 
     let existing_urls = registry.sources().keys().cloned().collect::<HashSet<_>>();
-
-    let mut new_candidates = Vec::new();
-    let mut new_counts_by_repo = HashMap::<String, usize>::new();
-
-    for candidate in discovered
-        .iter()
-        .filter(|candidate| !existing_urls.contains(&candidate.url))
-    {
-        let count = new_counts_by_repo
-            .entry(candidate.repo.clone())
-            .or_default();
-        if *count >= MAX_NEW_SOURCES_PER_REPO {
-            continue;
-        }
-
-        new_candidates.push(candidate.clone());
-        *count += 1;
-
-        if new_candidates.len() >= MAX_NEW_SOURCES {
-            break;
-        }
-    }
+    let new_candidates = select_new_candidates(&discovered, &existing_urls, MAX_NEW_SOURCES);
 
     let known_candidates = select_known_refresh_candidates(&discovered, &registry, now);
 
@@ -1366,6 +1345,99 @@ pub async fn record_collection_results(
     );
 
     Ok(quarantined)
+}
+
+fn select_new_candidates(
+    discovered: &[Candidate],
+    existing_urls: &HashSet<String>,
+    limit: usize,
+) -> Vec<Candidate> {
+    if limit == 0 || discovered.is_empty() {
+        return Vec::new();
+    }
+
+    let mut selected = Vec::with_capacity(limit.min(discovered.len()));
+    let mut selected_urls = HashSet::new();
+    let mut counts_by_repo = HashMap::<String, usize>::new();
+    let exploration_limit = limit / TREE_EXPLORATION_DIVISOR;
+
+    // Reserve some of the discovery budget before the README-first list can
+    // fill it, otherwise tree-only candidates may never reach active selection.
+    for candidate in discovered
+        .iter()
+        .filter(|candidate| candidate.priority < README_CANDIDATE_PRIORITY)
+    {
+        if selected.len() >= exploration_limit {
+            break;
+        }
+
+        push_new_candidate(
+            candidate,
+            existing_urls,
+            &mut selected_urls,
+            &mut counts_by_repo,
+            &mut selected,
+        );
+    }
+
+    for candidate in discovered
+        .iter()
+        .filter(|candidate| candidate.priority >= README_CANDIDATE_PRIORITY)
+    {
+        if selected.len() >= limit {
+            break;
+        }
+
+        push_new_candidate(
+            candidate,
+            existing_urls,
+            &mut selected_urls,
+            &mut counts_by_repo,
+            &mut selected,
+        );
+    }
+
+    // If either path has too few eligible sources, let the other path fill
+    // unused capacity rather than leaving discovery slots empty.
+    for candidate in discovered {
+        if selected.len() >= limit {
+            break;
+        }
+
+        push_new_candidate(
+            candidate,
+            existing_urls,
+            &mut selected_urls,
+            &mut counts_by_repo,
+            &mut selected,
+        );
+    }
+
+    selected
+}
+
+fn push_new_candidate(
+    candidate: &Candidate,
+    existing_urls: &HashSet<String>,
+    selected_urls: &mut HashSet<String>,
+    counts_by_repo: &mut HashMap<String, usize>,
+    selected: &mut Vec<Candidate>,
+) {
+    if existing_urls.contains(&candidate.url) || selected_urls.contains(&candidate.url) {
+        return;
+    }
+
+    let count = counts_by_repo
+        .get(&candidate.repo)
+        .copied()
+        .unwrap_or_default();
+    if count >= MAX_NEW_SOURCES_PER_REPO {
+        return;
+    }
+
+    selected_urls.insert(candidate.url.clone());
+    *counts_by_repo.entry(candidate.repo.clone()).or_default() += 1;
+    selected.push(candidate.clone());
 }
 
 fn count_candidates_by_origin_repo(
@@ -3241,6 +3313,40 @@ mod tests {
 
         assert_eq!(counts.get("reader/repo"), Some(&1));
         assert!(!counts.contains_key("source/repo"));
+    }
+
+    #[test]
+    fn new_candidate_budget_reserves_capacity_for_tree_discoveries() {
+        let readme = (0..20)
+            .map(|index| Candidate {
+                url: format!(
+                    "https://raw.githubusercontent.com/example/readme-{index}/main/subscriptions/all.txt"
+                ),
+                repo: format!("example/readme-{index}"),
+                repo_rank: index,
+                priority: super::README_CANDIDATE_PRIORITY,
+            })
+            .collect::<Vec<_>>();
+        let tree = (0..5)
+            .map(|index| Candidate {
+                url: format!(
+                    "https://raw.githubusercontent.com/example/tree-{index}/main/subscriptions/all.txt"
+                ),
+                repo: format!("example/tree-{index}"),
+                repo_rank: 100 + index,
+                priority: super::TREE_CANDIDATE_PRIORITY,
+            })
+            .collect::<Vec<_>>();
+        let discovered = readme.into_iter().chain(tree).collect::<Vec<_>>();
+
+        let selected = super::select_new_candidates(&discovered, &HashSet::new(), 10);
+        let tree_selected = selected
+            .iter()
+            .filter(|candidate| candidate.repo.contains("/tree-"))
+            .count();
+
+        assert_eq!(selected.len(), 10);
+        assert_eq!(tree_selected, 2);
     }
 
     #[test]
