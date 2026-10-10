@@ -35,7 +35,7 @@ singbox_summary_version="${SINGBOX_VERSION:-unknown}"
 
 count_configs() {
   if [ -s "$1" ]; then
-    awk 'NF && $0 !~ /^#profile-update-interval:/ { count++ } END { print count + 0 }' "$1"
+    awk 'NF && $0 !~ /^#/ { count++ } END { print count + 0 }' "$1"
   else
     printf '0'
   fi
