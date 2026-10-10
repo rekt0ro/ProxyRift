@@ -1,5 +1,4 @@
 pub mod clash;
-pub mod intelligence;
 pub mod light_gbm;
 pub mod light_training;
 pub mod singbox;
@@ -10,7 +9,6 @@ use std::sync::OnceLock;
 
 static COMPACT_LOGS_ENABLED: OnceLock<bool> = OnceLock::new();
 
-/// Returns whether routine informational logs should be suppressed.
 pub fn compact_logs_enabled() -> bool {
     *COMPACT_LOGS_ENABLED.get_or_init(|| {
         std::env::var("PROXYRIFT_LOG_MODE")
@@ -18,7 +16,6 @@ pub fn compact_logs_enabled() -> bool {
     })
 }
 
-/// Emits a progress line only when verbose logging or a compact checkpoint is enabled.
 pub fn should_emit_compact_progress(
     completed: usize,
     batch_size: usize,

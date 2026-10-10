@@ -1,5 +1,6 @@
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
+use blake2::{digest::consts::U32, Blake2b, Digest};
 use futures::stream::{self, StreamExt};
 use percent_encoding::percent_decode_str;
 use proxyrift::light_gbm::LightGbmScores;
@@ -52,6 +53,21 @@ const MAX_LIGHT_CANDIDATES: usize = 15_000;
 const MAX_LIGHT_ENDPOINT_VARIANTS: usize = 6;
 const SOURCE_RETRIES: usize = 2;
 const SOURCE_RETRY_BASE_MS: u64 = 250;
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum ProbeObfuscation {
+    Salamander(String),
+    XPlus(String),
+}
+
+impl ProbeObfuscation {
+    fn key(&self) -> String {
+        match self {
+            Self::Salamander(password) => format!("salamander:{password}"),
+            Self::XPlus(password) => format!("xplus:{password}"),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum TransportProbeKey {
@@ -489,9 +505,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let all_candidate_sources = named_config_sources.clone();
     configs = named_config_sources.keys().cloned().collect::<Vec<_>>();
     configs.sort_unstable();
-    let special_hysteria_candidates = configs
+    let deferred_transport_candidates = configs
         .iter()
-        .filter(|config| needs_core_validation_only(config))
+        .filter(|config| needs_deferred_transport_validation(config))
         .filter(|config| is_locally_supported_config(config))
         .cloned()
         .collect::<Vec<_>>();
@@ -501,7 +517,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let retained_configs = configs.iter().cloned().collect::<HashSet<_>>();
     named_config_sources.retain(|config, _| retained_configs.contains(config));
-    let mut special_hysteria_candidates = special_hysteria_candidates
+    let mut deferred_transport_candidates = deferred_transport_candidates
         .into_iter()
         .filter(|config| retained_configs.contains(config))
         .collect::<Vec<_>>();
@@ -643,7 +659,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     )
     .await?;
 
-    if ranked_working_configs.is_empty() && special_hysteria_candidates.is_empty() {
+    if ranked_working_configs.is_empty() && deferred_transport_candidates.is_empty() {
         println!(
             "[WARN] ⚠️ No usable configs remained after transport-aware reachability and compatibility screening."
         );
@@ -678,14 +694,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     let sampled_transport_count = light_candidates.len();
-    special_hysteria_candidates.sort_unstable_by(|a, b| {
+    deferred_transport_candidates.sort_unstable_by(|a, b| {
         light_gbm
             .score(b)
             .total_cmp(&light_gbm.score(a))
             .then_with(|| a.cmp(b))
     });
 
-    for config in &special_hysteria_candidates {
+    for config in &deferred_transport_candidates {
         if light_candidates.len() >= MAX_LIGHT_CANDIDATES {
             break;
         }
@@ -697,7 +713,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         );
     }
 
-    let special_hysteria_added_count = light_candidates
+    let deferred_candidates_added_count = light_candidates
         .len()
         .saturating_sub(sampled_transport_count);
 
@@ -726,9 +742,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     write_atomic(&source_map_path, format!("{source_map}\n")).await?;
 
     println!(
-        "[INFO] 🧠 [Light intelligence] Prioritizing {} transport-tested candidates | Added {} core-only Hysteria/Hysteria2 candidates | Source provenance entries: {}",
+        "[INFO] 🧠 [Light candidate selection] Prioritizing {} transport-tested candidates | Deferred {} transport candidates for downstream validation | Source provenance entries: {}",
         sampled_transport_count,
-        special_hysteria_added_count,
+        deferred_candidates_added_count,
         light_candidates.len()
     );
 
@@ -858,7 +874,6 @@ fn cap_configs_globally(
         selected.push(config.clone());
     };
 
-    // Preserve protocol diversity before spending the remaining cap.
     let mut schemes = ranked
         .iter()
         .map(|config| config_scheme(config))
@@ -884,8 +899,6 @@ fn cap_configs_globally(
         }
     }
 
-    // Prefer a new endpoint whenever possible so one server cannot consume
-    // the whole cap with transport/config variants.
     if selected.len() < target {
         for config in &ranked {
             if selected.len() >= target {
@@ -910,7 +923,6 @@ fn cap_configs_globally(
         }
     }
 
-    // Fill any remaining capacity using source-backed ranking.
     for config in &ranked {
         if selected.len() >= target {
             break;
@@ -1861,10 +1873,52 @@ mod tests {
         assert_ne!(hy2_a, hy2_other_sni);
 
         let hy2_obfs = transport_probe_key(
-            "hysteria2://password-d@example.com:443?sni=example.com&alpn=h3&obfs=salamander",
+            "hysteria2://password-d@example.com:443?sni=example.com&alpn=h3&obfs=salamander&obfs-password=obfs-secret",
         );
 
         assert_ne!(hy2_a, hy2_obfs);
+
+        let hy2_obfs_other_password = transport_probe_key(
+            "hysteria2://password-d@example.com:443?sni=example.com&alpn=h3&obfs=salamander&obfs-password=other-secret",
+        );
+
+        assert_ne!(hy2_obfs, hy2_obfs_other_password);
+    }
+
+    #[test]
+    fn obfuscation_round_trip_works_for_supported_modes() {
+        let payload = b"probe-packet";
+
+        for obfuscation in [
+            super::ProbeObfuscation::Salamander("secret".to_string()),
+            super::ProbeObfuscation::XPlus("secret".to_string()),
+        ] {
+            let encoded = super::obfuscate_packet(payload, &obfuscation).unwrap();
+            let mut received = encoded.clone();
+            let decoded_len = super::deobfuscate_packet(&mut received, &obfuscation).unwrap();
+            assert_eq!(&received[..decoded_len], payload);
+            assert_ne!(encoded.as_slice(), &payload[..]);
+        }
+    }
+
+    #[test]
+    fn supports_common_obfuscation_modes_and_defers_unsupported_modes() {
+        let salamander = "hysteria2://auth@example.com:443?obfs=salamander&obfs-password=secret";
+        let xplus = "hysteria://auth@example.com:443?obfs=xplus&obfsParam=secret";
+        let gecko = "hysteria2://auth@example.com:443?obfs=gecko&obfs-password=secret";
+
+        assert!(matches!(
+            super::quic_probe_obfuscation(salamander),
+            Ok(Some(super::ProbeObfuscation::Salamander(_)))
+        ));
+        assert!(matches!(
+            super::quic_probe_obfuscation(xplus),
+            Ok(Some(super::ProbeObfuscation::XPlus(_)))
+        ));
+        assert!(super::quic_probe_obfuscation(gecko).is_err());
+        assert!(!super::needs_deferred_transport_validation(salamander));
+        assert!(!super::needs_deferred_transport_validation(xplus));
+        assert!(super::needs_deferred_transport_validation(gecko));
     }
 
     #[test]
@@ -2425,20 +2479,26 @@ mod tests {
     }
 
     #[test]
-    fn obfuscated_hysteria_needs_core_validation_only() {
-        assert!(super::needs_core_validation_only(
+    fn supported_obfuscation_is_probed_and_unsupported_modes_are_deferred() {
+        assert!(!super::needs_deferred_transport_validation(
             "hy2://pw@example.com:443/?obfs=salamander&obfs-password=x"
         ));
-        assert!(super::needs_core_validation_only(
+        assert!(!super::needs_deferred_transport_validation(
             "hysteria://example.com:443?obfs=xplus&obfsParam=x"
         ));
-        assert!(!super::needs_core_validation_only(
+        assert!(super::needs_deferred_transport_validation(
+            "hy2://pw@example.com:443/?obfs=gecko&obfs-password=x"
+        ));
+        assert!(super::needs_deferred_transport_validation(
+            "hy2://pw@example.com:443/?obfs=salamander"
+        ));
+        assert!(!super::needs_deferred_transport_validation(
             "hy2://pw@example.com:443/?sni=example.com"
         ));
-        assert!(!super::needs_core_validation_only(
+        assert!(!super::needs_deferred_transport_validation(
             "hysteria://example.com:443?upmbps=100"
         ));
-        assert!(!super::needs_core_validation_only(
+        assert!(!super::needs_deferred_transport_validation(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443"
         ));
     }
@@ -2471,11 +2531,62 @@ mod tests {
     }
 }
 
-fn needs_core_validation_only(config: &str) -> bool {
+fn needs_deferred_transport_validation(config: &str) -> bool {
+    matches!(
+        config_scheme(config).as_str(),
+        "hysteria" | "hysteria2" | "hy2"
+    ) && quic_probe_obfuscation(config).is_err()
+}
+
+fn quic_probe_obfuscation(config: &str) -> Result<Option<ProbeObfuscation>, ()> {
     match config_scheme(config).as_str() {
-        "hysteria2" | "hy2" => !hysteria2_query_values(config, "obfs").is_empty(),
-        "hysteria" => !query_values(config, "obfs").is_empty(),
-        _ => false,
+        "hysteria2" | "hy2" => {
+            let obfs = hysteria2_query_values(config, "obfs")
+                .into_iter()
+                .find(|value| !value.trim().is_empty());
+            let Some(obfs) = obfs else {
+                return Ok(None);
+            };
+
+            if !obfs.eq_ignore_ascii_case("salamander") {
+                return Err(());
+            }
+
+            let password = ["obfs-password", "obfs_password"]
+                .iter()
+                .find_map(|key| {
+                    hysteria2_query_values(config, key)
+                        .into_iter()
+                        .find(|value| !value.trim().is_empty())
+                })
+                .ok_or(())?;
+
+            Ok(Some(ProbeObfuscation::Salamander(password)))
+        }
+        "hysteria" => {
+            let obfs = query_values(config, "obfs")
+                .into_iter()
+                .find(|value| !value.trim().is_empty());
+            let Some(obfs) = obfs else {
+                return Ok(None);
+            };
+
+            if !obfs.eq_ignore_ascii_case("xplus") {
+                return Err(());
+            }
+
+            let password = ["obfsparam", "obfs-param"]
+                .iter()
+                .find_map(|key| {
+                    query_values(config, key)
+                        .into_iter()
+                        .find(|value| !value.trim().is_empty())
+                })
+                .ok_or(())?;
+
+            Ok(Some(ProbeObfuscation::XPlus(password)))
+        }
+        _ => Ok(None),
     }
 }
 
@@ -2651,6 +2762,7 @@ fn transport_probe_key(config: &str) -> Option<TransportProbeKey> {
         "hysteria2" | "hy2" => {
             let (host, _, _) = hysteria2_parts(config)?;
             let port_spec = hysteria2_port_spec(config)?;
+            let obfuscation = quic_probe_obfuscation(config).ok()?;
 
             let sni = ["sni", "peer", "server_name"]
                 .iter()
@@ -2665,10 +2777,6 @@ fn transport_probe_key(config: &str) -> Option<TransportProbeKey> {
                     values
                 }
             };
-            let obfs = hysteria2_query_values(config, "obfs")
-                .into_iter()
-                .next()
-                .filter(|value| !value.is_empty());
 
             Some(TransportProbeKey::Quic {
                 protocol: "hysteria2".to_string(),
@@ -2676,11 +2784,12 @@ fn transport_probe_key(config: &str) -> Option<TransportProbeKey> {
                 port_spec,
                 sni,
                 alpn,
-                obfs,
+                obfs: obfuscation.map(|value| value.key()),
             })
         }
 
         "hysteria" | "tuic" => {
+            let obfuscation = quic_probe_obfuscation(config).ok()?;
             let (host, port, sni, alpn) = quic_params(config)?;
 
             Some(TransportProbeKey::Quic {
@@ -2689,7 +2798,7 @@ fn transport_probe_key(config: &str) -> Option<TransportProbeKey> {
                 port_spec: port.to_string(),
                 sni,
                 alpn,
-                obfs: None,
+                obfs: obfuscation.map(|value| value.key()),
             })
         }
 
@@ -2840,10 +2949,6 @@ fn quic_params(config: &str) -> Option<(String, u16, String, Vec<String>)> {
 
     let port = url.port()?;
 
-    if query_value(config, &["obfs"]).is_some() {
-        return None;
-    }
-
     let sni = query_value(config, &["sni", "peer", "server_name"]).unwrap_or_else(|| host.clone());
 
     let default_alpn = if config_scheme(config) == "hysteria" {
@@ -2964,10 +3069,129 @@ fn hysteria2_query_csv_values(config: &str, key: &str) -> Vec<String> {
         .collect()
 }
 
+fn obfuscation_salt_len(obfuscation: &ProbeObfuscation) -> usize {
+    match obfuscation {
+        ProbeObfuscation::Salamander(_) => 8,
+        ProbeObfuscation::XPlus(_) => 16,
+    }
+}
+
+fn obfuscation_mask(obfuscation: &ProbeObfuscation, salt: &[u8]) -> Vec<u8> {
+    let password = match obfuscation {
+        ProbeObfuscation::Salamander(password) | ProbeObfuscation::XPlus(password) => password,
+    };
+    let mut input = Vec::with_capacity(password.len() + salt.len());
+    input.extend_from_slice(password.as_bytes());
+    input.extend_from_slice(salt);
+
+    match obfuscation {
+        ProbeObfuscation::Salamander(_) => Blake2b::<U32>::digest(input).to_vec(),
+        ProbeObfuscation::XPlus(_) => ring::digest::digest(&ring::digest::SHA256, &input)
+            .as_ref()
+            .to_vec(),
+    }
+}
+
+fn obfuscate_packet(payload: &[u8], obfuscation: &ProbeObfuscation) -> Option<Vec<u8>> {
+    let salt_len = obfuscation_salt_len(obfuscation);
+    let mut packet = vec![0u8; salt_len];
+    getrandom::fill(&mut packet).ok()?;
+    let mask = obfuscation_mask(obfuscation, &packet);
+    packet.extend(
+        payload
+            .iter()
+            .enumerate()
+            .map(|(index, byte)| *byte ^ mask[index % mask.len()]),
+    );
+    Some(packet)
+}
+
+fn deobfuscate_packet(packet: &mut [u8], obfuscation: &ProbeObfuscation) -> Option<usize> {
+    let salt_len = obfuscation_salt_len(obfuscation);
+    if packet.len() <= salt_len {
+        return None;
+    }
+
+    let salt = packet[..salt_len].to_vec();
+    let mask = obfuscation_mask(obfuscation, &salt);
+    let payload_len = packet.len() - salt_len;
+
+    for (index, byte) in packet[salt_len..].iter_mut().enumerate() {
+        *byte ^= mask[index % mask.len()];
+    }
+
+    packet.copy_within(salt_len.., 0);
+    Some(payload_len)
+}
+
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+async fn start_obfuscation_relay(
+    remote: SocketAddr,
+    obfuscation: ProbeObfuscation,
+) -> Option<(SocketAddr, tokio::task::JoinHandle<()>)> {
+    let relay_bind = if remote.is_ipv4() {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)
+    } else {
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0)
+    };
+    let upstream_bind = if remote.is_ipv4() {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
+    } else {
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+    };
+
+    let relay = Arc::new(UdpSocket::bind(relay_bind).await.ok()?);
+    let relay_address = relay.local_addr().ok()?;
+    let upstream = Arc::new(UdpSocket::bind(upstream_bind).await.ok()?);
+    upstream.connect(remote).await.ok()?;
+
+    let task = tokio::spawn(async move {
+        let mut client_buffer = vec![0u8; 65_535];
+        let mut server_buffer = vec![0u8; 65_535];
+        let mut client_address = None;
+
+        loop {
+            tokio::select! {
+                received = relay.recv_from(&mut client_buffer) => {
+                    let Ok((length, address)) = received else {
+                        break;
+                    };
+                    let Some(packet) = obfuscate_packet(&client_buffer[..length], &obfuscation) else {
+                        continue;
+                    };
+                    if upstream.send(&packet).await.is_ok() {
+                        client_address = Some(address);
+                    }
+                }
+                received = upstream.recv(&mut server_buffer) => {
+                    let Ok(length) = received else {
+                        break;
+                    };
+                    if let Some(packet_length) = deobfuscate_packet(&mut server_buffer[..length], &obfuscation) {
+                        if let Some(address) = client_address {
+                            let _ = relay.send_to(&server_buffer[..packet_length], address).await;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    Some((relay_address, task))
+}
+
 async fn quic_probe_target(
     address: SocketAddr,
     sni: &str,
     client_config: ClientConfig,
+    obfuscation: Option<ProbeObfuscation>,
 ) -> Option<u64> {
     let local = if address.ip().is_ipv4() {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
@@ -2976,8 +3200,16 @@ async fn quic_probe_target(
     };
 
     let endpoint = Endpoint::client(local).ok()?;
+    let (connect_address, _relay_guard) = if let Some(obfuscation) = obfuscation {
+        let (relay_address, task) = start_obfuscation_relay(address, obfuscation).await?;
+        (relay_address, Some(AbortOnDrop(task)))
+    } else {
+        (address, None)
+    };
 
-    let connecting = endpoint.connect_with(client_config, address, sni).ok()?;
+    let connecting = endpoint
+        .connect_with(client_config, connect_address, sni)
+        .ok()?;
 
     let start = Instant::now();
 
@@ -3004,6 +3236,7 @@ async fn quic_latency_for_targets(
     ports: &[u16],
     sni: &str,
     alpn: &[String],
+    obfuscation: Option<ProbeObfuscation>,
 ) -> Option<u64> {
     let first_port = *ports.first()?;
 
@@ -3034,8 +3267,9 @@ async fn quic_latency_for_targets(
         .map(|address| {
             let sni = sni.clone();
             let client_config = client_config.clone();
+            let obfuscation = obfuscation.clone();
 
-            async move { quic_probe_target(address, &sni, client_config).await }
+            async move { quic_probe_target(address, &sni, client_config, obfuscation).await }
         })
         .buffer_unordered(MAX_QUIC_TARGET_CONCURRENCY)
         .filter_map(|result| async move { result });
@@ -3048,16 +3282,11 @@ async fn quic_latency_for_targets(
         .flatten()
 }
 
-async fn hysteria2_quic_latency(config: &str) -> Option<u64> {
+async fn hysteria2_quic_latency(
+    config: &str,
+    obfuscation: Option<ProbeObfuscation>,
+) -> Option<u64> {
     let (host, _) = endpoint(config)?;
-
-    if hysteria2_query_values(config, "obfs")
-        .into_iter()
-        .any(|value| !value.is_empty())
-    {
-        return None;
-    }
-
     let ports = hysteria2_probe_ports(config)?;
 
     let sni = ["sni", "peer", "server_name"]
@@ -3067,7 +3296,6 @@ async fn hysteria2_quic_latency(config: &str) -> Option<u64> {
 
     let alpn = {
         let values = hysteria2_query_csv_values(config, "alpn");
-
         if values.is_empty() {
             vec!["h3".to_string()]
         } else {
@@ -3075,17 +3303,19 @@ async fn hysteria2_quic_latency(config: &str) -> Option<u64> {
         }
     };
 
-    quic_latency_for_targets(&host, &ports, &sni, &alpn).await
+    quic_latency_for_targets(&host, &ports, &sni, &alpn, obfuscation).await
 }
 
 async fn quic_latency(config: &str) -> Option<u64> {
+    let obfuscation = quic_probe_obfuscation(config).ok()?;
+
     if matches!(config_scheme(config).as_str(), "hysteria2" | "hy2") {
-        return hysteria2_quic_latency(config).await;
+        return hysteria2_quic_latency(config, obfuscation).await;
     }
 
     let (host, port, sni, alpn) = quic_params(config)?;
 
-    quic_latency_for_targets(&host, &[port], &sni, &alpn).await
+    quic_latency_for_targets(&host, &[port], &sni, &alpn, obfuscation).await
 }
 
 struct OsEntropy;

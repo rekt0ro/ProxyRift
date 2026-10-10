@@ -1834,13 +1834,6 @@ async fn fill_stream_continuity_gate(
         max_per_family,
     );
     if already_selectable >= selection_limit {
-        println!(
-            "[INFO] 🎯 [Stream] Output quota already fillable | Selectable: {}/{} | Tested: {} | Passed: {}",
-            already_selectable,
-            selection_limit,
-            stream_tested.len(),
-            stream_verified.len()
-        );
         return Ok(stream_verified.len());
     }
 
@@ -3028,7 +3021,7 @@ fn persist_light_training_data(
     write_readiness_report(LIGHT_TRAINING_STATS_PATH, &stats)?;
 
     println!(
-        "[INFO] 🧠 [Light ml data] +{} Rows | Total: {} | Runs: {} | Candidates: {} | Features: {} | Strict: {}/{} | Transfer: {}/{} | Stream: {}/{} | Strict-ML: {} | E2E-ML: {}",
+        "[INFO] 🧠 [Light ml data] +{} Rows | Total: {} | Runs: {} | Candidates: {} | Features: {} | Strict: {}/{} | Transfer: {}/{} | Stream: {}/{} | Strict-data: {} | E2E-data: {}",
         stats.new_rows,
         stats.rows,
         stats.unique_runs,
@@ -3439,6 +3432,7 @@ async fn main() -> Result<(), String> {
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
     let mut stagnant_waves = 0usize;
+    let mut strict_pool_ready_logged = false;
     let mut discovery_batch_floor = DISCOVERY_BATCH_MIN;
 
     println!(
@@ -3712,10 +3706,13 @@ async fn main() -> Result<(), String> {
         );
 
         if strict_selected.len() >= selection_limit {
-            println!(
-                "[INFO] 🚀 [Light] Strict pool reached {} | Starting downstream funnel immediately",
-                selection_limit
-            );
+            if !strict_pool_ready_logged {
+                println!(
+                    "[INFO] 🚀 [Light] Strict pool reached {} | Starting downstream validation",
+                    selection_limit
+                );
+                strict_pool_ready_logged = true;
+            }
 
             let _ = fill_transfer_gate(
                 &xray,
@@ -3896,9 +3893,6 @@ async fn main() -> Result<(), String> {
                 stagnant_waves = 0;
             }
         } else {
-            // Before the strict pool is full, low yield must still influence the
-            // next discovery wave; otherwise this path scans the whole candidate
-            // set in fixed-size waves before running the downstream gates.
             let newly_selectable = strict_eligible.saturating_sub(strict_selectable_before);
             let candidates_remaining = discovery_candidates.len().saturating_sub(discovery_cursor);
             let next_floor = adjust_discovery_batch_for_yield(
@@ -3982,8 +3976,6 @@ async fn main() -> Result<(), String> {
         &global_positions,
         &history,
     );
-    // The selection target controls when validation can stop, not the number of
-    // continuity-qualified configs that may be published from an already-tested pool.
     let publication_limit = final_publication_limit(selection_limit, stream_verified.len());
     let (selected, previous_selected, older_selected) = select_verified_configs_with_cohort_floor(
         &stream_ranked,
@@ -3998,11 +3990,7 @@ async fn main() -> Result<(), String> {
         older_selected,
         selected
             .iter()
-            .filter(|config| cohort_generations
-                .get(*config)
-                .copied()
-                .unwrap_or(usize::MAX)
-                == 0)
+            .filter(|config| cohort_generations.get(*config).copied().unwrap_or(0) == 0)
             .count()
     );
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(

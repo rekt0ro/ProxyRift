@@ -649,8 +649,6 @@ fn load_training(path: &str) -> Result<TrainingData, String> {
     let mut examples = Vec::with_capacity(raw_rows.len());
     let mut index = 0usize;
 
-    // Rows sharing the same observation timestamp are treated as one batch, so no row
-    // can learn from another result produced during the same run.
     while index < raw_rows.len() {
         let timestamp = raw_rows[index].observed_at;
         let mut end = index + 1;
@@ -806,8 +804,6 @@ fn top_quintile_pass_rate(predictions: &[f64], labels: &[f32]) -> f64 {
     let mut remaining = top_count;
     let mut start = 0;
 
-    // Tied scores share the top-k boundary proportionally. A flat model therefore
-    // gets exactly the holdout-wide pass rate instead of a timestamp-order artefact.
     while start < indices.len() && remaining > 0 {
         let score = predictions[indices[start]];
         let mut end = start + 1;
@@ -1110,8 +1106,6 @@ fn train_target_model(
 }
 
 fn training_feature_vector(fields: &serde_json::Map<String, Value>) -> Option<Vec<f64>> {
-    // Keep stored and live-candidate encodings identical. Historical rows include
-    // legacy enum values such as "vmess-default", which map to the live default bucket.
     let protocol = normalize_protocol(
         fields
             .get("protocol")?
@@ -1286,7 +1280,6 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
         .map(u64::from)
         .unwrap_or_else(|| known_port(&protocol));
 
-    // Match the persisted training feature, which counts query pairs, not distinct keys.
     let query_parameter_count = query.len() as u64;
 
     let has_sni = has_query_key(&query, &["sni", "serverName", "servername"]);
