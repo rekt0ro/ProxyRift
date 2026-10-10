@@ -90,7 +90,7 @@ const MIN_COHORT_RETENTION_COUNT: usize = 4;
 type StreamTaskResult = Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String>;
 type StreamTask = tokio::task::JoinHandle<StreamTaskResult>;
 
-fn final_publication_limit(selection_target: usize, _continuity_passed: usize) -> usize {
+fn final_publication_limit(selection_target: usize) -> usize {
     selection_target
 }
 
@@ -4000,7 +4000,7 @@ async fn main() -> Result<(), String> {
         &global_positions,
         &history,
     );
-    let publication_limit = final_publication_limit(selection_limit, stream_verified.len());
+    let publication_limit = final_publication_limit(selection_limit);
     let (selected, previous_selected, older_selected) = select_verified_configs_with_cohort_floor(
         &stream_ranked,
         &cohort_generations,
@@ -4247,7 +4247,7 @@ mod tests {
             .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
             .collect::<Vec<_>>();
         let generations = HashMap::new();
-        let publication_limit = final_publication_limit(130, configs.len());
+        let publication_limit = final_publication_limit(130);
 
         assert_eq!(publication_limit, 130);
         let (selected, _, _) = select_verified_configs_with_cohort_floor(
