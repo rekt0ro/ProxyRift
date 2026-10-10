@@ -1462,7 +1462,6 @@ async fn check_batch_targets(
             )
             .await;
 
-            // Don't accept pooled results from a core that died during validation.
             if child.try_wait().ok().flatten().is_some() {
                 core_failures += 1;
                 if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
@@ -1545,8 +1544,6 @@ async fn check_batch_targets(
                 .collect::<Vec<_>>()
                 .await;
 
-            // A core crash is a backend failure, not a proxy-quality verdict. Split the
-            // batch and retry the pieces so one bad config cannot poison unrelated candidates.
             if child.try_wait().ok().flatten().is_some() {
                 core_failures += 1;
                 if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
