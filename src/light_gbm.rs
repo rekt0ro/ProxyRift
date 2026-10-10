@@ -1106,7 +1106,6 @@ fn train_target_model(
 }
 
 fn training_feature_vector(fields: &serde_json::Map<String, Value>) -> Option<Vec<f64>> {
-
     let protocol = normalize_protocol(
         fields
             .get("protocol")?
