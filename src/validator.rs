@@ -617,9 +617,14 @@ fn vmess_tls_security(value: Option<&Value>) -> String {
     match value {
         Some(Value::Bool(true)) => "tls".to_string(),
         Some(Value::Bool(false)) | None => String::new(),
+        Some(Value::Number(value)) => match value.as_i64() {
+            Some(1) => "tls".to_string(),
+            Some(0) => String::new(),
+            _ => value.to_string(),
+        },
         Some(Value::String(value)) => match value.trim().to_ascii_lowercase().as_str() {
-            "true" => "tls".to_string(),
-            "false" => String::new(),
+            "tls" | "t" | "tl" | "1" | "true" | "yes" | "on" => "tls".to_string(),
+            "" | "0" | "false" | "no" | "off" => String::new(),
             _ => value.clone(),
         },
         Some(value) => json_text(Some(value)).unwrap_or_default(),
@@ -655,6 +660,8 @@ fn normalize_transport(value: &str) -> String {
             "http" | "h2" => Some("http".to_string()),
             "grpc" => Some("grpc".to_string()),
             "httpupgrade" => Some("httpupgrade".to_string()),
+            "kcp" | "mkcp" => Some("kcp".to_string()),
+            "quic" => Some("quic".to_string()),
             "xhttp" | "splithttp" => Some("xhttp".to_string()),
             _ => None,
         })
@@ -1145,7 +1152,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
     let network = normalize_transport(&first_query(url, &["type", "network"], Some("tcp")));
 
     match network.as_str() {
-        "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" => {}
+        "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic" => {}
         _ => return Err(format!("unsupported transport {network}")),
     }
 
@@ -1166,6 +1173,12 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         "reality" => "reality".to_string(),
         _ => return Err(format!("unsupported security {security}")),
     };
+
+    if security == "reality" && matches!(network.as_str(), "kcp" | "quic") {
+        return Err(format!(
+            "Reality security is incompatible with {network} transport"
+        ));
+    }
 
     if security == "reality" && !matches!(network.as_str(), "raw" | "xhttp" | "grpc") {
         security = "tls".to_string();
@@ -1380,6 +1393,24 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
                 settings["extra"] = value;
             }
             out["xhttpSettings"] = settings;
+        }
+        "kcp" => {
+            out["kcpSettings"] = json!({});
+        }
+        "quic" => {
+            let quic_security = first_query(url, &["quicSecurity", "quic_security"], Some("none"))
+                .trim()
+                .to_ascii_lowercase();
+            let header_type = first_query(url, &["headerType", "header_type"], Some(""));
+            if !matches!(quic_security.as_str(), "" | "none")
+                || (!header_type.is_empty() && !header_type.eq_ignore_ascii_case("none"))
+                || !first_query(url, &["key"], Some("")).is_empty()
+                || !path.is_empty()
+                || !host_header.is_empty()
+            {
+                return Err("unsupported legacy QUIC transport parameters".to_string());
+            }
+            out["quicSettings"] = json!({});
         }
         _ => unreachable!(),
     }
@@ -1961,21 +1992,21 @@ fn parse_basic(config: &str) -> Result<Value, String> {
     }))
 }
 
-pub fn is_cheaply_supported_config(config: &str) -> bool {
+pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str> {
     let config = clean(config);
     let scheme = scheme_of(config);
 
     match scheme.as_str() {
         "vless" | "trojan" => {
             let Ok(url) = Url::parse(config) else {
-                return false;
+                return Some("invalid-url");
             };
             if url.host().is_none() || url.port().is_none() || url.port() == Some(0) {
-                return false;
+                return Some("invalid-endpoint");
             }
 
             if scheme == "vless" && url.username().is_empty() {
-                return false;
+                return Some("missing-credential");
             }
             if scheme == "trojan" {
                 let password = url
@@ -1983,7 +2014,7 @@ pub fn is_cheaply_supported_config(config: &str) -> bool {
                     .filter(|password| !password.is_empty())
                     .unwrap_or(url.username());
                 if password.is_empty() {
-                    return false;
+                    return Some("missing-credential");
                 }
             }
 
@@ -1992,16 +2023,16 @@ pub fn is_cheaply_supported_config(config: &str) -> bool {
                 flow.as_str(),
                 "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
             ) {
-                return false;
+                return Some("unsupported-flow");
             }
 
             let transport =
                 normalize_transport(&first_query(&url, &["type", "network"], Some("tcp")));
             if !matches!(
                 transport.as_str(),
-                "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp"
+                "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic"
             ) {
-                return false;
+                return Some("unsupported-transport");
             }
 
             let security = first_query(&url, &["security"], Some("none"))
@@ -2009,29 +2040,65 @@ pub fn is_cheaply_supported_config(config: &str) -> bool {
                 .trim_end_matches('.')
                 .to_ascii_lowercase();
             if !matches!(security.as_str(), "none" | "tls" | "t" | "tl" | "reality") {
-                return false;
+                return Some("unsupported-security");
+            }
+
+            if transport == "kcp" {
+                let header_type = first_query(&url, &["headerType", "header_type"], Some(""));
+                let seed = first_query(&url, &["seed"], Some(""));
+                if !header_type.is_empty() && !header_type.eq_ignore_ascii_case("none") {
+                    return Some("unsupported-kcp-header");
+                }
+                if !seed.is_empty() {
+                    return Some("unsupported-kcp-seed");
+                }
+                if security == "reality" {
+                    return Some("incompatible-security-transport");
+                }
+            }
+
+            if transport == "quic" {
+                let quic_security =
+                    first_query(&url, &["quicSecurity", "quic_security"], Some("none"))
+                        .trim()
+                        .to_ascii_lowercase();
+                let header_type = first_query(&url, &["headerType", "header_type"], Some(""));
+                if !matches!(quic_security.as_str(), "" | "none") {
+                    return Some("unsupported-quic-encryption");
+                }
+                if !header_type.is_empty() && !header_type.eq_ignore_ascii_case("none") {
+                    return Some("unsupported-quic-header");
+                }
+                if !first_query(&url, &["key", "path"], Some("")).is_empty()
+                    || !first_query(&url, &["host"], Some("")).is_empty()
+                {
+                    return Some("unsupported-quic-parameters");
+                }
+                if security == "reality" {
+                    return Some("incompatible-security-transport");
+                }
             }
 
             if security == "reality"
                 && matches!(transport.as_str(), "raw" | "xhttp" | "grpc")
                 && first_query(&url, &["pbk", "publicKey"], Some("")).is_empty()
             {
-                return false;
+                return Some("missing-reality-key");
             }
 
-            true
+            None
         }
         "hysteria" => {
             let Ok(url) = Url::parse(config) else {
-                return false;
+                return Some("invalid-url");
             };
             if url.host().is_none() || url.port().is_none() || url.port() == Some(0) {
-                return false;
+                return Some("invalid-endpoint");
             }
 
             let protocol = first_query(&url, &["protocol"], Some("udp"));
             if !protocol.eq_ignore_ascii_case("udp") {
-                return false;
+                return Some("unsupported-hysteria-transport");
             }
 
             let parse_positive = |name: &str| {
@@ -2041,75 +2108,126 @@ pub fn is_cheaply_supported_config(config: &str) -> bool {
                     .is_some_and(|value| value > 0)
             };
             if !parse_positive("upmbps") || !parse_positive("downmbps") {
-                return false;
+                return Some("invalid-hysteria-bandwidth");
             }
 
             let obfs = first_query(&url, &["obfs"], Some("")).to_ascii_lowercase();
             let obfs_param = first_query(&url, &["obfsparam"], Some(""));
             if !obfs.is_empty() && obfs != "xplus" {
-                return false;
+                return Some("unsupported-hysteria-obfuscation");
             }
             if obfs == "xplus" && obfs_param.trim().is_empty() {
-                return false;
+                return Some("missing-hysteria-obfuscation-credential");
             }
             if obfs.is_empty() && !obfs_param.trim().is_empty() {
-                return false;
+                return Some("hysteria-obfuscation-credential-without-mode");
             }
 
-            true
+            None
         }
         "hysteria2" | "hy2" => {
             let Some((host, _, auth_raw)) = hysteria2_parts(config) else {
-                return false;
+                return Some("invalid-hysteria2-endpoint-or-auth");
             };
-            !host.is_empty()
-                && percent_decode_str(&auth_raw)
-                    .decode_utf8()
-                    .map(|password| !password.is_empty())
-                    .unwrap_or(false)
+            if host.is_empty() {
+                return Some("invalid-hysteria2-endpoint-or-auth");
+            }
+            match percent_decode_str(&auth_raw).decode_utf8() {
+                Ok(password) if !password.is_empty() => None,
+                _ => Some("invalid-hysteria2-endpoint-or-auth"),
+            }
         }
         "ss" => {
             let Ok(url) = Url::parse(config) else {
-                return false;
+                return Some("invalid-url");
             };
             if url
                 .query_pairs()
                 .any(|(key, value)| !supported_ss_plugin(&key, &value))
             {
-                return false;
+                return Some("unsupported-shadowsocks-plugin");
             }
-            ss_has_nonempty_password(config)
+            if !ss_has_nonempty_password(config) {
+                return Some("missing-shadowsocks-password");
+            }
+            None
         }
         "vmess" => {
             let payload = config
                 .split_once("://")
                 .map(|(_, payload)| payload)
                 .unwrap_or_default();
-            let decoded = b64decode(payload);
-            let Some(decoded) = decoded else {
-                return false;
+            let Some(decoded) = b64decode(payload) else {
+                return Some("invalid-vmess-base64");
             };
             let Ok(value) = serde_json::from_slice::<Value>(&decoded) else {
-                return false;
+                return Some("invalid-vmess-json");
             };
 
-            let tls = json_text(value.get("tls")).unwrap_or_default();
-            let tls = tls.trim().to_ascii_lowercase();
-            if !matches!(tls.as_str(), "" | "tls" | "t" | "tl" | "true" | "false") {
-                return false;
+            let tls = vmess_tls_security(value.get("tls"));
+            if !matches!(tls.as_str(), "" | "tls" | "t" | "tl") {
+                return Some("unsupported-vmess-tls");
             }
 
             let network = normalize_transport(
                 &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
             );
-            matches!(
+            if !matches!(
                 network.as_str(),
-                "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp"
-            )
+                "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic"
+            ) {
+                return Some("unsupported-vmess-transport");
+            }
+
+            if network == "kcp" {
+                let vmess_type = json_text(value.get("type"))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase();
+                if !matches!(vmess_type.as_str(), "" | "none") {
+                    return Some("unsupported-vmess-kcp-header");
+                }
+                if json_text(value.get("path")).is_some_and(|path| !path.trim().is_empty()) {
+                    return Some("unsupported-vmess-kcp-seed");
+                }
+            }
+
+            if network == "quic" {
+                let vmess_type = json_text(value.get("type"))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase();
+                if !matches!(vmess_type.as_str(), "" | "none") {
+                    return Some("unsupported-vmess-quic-header");
+                }
+                if ["path", "host", "key"].iter().any(|key| {
+                    value
+                        .get(*key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|item| !item.trim().is_empty())
+                }) {
+                    return Some("unsupported-vmess-quic-parameters");
+                }
+                if value
+                    .get("quicSecurity")
+                    .and_then(Value::as_str)
+                    .is_some_and(|item| {
+                        !matches!(item.trim().to_ascii_lowercase().as_str(), "" | "none")
+                    })
+                {
+                    return Some("unsupported-quic-encryption");
+                }
+            }
+
+            None
         }
-        "http" | "socks" | "socks5" | "socks5h" | "wg" => true,
-        _ => false,
+        "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" | "wg" => None,
+        _ => Some("unsupported-scheme"),
     }
+}
+
+pub fn is_cheaply_supported_config(config: &str) -> bool {
+    cheap_compatibility_rejection_reason(config).is_none()
 }
 
 pub fn is_light_consumer_compatible(config: &str) -> bool {
@@ -2141,7 +2259,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
 
             let transport =
                 normalize_transport(&first_query(&url, &["type", "network"], Some("tcp")));
-            if !matches!(transport.as_str(), "raw" | "ws" | "grpc") {
+            if !matches!(transport.as_str(), "raw" | "ws" | "grpc" | "kcp" | "quic") {
                 return false;
             }
 
@@ -2202,6 +2320,24 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
             let header_type = first_query(&url, &["headerType", "header_type"], Some(""));
             if !header_type.is_empty() && !header_type.eq_ignore_ascii_case("none") {
                 return false;
+            }
+            if transport == "kcp"
+                && (!first_query(&url, &["seed"], Some("")).is_empty() || security == "reality")
+            {
+                return false;
+            }
+            if transport == "quic" {
+                let quic_security =
+                    first_query(&url, &["quicSecurity", "quic_security"], Some("none"))
+                        .trim()
+                        .to_ascii_lowercase();
+                if !matches!(quic_security.as_str(), "" | "none")
+                    || !first_query(&url, &["key", "path"], Some("")).is_empty()
+                    || !first_query(&url, &["host"], Some("")).is_empty()
+                    || security == "reality"
+                {
+                    return false;
+                }
             }
 
             if transport == "grpc" {
@@ -2268,7 +2404,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
             let network = normalize_transport(
                 &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
             );
-            if !matches!(network.as_str(), "raw" | "ws" | "grpc") {
+            if !matches!(network.as_str(), "raw" | "ws" | "grpc" | "kcp" | "quic") {
                 return false;
             }
 
@@ -2280,6 +2416,32 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 return false;
             }
             if network == "grpc" && !matches!(vmess_type.as_str(), "" | "none" | "gun") {
+                return false;
+            }
+            if network == "kcp"
+                && (!matches!(vmess_type.as_str(), "" | "none")
+                    || value
+                        .get("path")
+                        .and_then(Value::as_str)
+                        .is_some_and(|path| !path.trim().is_empty()))
+            {
+                return false;
+            }
+            if network == "quic"
+                && (!matches!(vmess_type.as_str(), "" | "none")
+                    || ["path", "host", "key"].iter().any(|key| {
+                        value
+                            .get(*key)
+                            .and_then(Value::as_str)
+                            .is_some_and(|item| !item.trim().is_empty())
+                    })
+                    || value
+                        .get("quicSecurity")
+                        .and_then(Value::as_str)
+                        .is_some_and(|item| {
+                            !matches!(item.trim().to_ascii_lowercase().as_str(), "" | "none")
+                        }))
+            {
                 return false;
             }
 
@@ -2351,9 +2513,9 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
 
             true
         }
-        "http" | "socks" | "socks5" | "socks5h" => Url::parse(cleaned)
+        "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" => Url::parse(cleaned)
             .ok()
-            .is_some_and(|url| endpoint_from_url(&url, None).is_ok()),
+            .is_some_and(|url| endpoint_from_url(&url, Some(1080)).is_ok()),
         _ => false,
     }
 }
@@ -2483,6 +2645,11 @@ fn xray_compatibility_filter(
                 config,
                 "Xray HTTP transport removed; use XHTTP or a sing-box-compatible backend"
                     .to_string(),
+            ));
+        } else if network.is_some_and(|network| network.eq_ignore_ascii_case("quic")) {
+            rejected.push((
+                config,
+                "V2Ray QUIC transport must use the sing-box-compatible backend".to_string(),
             ));
         } else {
             supported.push((config, value));
@@ -4716,6 +4883,24 @@ mod tests {
     }
 
     #[test]
+    fn xray_defers_quic_transport_to_singbox() {
+        let config = parse_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic",
+        )
+        .expect("QUIC should be represented for sing-box");
+
+        let (supported, rejected) = xray_compatibility_filter(vec![(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic"
+                .to_string(),
+            config,
+        )]);
+
+        assert!(supported.is_empty());
+        assert_eq!(rejected.len(), 1);
+        assert!(rejected[0].1.contains("sing-box-compatible backend"));
+    }
+
+    #[test]
     fn xray_keeps_httpupgrade_transport_supported() {
         let config = parse_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:80?type=httpupgrade",
@@ -5408,6 +5593,135 @@ mod tests {
         assert!(is_cheaply_supported_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?encryption=none&type=tcp"
         ));
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_socks4_and_socks4a() {
+        assert!(is_cheaply_supported_config("socks4://example.com:1080"));
+        assert!(is_cheaply_supported_config("socks4a://example.com:1080"));
+        assert!(is_light_consumer_compatible("socks4://example.com:1080"));
+        assert!(is_light_consumer_compatible("socks4a://example.com:1080"));
+    }
+
+    #[test]
+    fn cheap_compatibility_reports_stable_rejection_reasons() {
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=madeup"
+            ),
+            Some("unsupported-transport")
+        );
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?flow=legacy-flow"
+            ),
+            Some("unsupported-flow")
+        );
+        assert_eq!(
+            cheap_compatibility_rejection_reason("hy2://example.com:443"),
+            Some("invalid-hysteria2-endpoint-or-auth")
+        );
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_supported_mkcp_and_rejects_legacy_obfuscation() {
+        for config in [
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp",
+            "trojan://password@example.com:443?security=tls&type=mkcp",
+        ] {
+            assert!(is_cheaply_supported_config(config), "{config}");
+        }
+
+        assert!(!is_cheaply_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&headerType=wechat-video"
+        ));
+        assert!(!is_cheaply_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&seed=legacy"
+        ));
+        assert!(!is_cheaply_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=kcp&pbk=key"
+        ));
+        assert!(is_light_consumer_compatible(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp"
+        ));
+    }
+
+    #[test]
+    fn parses_mkcp_to_xray_kcp_settings() {
+        let parsed = parse_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp",
+        )
+        .expect("mKCP should be represented for Xray validation");
+
+        assert_eq!(parsed["streamSettings"]["network"], "kcp");
+        assert_eq!(
+            parsed["streamSettings"]["kcpSettings"],
+            serde_json::json!({})
+        );
+        assert!(is_locally_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp"
+        ));
+    }
+
+    #[test]
+    fn cheap_compatibility_normalizes_boolean_vmess_tls_aliases() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": "tcp",
+            "tls": "1"
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert!(is_cheaply_supported_config(&config));
+        let parsed = parse_config(&config).expect("VMess TLS alias should parse");
+        assert_eq!(parsed["streamSettings"]["security"], "tls");
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_singbox_quic_subset() {
+        let config =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic";
+        assert!(is_cheaply_supported_config(config));
+        assert!(is_light_consumer_compatible(config));
+        assert!(is_locally_supported_config(config));
+
+        let parsed = parse_config(config).expect("QUIC should map into the shared transport model");
+        assert_eq!(parsed["streamSettings"]["network"], "quic");
+        assert_eq!(
+            parsed["streamSettings"]["quicSettings"],
+            serde_json::json!({})
+        );
+
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic&quicSecurity=aes-128-gcm&key=secret"
+            ),
+            Some("unsupported-quic-encryption")
+        );
+        assert!(!is_cheaply_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=quic&pbk=key&sni=example.com"
+        ));
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_vmess_quic_without_legacy_parameters() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": "quic",
+            "type": "none",
+            "tls": "tls"
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert!(is_cheaply_supported_config(&config));
+        assert!(is_light_consumer_compatible(&config));
+        assert!(is_locally_supported_config(&config));
     }
 
     #[test]
