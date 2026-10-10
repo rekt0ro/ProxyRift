@@ -687,7 +687,6 @@ fn csv(value: &str) -> Vec<String> {
 fn normalize_transport(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase();
     if normalized.is_empty() {
-        // VMess links commonly omit the network value to mean the default TCP transport.
         return "raw".to_string();
     }
 
@@ -952,8 +951,6 @@ fn ss_legacy_decode(payload: &str) -> Option<String> {
 fn decode_ss_credentials(credentials: &str) -> Option<(String, String)> {
     let decoded_component = decode_component(credentials);
 
-    // SIP002 also permits method:password userinfo with URI-reserved bytes percent-encoded.
-    // Base64 credentials contain no literal colon, so try the decoded plain form first.
     if let Some((method, password)) = decoded_component.split_once(':') {
         return (!method.trim().is_empty() && !password.is_empty())
             .then(|| (method.to_string(), password.to_string()));
@@ -2200,7 +2197,6 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 }
             }
 
-            // Trojan ignores the VLESS-specific flow parameter.
             if scheme == "vless"
                 && normalize_vless_flow(&first_query(&url, &["flow"], Some(""))).is_none()
             {
