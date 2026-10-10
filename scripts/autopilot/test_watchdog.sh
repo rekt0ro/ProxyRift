@@ -23,16 +23,16 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 for name in ("all", "light"):
-    source = (root / f"{name}.txt").read_bytes().rstrip(b"\\r\\n")
+    source = (root / f"{name}.txt").read_bytes().rstrip(b"\r\n")
     (root / f"{name}-base64.txt").write_text(
-        base64.b64encode(source).decode("ascii") + "\\n", encoding="ascii"
+        base64.b64encode(source).decode("ascii") + "\n", encoding="ascii"
     )
     (root / f"{name}-singbox.json").write_text(
-        '{"outbounds":[{"type":"direct","tag":"direct"}]}\\n', encoding="utf-8"
+        '{"outbounds":[{"type":"direct","tag":"direct"}]}\n', encoding="utf-8"
     )
     (root / f"{name}-clash.yaml").write_text(
-        'proxies:\\n  - name: "test proxy"\\n    type: socks5\\n'
-        '    server: example.com\\n    port: 1080\\n', encoding="utf-8"
+        'proxies:\n  - name: "test proxy"\n    type: socks5\n'
+        '    server: example.com\n    port: 1080\n', encoding="utf-8"
     )
 PY
 
@@ -57,7 +57,7 @@ while (($#)); do
   esac
 done
 file="${url##*/}"
-file="${file%%\\?*}"
+file="${file%%\?*}"
 cp "${WATCHDOG_FIXTURES:?}/$file" "$output"
 CURL
 chmod +x "$bin/curl"
@@ -78,7 +78,7 @@ if ! WATCHDOG_FIXTURES="$fixtures" \
   exit 1
 fi
 
-grep --quiet "[OK] Published outputs passed integrity checks (Light=50, All=1000)." "$tmp/watchdog.log"
+grep --fixed-strings --quiet "[OK] Published outputs passed integrity checks (Light=50, All=1000)." "$tmp/watchdog.log"
 if grep --quiet "tmp: unbound variable" "$tmp/watchdog.log"; then
   echo "[ERROR] Watchdog cleanup still references an unset temporary-directory variable." >&2
   exit 1
