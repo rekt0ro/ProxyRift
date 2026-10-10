@@ -1,6 +1,5 @@
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
-use proxyrift::consumer_history::ConsumerEvidence;
 use proxyrift::light_gbm::LightGbmScores;
 use proxyrift::light_training::{
     persist as persist_light_training, write_readiness_report, DatasetStats, TrainingRow,
@@ -49,8 +48,6 @@ const RECHECK_FAMILY_DIVERSITY: usize = 3;
 const RECHECK_MAX_PER_ENDPOINT: usize = 2;
 const RECHECK_EXPLORATION_PERCENT: usize = 15;
 const MAX_RECHECK_EXPLORATION: usize = 64;
-const CONSUMER_LEARNING_RESERVE_PERCENT: usize = 25;
-const MAX_CONSUMER_LEARNING_RESERVE: usize = 64;
 const MAX_FINAL_RECHECK_ATTEMPTS: usize = 2;
 const FINAL_TRANSFER_BATCH_SIZE: usize = 32;
 const FINAL_TRANSFER_WORKERS: usize = 12;
@@ -83,7 +80,6 @@ const FINAL_TRANSFER_LATENCY_LIMIT_MS: f64 = 15000.0;
 const HISTORY_MAX_ENTRIES: usize = 10000;
 const HISTORY_RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
 const LIGHT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
-const LIGHT_CONSUMER_EVIDENCE_PATH: &str = "subscriptions/light-consumer-evidence.json";
 const LIGHT_TRAINING_STATS_PATH: &str = "subscriptions/light-training-stats.json";
 const LIGHT_SUBSCRIPTION_PATH: &str = "subscriptions/light.txt";
 const HISTORICAL_LIGHT_COHORTS: usize = 2;
@@ -222,7 +218,6 @@ fn exploration_sort_key(config: &str, seed: u64) -> u64 {
     hash
 }
 
-#[allow(clippy::too_many_arguments)]
 fn select_recheck_candidates(
     model_ranked: &[String],
     untested: &[String],
@@ -230,11 +225,9 @@ fn select_recheck_candidates(
     max_family: usize,
     exploration_limit: usize,
     seed: u64,
-    consumer_priority: &HashMap<String, u8>,
-    consumer_learning_limit: usize,
-) -> (Vec<String>, usize, usize) {
+) -> (Vec<String>, usize) {
     if limit == 0 || model_ranked.is_empty() {
-        return (Vec::new(), 0, 0);
+        return (Vec::new(), 0);
     }
 
     let mut selected = Vec::with_capacity(limit.min(model_ranked.len()));
@@ -271,32 +264,6 @@ fn select_recheck_candidates(
         true
     };
 
-    let mut consumer_selected = 0usize;
-    for priority in [3_u8, 2_u8, 1_u8] {
-        if consumer_selected >= consumer_learning_limit || selected.len() >= limit {
-            break;
-        }
-
-        for config in model_ranked {
-            if consumer_priority.get(config).copied().unwrap_or(0) != priority {
-                continue;
-            }
-
-            if try_add(
-                config,
-                &mut selected,
-                &mut selected_set,
-                &mut endpoint_counts,
-                &mut family_counts,
-            ) {
-                consumer_selected += 1;
-                if consumer_selected >= consumer_learning_limit || selected.len() >= limit {
-                    break;
-                }
-            }
-        }
-    }
-
     let mut exploration_ranked = untested.to_vec();
     exploration_ranked.sort_unstable_by_key(|config| exploration_sort_key(config, seed));
 
@@ -331,7 +298,7 @@ fn select_recheck_candidates(
         );
     }
 
-    (selected, consumer_selected, exploration_selected)
+    (selected, exploration_selected)
 }
 
 fn select_stability_test_batch(
@@ -583,10 +550,6 @@ fn value(args: &[String], name: &str, default: &str) -> String {
         .find(|pair| pair[0] == name)
         .map(|pair| pair[1].clone())
         .unwrap_or_else(|| default.to_string())
-}
-
-fn has_flag(args: &[String], name: &str) -> bool {
-    args.iter().any(|arg| arg == name)
 }
 
 fn required(args: &[String], name: &str) -> Result<String, String> {
@@ -883,28 +846,13 @@ fn sort_ranked(
 fn rank_discovery_candidates(
     candidates: &[String],
     light_gbm_scores: &LightGbmScores,
-    consumer_evidence: &ConsumerEvidence,
     seed: u64,
 ) -> Vec<String> {
     let mut ranked = candidates.to_vec();
-    let consumer_scores = consumer_evidence.scores(candidates);
-
     ranked.sort_unstable_by(|a, b| {
-        consumer_evidence
-            .recent_consumer_priority(b)
-            .cmp(&consumer_evidence.recent_consumer_priority(a))
-            .then_with(|| {
-                consumer_evidence
-                    .recent_consumer_observed_at(b)
-                    .cmp(&consumer_evidence.recent_consumer_observed_at(a))
-            })
-            .then_with(|| {
-                let a_score = 0.60 * light_gbm_scores.score(a)
-                    + 0.40 * consumer_scores.get(a).copied().unwrap_or(0.5);
-                let b_score = 0.60 * light_gbm_scores.score(b)
-                    + 0.40 * consumer_scores.get(b).copied().unwrap_or(0.5);
-                b_score.total_cmp(&a_score)
-            })
+        light_gbm_scores
+            .score(b)
+            .total_cmp(&light_gbm_scores.score(a))
             .then_with(|| a.cmp(b))
     });
 
@@ -3318,7 +3266,7 @@ async fn main() -> Result<(), String> {
 
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "Usage: polish_light --candidates FILE --output FILE [--workers N]              [--batch-size N] [--timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--selected-workers N] [--selected-batch-size N]              [--primary-target URL] [--selection-limit N] [--max-per-endpoint N]              [--max-per-family N] [--consumer-evidence FILE] [--record-performance-consumer-evidence]              [--xray PATH] [--singbox PATH] [--stats PATH]"
+            "Usage: polish_light --candidates FILE --output FILE [--workers N]              [--batch-size N] [--timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--selected-workers N] [--selected-batch-size N]              [--primary-target URL] [--selection-limit N] [--max-per-endpoint N]              [--max-per-family N]              [--xray PATH] [--singbox PATH] [--stats PATH]"
         );
         return Ok(());
     }
@@ -3366,9 +3314,6 @@ async fn main() -> Result<(), String> {
         targets[0] = primary_target.as_str();
         targets
     };
-    let consumer_evidence_path = value(&args, "--consumer-evidence", LIGHT_CONSUMER_EVIDENCE_PATH);
-    let record_performance_consumer_evidence =
-        has_flag(&args, "--record-performance-consumer-evidence");
     let xray = value(&args, "--xray", "xray");
     let selection_limit = value(
         &args,
@@ -3454,10 +3399,6 @@ async fn main() -> Result<(), String> {
         cohort_configs_loaded
     );
 
-    let mut consumer_evidence = ConsumerEvidence::load_with_consumer_history(
-        &consumer_evidence_path,
-        "subscriptions/light-consumer-results.json",
-    );
     let light_gbm_scores =
         LightGbmScores::from_file("/tmp/proxyrift/lightgbm-scores.json").unwrap_or_default();
 
@@ -3467,18 +3408,6 @@ async fn main() -> Result<(), String> {
         light_gbm_scores.training_rows(),
         light_gbm_scores.len()
     );
-
-    if consumer_evidence.is_empty() {
-        println!(
-            "[INFO] 🧠 [Consumer history] No structural evidence loaded | Ranking falls back to existing Light intelligence"
-        );
-    } else {
-        println!(
-            "[INFO] 🧠 [Consumer history] Loaded {} structural families | {:.0} weighted observations",
-            consumer_evidence.family_count(),
-            consumer_evidence.observation_count()
-        );
-    }
 
     if candidates.is_empty() {
         return Err("no Light candidates available".to_string());
@@ -3499,12 +3428,8 @@ async fn main() -> Result<(), String> {
     let mut stream_task: Option<StreamTask> = None;
 
     let discovery_seed = recheck_exploration_seed(0);
-    let discovery_candidates = rank_discovery_candidates(
-        &candidates,
-        &light_gbm_scores,
-        &consumer_evidence,
-        discovery_seed,
-    );
+    let discovery_candidates =
+        rank_discovery_candidates(&candidates, &light_gbm_scores, discovery_seed);
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
     let mut stagnant_waves = 0usize;
@@ -3690,22 +3615,10 @@ async fn main() -> Result<(), String> {
             .collect::<Vec<_>>();
 
         let mut ai_ranked = untested.clone();
-        let consumer_scores = consumer_evidence.scores(&untested);
         ai_ranked.sort_unstable_by(|a, b| {
-            let a_score = 0.60 * light_gbm_scores.score(a)
-                + 0.40 * consumer_scores.get(a).copied().unwrap_or(0.5);
-            let b_score = 0.60 * light_gbm_scores.score(b)
-                + 0.40 * consumer_scores.get(b).copied().unwrap_or(0.5);
-
-            consumer_evidence
-                .recent_consumer_priority(b)
-                .cmp(&consumer_evidence.recent_consumer_priority(a))
-                .then_with(|| {
-                    consumer_evidence
-                        .recent_consumer_observed_at(b)
-                        .cmp(&consumer_evidence.recent_consumer_observed_at(a))
-                })
-                .then_with(|| b_score.total_cmp(&a_score))
+            light_gbm_scores
+                .score(b)
+                .total_cmp(&light_gbm_scores.score(a))
                 .then_with(|| {
                     global_positions
                         .get(a)
@@ -3717,32 +3630,13 @@ async fn main() -> Result<(), String> {
         });
 
         let exploration_limit = recheck_exploration_limit(dynamic_limit);
-        let consumer_priorities = untested
-            .iter()
-            .map(|config| (config.clone(), consumer_evidence.learning_priority(config)))
-            .collect::<HashMap<_, _>>();
-        let consumer_learning_candidates = consumer_priorities
-            .values()
-            .filter(|priority| **priority > 0)
-            .count();
-        let consumer_learning_limit = if consumer_learning_candidates == 0 {
-            0
-        } else {
-            dynamic_limit
-                .saturating_mul(CONSUMER_LEARNING_RESERVE_PERCENT)
-                .div_ceil(100)
-                .clamp(1, MAX_CONSUMER_LEARNING_RESERVE)
-                .min(consumer_learning_candidates)
-        };
-        let (final_candidates, consumer_selected, exploration_selected) = select_recheck_candidates(
+        let (final_candidates, exploration_selected) = select_recheck_candidates(
             &ai_ranked,
             &untested,
             dynamic_limit,
             RECHECK_FAMILY_DIVERSITY,
             exploration_limit,
             recheck_exploration_seed(wave),
-            &consumer_priorities,
-            consumer_learning_limit,
         );
 
         if !final_candidates.is_empty() {
@@ -3751,9 +3645,8 @@ async fn main() -> Result<(), String> {
             }
 
             println!(
-                "[INFO] 🔎 [Light recheck] Wave {wave} | Testing {} candidates | Learned: {} | Exploration: {}",
+                "[INFO] 🔎 [Light recheck] Wave {wave} | Testing {} candidates | Exploration: {}",
                 final_candidates.len(),
-                consumer_selected,
                 exploration_selected
             );
 
@@ -4076,26 +3969,6 @@ async fn main() -> Result<(), String> {
     )
     .await?;
 
-    if record_performance_consumer_evidence && !stream_tested.is_empty() {
-        let observed_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|error| format!("system clock error: {error}"))?
-            .as_secs();
-
-        let performance_observations = stream_tested
-            .iter()
-            .map(|config| (config.as_str(), stream_verified.contains_key(config)))
-            .collect::<Vec<_>>();
-
-        consumer_evidence.record_performance_observations(&performance_observations, observed_at);
-        consumer_evidence.save(&consumer_evidence_path)?;
-
-        println!(
-            "[INFO] 🧠 [Consumer performance] Recorded {} observations | Stage: sustained stream",
-            performance_observations.len()
-        );
-    }
-
     let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
     sort_ranked(
         &mut stream_ranked,
@@ -4289,9 +4162,8 @@ mod tests {
         selection_eligible_count, selection_potential_count, selection_rejection_counts,
         should_quarantine_transfer_target, stream_selection_count, strict_validation_target,
         transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
-        ConsumerEvidence, LightBackend, LightGbmScores, ProxyMetrics, TransferConcurrencyState,
-        TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS,
-        MAX_DISCOVERY_CANDIDATES,
+        LightBackend, LightGbmScores, ProxyMetrics, TransferConcurrencyState, TransferTargetState,
+        FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, MAX_DISCOVERY_CANDIDATES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -4567,11 +4439,8 @@ mod tests {
             "vless://00000000-0000-0000-0000-000000000002@example.com:443".to_string(),
         ];
 
-        let priorities = HashMap::new();
-        let (selected, learned, explored) =
-            select_recheck_candidates(&configs, &[], 2, 3, 0, 42, &priorities, 0);
+        let (selected, explored) = select_recheck_candidates(&configs, &[], 2, 3, 0, 42);
 
-        assert_eq!(learned, 0);
         assert_eq!(explored, 0);
         assert_eq!(selected, configs);
     }
@@ -4587,12 +4456,9 @@ mod tests {
             "socks5://f@example.xyz:1080".to_string(),
         ];
 
-        let priorities = HashMap::new();
-        let (selected, learned, explored) =
-            select_recheck_candidates(&configs, &configs, 4, 3, 2, 42, &priorities, 0);
+        let (selected, explored) = select_recheck_candidates(&configs, &configs, 4, 3, 2, 42);
 
         assert_eq!(selected.len(), 4);
-        assert_eq!(learned, 0);
         assert_eq!(explored, 2);
     }
 
@@ -4651,13 +4517,12 @@ mod tests {
     }
 
     #[test]
-    fn discovery_ranking_uses_ml_and_history_with_exploration() {
+    fn discovery_ranking_uses_ml_with_exploration() {
         let configs = (0..20)
             .map(|index| format!("vless://{index}@example.com:443"))
             .collect::<Vec<_>>();
         let light_gbm = LightGbmScores::default();
-        let evidence = ConsumerEvidence::default();
-        let ranked = rank_discovery_candidates(&configs, &light_gbm, &evidence, 123);
+        let ranked = rank_discovery_candidates(&configs, &light_gbm, 123);
 
         assert_eq!(ranked.len(), configs.len());
         assert_eq!(
@@ -5173,25 +5038,6 @@ mod tests {
 
         assert!(merged.contains_key("xray-only"));
         assert!(merged.contains_key("singbox-only"));
-    }
-
-    #[test]
-    fn learned_consumer_candidates_are_reserved_before_random_exploration() {
-        let configs = vec![
-            "vless://normal@example.com:443?security=reality&type=tcp&sni=other.example"
-                .to_string(),
-            "vless://learned@example.net:443?security=reality&type=tcp&sni=site.example"
-                .to_string(),
-            "trojan://other@example.org:443?security=tls&sni=other.example".to_string(),
-        ];
-        let priorities = HashMap::from([(configs[1].clone(), 3_u8), (configs[2].clone(), 2_u8)]);
-
-        let (selected, learned, exploration) =
-            select_recheck_candidates(&configs, &configs, 2, 3, 2, 123, &priorities, 1);
-
-        assert_eq!(learned, 1);
-        assert!(selected.contains(&configs[1]));
-        assert_eq!(exploration, 1);
     }
 
     #[test]
