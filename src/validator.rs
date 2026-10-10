@@ -3480,9 +3480,7 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
 
     let mut available = targets
         .iter()
-        .filter(|target| {
-            !target_is_rate_limited(target.as_str())
-        })
+        .filter(|target| !target_is_rate_limited(target.as_str()))
         .cloned()
         .collect::<Vec<_>>();
     sort_targets_by_performance(&mut available);
