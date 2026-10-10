@@ -1897,7 +1897,7 @@ mod tests {
             let mut received = encoded.clone();
             let decoded_len = deobfuscate_packet(&mut received, &obfuscation).unwrap();
             assert_eq!(&received[..decoded_len], payload);
-            assert_ne!(encoded, payload);
+            assert_ne!(encoded.as_slice(), &payload[..]);
         }
     }
 
@@ -2479,12 +2479,18 @@ mod tests {
     }
 
     #[test]
-    fn obfuscated_hysteria_needs_deferred_transport_validation() {
-        assert!(super::needs_deferred_transport_validation(
+    fn supported_obfuscation_is_probed_and_unsupported_modes_are_deferred() {
+        assert!(!super::needs_deferred_transport_validation(
             "hy2://pw@example.com:443/?obfs=salamander&obfs-password=x"
         ));
-        assert!(super::needs_deferred_transport_validation(
+        assert!(!super::needs_deferred_transport_validation(
             "hysteria://example.com:443?obfs=xplus&obfsParam=x"
+        ));
+        assert!(super::needs_deferred_transport_validation(
+            "hy2://pw@example.com:443/?obfs=gecko&obfs-password=x"
+        ));
+        assert!(super::needs_deferred_transport_validation(
+            "hy2://pw@example.com:443/?obfs=salamander"
         ));
         assert!(!super::needs_deferred_transport_validation(
             "hy2://pw@example.com:443/?sni=example.com"
