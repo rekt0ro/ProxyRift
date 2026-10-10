@@ -146,8 +146,6 @@ impl LightGbmScores {
             }
         };
 
-        // Prefer a directly trained publishability model only when it beats the
-        // temporal holdout baseline. Otherwise keep the existing validated stage blend.
         let mut models = Vec::new();
         if strict.accepted {
             models.push((&strict, 0.50_f64));
@@ -1596,7 +1594,6 @@ mod tests {
             ModelTarget::EndToEnd.label(&training_example(true, Some(true), Some(true))),
             Some(true)
         );
-        // Passing an early stage is not a final success when later stages were not run.
         assert_eq!(
             ModelTarget::EndToEnd.label(&training_example(true, None, None)),
             None
