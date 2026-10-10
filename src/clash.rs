@@ -678,6 +678,84 @@ fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
     Ok(lines.join("\n"))
 }
 
+fn required_hysteria_mbps(url: &Url, key: &str) -> Result<String, String> {
+    let value = query(url, key).ok_or_else(|| format!("Hysteria {key} missing"))?;
+    let mbps = value
+        .parse::<u32>()
+        .map_err(|_| format!("invalid Hysteria {key}"))?;
+    if mbps == 0 {
+        return Err(format!("Hysteria {key} must be greater than zero"));
+    }
+    Ok(format!("{mbps} Mbps"))
+}
+
+fn convert_hysteria(config: &str, index: usize) -> Result<String, String> {
+    let url = Url::parse(clean(config)).map_err(|error| error.to_string())?;
+    let (server, port) = endpoint_from_url(&url)?;
+    let protocol = query_any(&url, &["obfs-protocol", "protocol"])
+        .unwrap_or_else(|| "udp".to_string())
+        .to_ascii_lowercase();
+    if !matches!(protocol.as_str(), "udp" | "wechat-video" | "faketcp") {
+        return Err(format!("unsupported Hysteria protocol {protocol}"));
+    }
+
+    let up = required_hysteria_mbps(&url, "upmbps")?;
+    let down = required_hysteria_mbps(&url, "downmbps")?;
+    let auth = match query(&url, "auth") {
+        Some(value) => Some(value),
+        None if !url.username().is_empty() => Some(decode_component(url.username())?),
+        None => None,
+    };
+    let sni = query_any(&url, &["peer", "sni", "servername"]).unwrap_or_else(|| server.clone());
+    let skip_cert_verify = query_any(&url, &["insecure", "allowInsecure"]).is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    });
+    let alpn = query_list(&url, "alpn");
+    let obfs_mode = query(&url, "obfs");
+    let obfs_param = query_any(&url, &["obfsparam", "obfsParam"]);
+    let obfs = match obfs_mode.as_deref() {
+        Some(mode) if mode.eq_ignore_ascii_case("xplus") => Some(
+            obfs_param
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "Hysteria obfsParam missing for xplus".to_string())?,
+        ),
+        Some(mode) => return Err(format!("unsupported Hysteria obfs mode {mode}")),
+        None if obfs_param.is_some() => {
+            return Err("Hysteria obfsParam requires obfs=xplus".to_string())
+        }
+        None => None,
+    };
+
+    let mut lines = vec![format!(
+        "  - name: {}",
+        yaml_quote(&name_from_config(config, index))
+    )];
+    push_field(&mut lines, 4, "type", "hysteria");
+    push_field(&mut lines, 4, "server", &server);
+    push_raw_field(&mut lines, 4, "port", &port.to_string());
+    push_field(&mut lines, 4, "protocol", &protocol);
+    push_field(&mut lines, 4, "up", &up);
+    push_field(&mut lines, 4, "down", &down);
+    if let Some(auth) = auth.filter(|value| !value.is_empty()) {
+        push_field(&mut lines, 4, "auth-str", &auth);
+    }
+    if !sni.is_empty() {
+        push_field(&mut lines, 4, "sni", &sni);
+    }
+    if skip_cert_verify {
+        push_raw_field(&mut lines, 4, "skip-cert-verify", "true");
+    }
+    push_alpn(&mut lines, 4, &alpn);
+    if let Some(obfs) = obfs {
+        push_field(&mut lines, 4, "obfs", &obfs);
+    }
+
+    Ok(lines.join("\n"))
+}
+
 fn convert_hysteria2(config: &str, index: usize) -> Result<String, String> {
     let cleaned = clean(config);
     let rest = cleaned
@@ -849,6 +927,7 @@ fn convert_config(config: &str, index: usize) -> Result<String, String> {
         "vmess" => convert_vmess(config, index),
         "trojan" => convert_trojan(config, index),
         "ss" => convert_shadowsocks(config, index),
+        "hysteria" => convert_hysteria(config, index),
         "hysteria2" | "hy2" => convert_hysteria2(config, index),
         "socks" | "socks5" | "socks5h" => convert_socks(config, index),
         "http" => convert_http(config, index),
@@ -979,6 +1058,34 @@ mod tests {
         assert!(yaml.contains("type: 'socks5'"));
         assert!(yaml.contains("port: 80"));
         assert!(yaml.contains("port: 1080"));
+    }
+
+    #[test]
+    fn renders_hysteria_v1_with_mihomo_fields() {
+        let configs = vec![
+            "hysteria://password@example.com:443?protocol=udp&auth=123456&peer=edge.example.com&insecure=1&upmbps=100&downmbps=50&alpn=hysteria&obfs=xplus&obfsParam=obfs-secret#Hysteria%20v1"
+                .to_string(),
+        ];
+
+        let (yaml, rendered) = super::render_with_count(&configs).unwrap();
+
+        assert_eq!(rendered, 1);
+        assert!(yaml.contains("type: 'hysteria'"));
+        assert!(yaml.contains("server: 'example.com'"));
+        assert!(yaml.contains("auth-str: '123456'"));
+        assert!(yaml.contains("protocol: 'udp'"));
+        assert!(yaml.contains("up: '100 Mbps'"));
+        assert!(yaml.contains("down: '50 Mbps'"));
+        assert!(yaml.contains("sni: 'edge.example.com'"));
+        assert!(yaml.contains("skip-cert-verify: true"));
+        assert!(yaml.contains("obfs: 'obfs-secret'"));
+        assert!(yaml.contains("- 'hysteria'"));
+    }
+
+    #[test]
+    fn rejects_hysteria_v1_with_zero_bandwidth() {
+        let configs = vec!["hysteria://example.com:443?upmbps=0&downmbps=50".to_string()];
+        assert!(super::render_with_count(&configs).is_err());
     }
 
     #[test]

@@ -735,7 +735,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         );
     }
 
-    let special_count = light_candidates
+    let special_hysteria_added_count = light_candidates
         .len()
         .saturating_sub(sampled_transport_count);
 
@@ -764,9 +764,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     write_atomic(&source_map_path, format!("{source_map}\n")).await?;
 
     println!(
-        "[INFO] 🧠 [Light intelligence] Prioritizing {} candidates | {} Hysteria/Hysteria2 retained | Source provenance: {}",
+        "[INFO] 🧠 [Light intelligence] Prioritizing {} transport-tested candidates | Added {} core-only Hysteria/Hysteria2 candidates | Source provenance entries: {}",
         sampled_transport_count,
-        special_count,
+        special_hysteria_added_count,
         light_candidates.len()
     );
 
