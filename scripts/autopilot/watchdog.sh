@@ -25,7 +25,8 @@ dispatch_update() {
 }
 
 validate_published_outputs() {
-  local base="https://raw.githubusercontent.com/$repo/main/subscriptions"
+  local base="https://api.github.com/repos/$repo/contents/subscriptions"
+  local ref="${GITHUB_SHA:-main}"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
 
@@ -40,7 +41,9 @@ validate_published_outputs() {
     echo "[INFO] Checking subscriptions/$file"
     if ! curl --fail --silent --show-error --location \
         --retry 3 --retry-delay 3 --retry-all-errors \
-        "$base/$file?autopilot_check=$(date +%s)" \
+        --header "Accept: application/vnd.github.raw+json" \
+        --header "Authorization: Bearer ${GH_TOKEN:?GH_TOKEN is required}" \
+        "$base/$file?ref=$ref" \
         --output "$tmp/$file"; then
       fail "Published output subscriptions/$file could not be fetched."
     fi
