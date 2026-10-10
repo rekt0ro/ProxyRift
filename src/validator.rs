@@ -1164,7 +1164,8 @@ fn xhttp_extra_value(url: &Url) -> Result<Option<Value>, String> {
 
 fn kcp_settings(url: &Url) -> Result<Value, String> {
     let mut settings = json!({});
-    let mtu = first_query(url, &["mtu"], Some("")).trim();
+    let mtu_value = first_query(url, &["mtu"], Some(""));
+    let mtu = mtu_value.trim();
     if !mtu.is_empty() {
         let value = mtu
             .parse::<u16>()
@@ -1174,7 +1175,8 @@ fn kcp_settings(url: &Url) -> Result<Value, String> {
         settings["mtu"] = json!(value);
     }
 
-    let tti = first_query(url, &["tti"], Some("")).trim();
+    let tti_value = first_query(url, &["tti"], Some(""));
+    let tti = tti_value.trim();
     if !tti.is_empty() {
         let value = tti
             .parse::<u16>()
@@ -1223,7 +1225,8 @@ fn kcp_settings(url: &Url) -> Result<Value, String> {
         }
     }
 
-    let cwnd = first_query(url, &["cwndMultiplier", "cwnd_multiplier"], Some("")).trim();
+    let cwnd_value = first_query(url, &["cwndMultiplier", "cwnd_multiplier"], Some(""));
+    let cwnd = cwnd_value.trim();
     if !cwnd.is_empty() {
         let value = cwnd
             .parse::<u32>()
@@ -1233,7 +1236,8 @@ fn kcp_settings(url: &Url) -> Result<Value, String> {
         settings["cwndMultiplier"] = json!(value);
     }
 
-    let max_window = first_query(url, &["maxSendingWindow", "max_sending_window"], Some("")).trim();
+    let max_window_value = first_query(url, &["maxSendingWindow", "max_sending_window"], Some(""));
+    let max_window = max_window_value.trim();
     if !max_window.is_empty() {
         let minimum_mtu = settings["mtu"].as_u64().unwrap_or(1350);
         let value = max_window
@@ -2764,6 +2768,21 @@ pub fn is_locally_supported_config(config: &str) -> bool {
     true
 }
 
+fn is_valid_tuic_uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+
+    bytes.iter().enumerate().all(|(index, byte)| {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            *byte == b'-'
+        } else {
+            byte.is_ascii_hexdigit()
+        }
+    })
+}
+
 pub fn is_supported_tuic_config(config: &str) -> bool {
     let cleaned = clean(config);
     if scheme_of(cleaned) != "tuic" {
@@ -2778,7 +2797,7 @@ pub fn is_supported_tuic_config(config: &str) -> bool {
     }
 
     let uuid = decode_component(url.username());
-    if !is_uuid(uuid.trim()) {
+    if !is_valid_tuic_uuid(uuid.trim()) {
         return false;
     }
     if url
@@ -2871,7 +2890,7 @@ fn valid_duration(value: &str) -> bool {
     matches!(unit, "" | "ms" | "s" | "m" | "h") && amount <= u32::MAX as u64
 }
 
-fn parse_config(config: &str) -> Result<Value, String> {
+pub(crate) fn parse_config(config: &str) -> Result<Value, String> {
     let scheme = scheme_of(clean(config));
 
     match scheme.as_str() {
