@@ -2643,6 +2643,11 @@ fn xray_compatibility_filter(
                 "Xray HTTP transport removed; use XHTTP or a sing-box-compatible backend"
                     .to_string(),
             ));
+        } else if network.is_some_and(|network| network.eq_ignore_ascii_case("quic")) {
+            rejected.push((
+                config,
+                "V2Ray QUIC transport must use the sing-box-compatible backend".to_string(),
+            ));
         } else {
             supported.push((config, value));
         }
@@ -4875,6 +4880,24 @@ mod tests {
     }
 
     #[test]
+    fn xray_defers_quic_transport_to_singbox() {
+        let config = parse_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic",
+        )
+        .expect("QUIC should be represented for sing-box");
+
+        let (supported, rejected) = xray_compatibility_filter(vec![(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic"
+                .to_string(),
+            config,
+        )]);
+
+        assert!(supported.is_empty());
+        assert_eq!(rejected.len(), 1);
+        assert!(rejected[0].1.contains("sing-box-compatible backend"));
+    }
+
+    #[test]
     fn xray_keeps_httpupgrade_transport_supported() {
         let config = parse_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:80?type=httpupgrade",
@@ -5649,6 +5672,47 @@ mod tests {
         assert!(is_cheaply_supported_config(&config));
         let parsed = parse_config(&config).expect("VMess TLS alias should parse");
         assert_eq!(parsed["streamSettings"]["security"], "tls");
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_singbox_quic_subset() {
+        let config =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic";
+        assert!(is_cheaply_supported_config(config));
+        assert!(is_light_consumer_compatible(config));
+        assert!(is_locally_supported_config(config));
+
+        let parsed = parse_config(config).expect("QUIC should map into the shared transport model");
+        assert_eq!(parsed["streamSettings"]["network"], "quic");
+        assert_eq!(parsed["streamSettings"]["quicSettings"], serde_json::json!({}));
+
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic&quicSecurity=aes-128-gcm&key=secret"
+            ),
+            Some("unsupported-quic-encryption")
+        );
+        assert!(!is_cheaply_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=quic&pbk=key&sni=example.com"
+        ));
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_vmess_quic_without_legacy_parameters() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": "quic",
+            "type": "none",
+            "tls": "tls"
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert!(is_cheaply_supported_config(&config));
+        assert!(is_light_consumer_compatible(&config));
+        assert!(is_locally_supported_config(&config));
     }
 
     #[test]
