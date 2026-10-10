@@ -1172,7 +1172,10 @@ fn kcp_settings(url: &Url) -> Result<Value, String> {
 
     for (names, field) in [
         (&["uplinkCapacity", "uplink_capacity"][..], "uplinkCapacity"),
-        (&["downlinkCapacity", "downlink_capacity"][..], "downlinkCapacity"),
+        (
+            &["downlinkCapacity", "downlink_capacity"][..],
+            "downlinkCapacity",
+        ),
     ] {
         let raw = first_query(url, names, Some(""));
         if !raw.is_empty() {
@@ -1185,8 +1188,14 @@ fn kcp_settings(url: &Url) -> Result<Value, String> {
     }
 
     for (names, field) in [
-        (&["readBufferSize", "read_buffer_size"][..], "readBufferSize"),
-        (&["writeBufferSize", "write_buffer_size"][..], "writeBufferSize"),
+        (
+            &["readBufferSize", "read_buffer_size"][..],
+            "readBufferSize",
+        ),
+        (
+            &["writeBufferSize", "write_buffer_size"][..],
+            "writeBufferSize",
+        ),
     ] {
         let raw = first_query(url, names, Some(""));
         if !raw.is_empty() {
@@ -1210,8 +1219,7 @@ fn kcp_settings(url: &Url) -> Result<Value, String> {
         settings["cwndMultiplier"] = json!(value);
     }
 
-    let max_window =
-        first_query(url, &["maxSendingWindow", "max_sending_window"], Some("")).trim();
+    let max_window = first_query(url, &["maxSendingWindow", "max_sending_window"], Some("")).trim();
     if !max_window.is_empty() {
         let minimum_mtu = settings["mtu"].as_u64().unwrap_or(1350);
         let value = max_window
@@ -1222,7 +1230,9 @@ fn kcp_settings(url: &Url) -> Result<Value, String> {
         settings["maxSendingWindow"] = json!(value);
     }
 
-    let congestion = first_query(url, &["congestion"], Some("")).trim().to_ascii_lowercase();
+    let congestion = first_query(url, &["congestion"], Some(""))
+        .trim()
+        .to_ascii_lowercase();
     if !congestion.is_empty() {
         let value = match congestion.as_str() {
             "1" | "true" | "yes" | "on" => true,
@@ -1620,7 +1630,8 @@ fn parse_vmess(config: &str) -> Result<Value, String> {
             "cwndMultiplier",
             "maxSendingWindow",
         ] {
-            if let Some(value) = json_text(value.get(key)).filter(|value| !value.trim().is_empty()) {
+            if let Some(value) = json_text(value.get(key)).filter(|value| !value.trim().is_empty())
+            {
                 q.push((key.to_string(), value));
             }
         }
@@ -2312,11 +2323,18 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                         "maxSendingWindow",
                     ]
                     .iter()
-                    .filter_map(|key| json_text(value.get(*key)).map(|raw| format!("{}={}", key, urlencoding(&raw))))
+                    .filter_map(|key| json_text(value.get(*key)).map(|raw| format!(
+                        "{}={}",
+                        key,
+                        urlencoding(&raw)
+                    )))
                     .collect::<Vec<_>>()
                     .join("&")
                 ));
-                if synthetic_query.ok().is_none_or(|url| kcp_settings(&url).is_err()) {
+                if synthetic_query
+                    .ok()
+                    .is_none_or(|url| kcp_settings(&url).is_err())
+                {
                     return Some("invalid-vmess-kcp-parameters");
                 }
             }
@@ -2749,13 +2767,20 @@ pub fn is_supported_tuic_config(config: &str) -> bool {
     if !is_uuid(uuid.trim()) {
         return false;
     }
-    if url.password().is_some_and(|password| decode_component(password).is_empty()) {
+    if url
+        .password()
+        .is_some_and(|password| decode_component(password).is_empty())
+    {
         return false;
     }
 
-    let congestion = first_query(&url, &["congestion_control", "congestionControl"], Some("cubic"))
-        .trim()
-        .to_ascii_lowercase();
+    let congestion = first_query(
+        &url,
+        &["congestion_control", "congestionControl"],
+        Some("cubic"),
+    )
+    .trim()
+    .to_ascii_lowercase();
     if !matches!(congestion.as_str(), "cubic" | "new_reno" | "bbr") {
         return false;
     }
@@ -2782,7 +2807,12 @@ pub fn is_supported_tuic_config(config: &str) -> bool {
         }
     }
 
-    for key in ["zero_rtt_handshake", "zeroRttHandshake", "insecure", "allowInsecure"] {
+    for key in [
+        "zero_rtt_handshake",
+        "zeroRttHandshake",
+        "insecure",
+        "allowInsecure",
+    ] {
         let raw = first_query(&url, &[key], Some(""));
         if !raw.trim().is_empty()
             && !matches!(
@@ -5907,12 +5937,18 @@ mod tests {
         assert_eq!(tuned["streamSettings"]["kcpSettings"]["mtu"], 1200);
         assert_eq!(tuned["streamSettings"]["kcpSettings"]["tti"], 30);
         assert_eq!(tuned["streamSettings"]["kcpSettings"]["uplinkCapacity"], 10);
-        assert_eq!(tuned["streamSettings"]["kcpSettings"]["downlinkCapacity"], 100);
+        assert_eq!(
+            tuned["streamSettings"]["kcpSettings"]["downlinkCapacity"],
+            100
+        );
         assert_eq!(tuned["streamSettings"]["kcpSettings"]["congestion"], true);
         assert_eq!(tuned["streamSettings"]["kcpSettings"]["readBufferSize"], 3);
         assert_eq!(tuned["streamSettings"]["kcpSettings"]["writeBufferSize"], 4);
         assert_eq!(tuned["streamSettings"]["kcpSettings"]["cwndMultiplier"], 2);
-        assert_eq!(tuned["streamSettings"]["kcpSettings"]["maxSendingWindow"], 2097152);
+        assert_eq!(
+            tuned["streamSettings"]["kcpSettings"]["maxSendingWindow"],
+            2097152
+        );
         assert!(is_cheaply_supported_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&mtu=1200&tti=30"
         ));
@@ -5944,8 +5980,14 @@ mod tests {
 
         assert_eq!(parsed["streamSettings"]["kcpSettings"]["mtu"], 1200);
         assert_eq!(parsed["streamSettings"]["kcpSettings"]["tti"], 30);
-        assert_eq!(parsed["streamSettings"]["kcpSettings"]["uplinkCapacity"], 10);
-        assert_eq!(parsed["streamSettings"]["kcpSettings"]["downlinkCapacity"], 100);
+        assert_eq!(
+            parsed["streamSettings"]["kcpSettings"]["uplinkCapacity"],
+            10
+        );
+        assert_eq!(
+            parsed["streamSettings"]["kcpSettings"]["downlinkCapacity"],
+            100
+        );
         assert_eq!(parsed["streamSettings"]["kcpSettings"]["congestion"], false);
         assert!(is_cheaply_supported_config(&config));
         assert!(is_light_consumer_compatible(&config));
@@ -5965,9 +6007,7 @@ mod tests {
             Some("invalid-tuic-config")
         );
         assert_eq!(
-            cheap_compatibility_rejection_reason(
-                "tuic://not-a-uuid:secret@example.com:443"
-            ),
+            cheap_compatibility_rejection_reason("tuic://not-a-uuid:secret@example.com:443"),
             Some("invalid-tuic-config")
         );
     }
