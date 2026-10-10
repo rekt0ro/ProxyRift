@@ -1175,7 +1175,9 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
     };
 
     if security == "reality" && matches!(network.as_str(), "kcp" | "quic") {
-        return Err(format!("Reality security is incompatible with {network} transport"));
+        return Err(format!(
+            "Reality security is incompatible with {network} transport"
+        ));
     }
 
     if security == "reality" && !matches!(network.as_str(), "raw" | "xhttp" | "grpc") {
@@ -1396,10 +1398,9 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
             out["kcpSettings"] = json!({});
         }
         "quic" => {
-            let quic_security =
-                first_query(url, &["quicSecurity", "quic_security"], Some("none"))
-                    .trim()
-                    .to_ascii_lowercase();
+            let quic_security = first_query(url, &["quicSecurity", "quic_security"], Some("none"))
+                .trim()
+                .to_ascii_lowercase();
             let header_type = first_query(url, &["headerType", "header_type"], Some(""));
             if !matches!(quic_security.as_str(), "" | "none")
                 || (!header_type.is_empty() && !header_type.eq_ignore_ascii_case("none"))
@@ -2210,7 +2211,9 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 if value
                     .get("quicSecurity")
                     .and_then(Value::as_str)
-                    .is_some_and(|item| !matches!(item.trim().to_ascii_lowercase().as_str(), "" | "none"))
+                    .is_some_and(|item| {
+                            !matches!(item.trim().to_ascii_lowercase().as_str(), "" | "none")
+                        })
                 {
                     return Some("unsupported-quic-encryption");
                 }
@@ -2435,7 +2438,9 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                     || value
                         .get("quicSecurity")
                         .and_then(Value::as_str)
-                        .is_some_and(|item| !matches!(item.trim().to_ascii_lowercase().as_str(), "" | "none")))
+                        .is_some_and(|item| {
+                            !matches!(item.trim().to_ascii_lowercase().as_str(), "" | "none")
+                        }))
             {
                 return false;
             }
@@ -2508,11 +2513,9 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
 
             true
         }
-        "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" => {
-            Url::parse(cleaned)
-                .ok()
-                .is_some_and(|url| endpoint_from_url(&url, Some(1080)).is_ok())
-        }
+        "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" => Url::parse(cleaned)
+            .ok()
+            .is_some_and(|url| endpoint_from_url(&url, Some(1080)).is_ok()),
         _ => false,
     }
 }
@@ -5651,7 +5654,10 @@ mod tests {
         .expect("mKCP should be represented for Xray validation");
 
         assert_eq!(parsed["streamSettings"]["network"], "kcp");
-        assert_eq!(parsed["streamSettings"]["kcpSettings"], serde_json::json!({}));
+        assert_eq!(
+            parsed["streamSettings"]["kcpSettings"],
+            serde_json::json!({})
+        );
         assert!(is_locally_supported_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp"
         ));
@@ -5684,7 +5690,10 @@ mod tests {
 
         let parsed = parse_config(config).expect("QUIC should map into the shared transport model");
         assert_eq!(parsed["streamSettings"]["network"], "quic");
-        assert_eq!(parsed["streamSettings"]["quicSettings"], serde_json::json!({}));
+        assert_eq!(
+            parsed["streamSettings"]["quicSettings"],
+            serde_json::json!({})
+        );
 
         assert_eq!(
             cheap_compatibility_rejection_reason(
