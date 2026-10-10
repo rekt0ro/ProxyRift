@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set +e
 
+PROXYRIFT_TMP_DIR="${PROXYRIFT_TMP_DIR:-/tmp/proxyrift}"
+
 stage_status() {
   local outcome="$1"
   case "$outcome" in
@@ -40,6 +42,31 @@ count_configs() {
   else
     printf '0'
   fi
+}
+
+format_lightgbm_status() {
+  local target="$1"
+  local raw_status
+  raw_status="$(jq -r --arg target "$target" '.model_report.targets[$target] | if .accepted == true then "promoted" else (.reason // "not evaluated") end' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'not evaluated')"
+
+  case "$raw_status" in
+    promoted|promoted_after_temporal_validation)
+      printf 'Promoted'
+      ;;
+    model_did_not_beat_temporal_baseline)
+      printf 'Did not beat temporal baseline'
+      ;;
+    top_20pct_below_random_selection_baseline)
+      printf 'Top-20%% pass rate below random baseline'
+      ;;
+    'not evaluated')
+      printf 'Not evaluated'
+      ;;
+    *)
+      local readable="${raw_status//_/ }"
+      printf '%s' "${readable^}"
+      ;;
+  esac
 }
 
 all_count="$(count_configs subscriptions/all.txt)"
@@ -105,45 +132,45 @@ if [ -s "subscriptions/light-training.jsonl" ]; then
     fi
   fi
 fi
-if [ -s /tmp/proxyrift/lightgbm-scores.json ]; then
-  lightgbm_trained="$(jq -r 'if .trained == true then "✅ Promoted" else "⚪ Baseline-only" end' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'unknown')"
-  lightgbm_training_rows="$(jq -r '.training_rows // 0' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
-  lightgbm_feature_count="$(jq -r '.feature_count // 0' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
-  lightgbm_scored="$(jq -r '(.scores // {}) | length' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
-  lightgbm_strict_status="$(jq -r '.model_report.targets.strict | if .accepted == true then "promoted" else (.reason // "not evaluated") end' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'not evaluated')"
-  lightgbm_strict_brier="$(jq -r '.model_report.targets.strict.model_brier // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_strict_baseline="$(jq -r '.model_report.targets.strict.baseline_brier // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_strict_holdout="$(jq -r '.model_report.targets.strict.holdout_rows // 0' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
-  lightgbm_strict_top20="$(jq -r '.model_report.targets.strict.model_top_20pct_pass_rate // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_strict_holdout_rate="$(jq -r '.model_report.targets.strict.holdout_pass_rate // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_transfer_status="$(jq -r '.model_report.targets.transfer | if .accepted == true then "promoted" else (.reason // "not evaluated") end' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'not evaluated')"
-  lightgbm_transfer_brier="$(jq -r '.model_report.targets.transfer.model_brier // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_transfer_baseline="$(jq -r '.model_report.targets.transfer.baseline_brier // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_transfer_holdout="$(jq -r '.model_report.targets.transfer.holdout_rows // 0' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
-  lightgbm_transfer_top20="$(jq -r '.model_report.targets.transfer.model_top_20pct_pass_rate // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_transfer_holdout_rate="$(jq -r '.model_report.targets.transfer.holdout_pass_rate // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_stream_status="$(jq -r '.model_report.targets.stream | if .accepted == true then "promoted" else (.reason // "not evaluated") end' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'not evaluated')"
-  lightgbm_stream_brier="$(jq -r '.model_report.targets.stream.model_brier // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_stream_baseline="$(jq -r '.model_report.targets.stream.baseline_brier // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_stream_holdout="$(jq -r '.model_report.targets.stream.holdout_rows // 0' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf '0')"
-  lightgbm_stream_top20="$(jq -r '.model_report.targets.stream.model_top_20pct_pass_rate // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
-  lightgbm_stream_holdout_rate="$(jq -r '.model_report.targets.stream.holdout_pass_rate // "n/a"' /tmp/proxyrift/lightgbm-scores.json 2>/dev/null || printf 'n/a')"
+if [ -s "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" ]; then
+  lightgbm_trained="$(jq -r 'if .trained == true then "✅ Promoted" else "⚪ Baseline-only" end' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'unknown')"
+  lightgbm_training_rows="$(jq -r '.training_rows // 0' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
+  lightgbm_feature_count="$(jq -r '.feature_count // 0' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
+  lightgbm_scored="$(jq -r '(.scores // {}) | length' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
+  lightgbm_strict_status="$(format_lightgbm_status strict)"
+  lightgbm_strict_brier="$(jq -r '.model_report.targets.strict.model_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_strict_baseline="$(jq -r '.model_report.targets.strict.baseline_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_strict_holdout="$(jq -r '.model_report.targets.strict.holdout_rows // 0' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
+  lightgbm_strict_top20="$(jq -r '.model_report.targets.strict.model_top_20pct_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_strict_holdout_rate="$(jq -r '.model_report.targets.strict.holdout_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_transfer_status="$(format_lightgbm_status transfer)"
+  lightgbm_transfer_brier="$(jq -r '.model_report.targets.transfer.model_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_transfer_baseline="$(jq -r '.model_report.targets.transfer.baseline_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_transfer_holdout="$(jq -r '.model_report.targets.transfer.holdout_rows // 0' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
+  lightgbm_transfer_top20="$(jq -r '.model_report.targets.transfer.model_top_20pct_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_transfer_holdout_rate="$(jq -r '.model_report.targets.transfer.holdout_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_stream_status="$(format_lightgbm_status stream)"
+  lightgbm_stream_brier="$(jq -r '.model_report.targets.stream.model_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_stream_baseline="$(jq -r '.model_report.targets.stream.baseline_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_stream_holdout="$(jq -r '.model_report.targets.stream.holdout_rows // 0' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
+  lightgbm_stream_top20="$(jq -r '.model_report.targets.stream.model_top_20pct_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+  lightgbm_stream_holdout_rate="$(jq -r '.model_report.targets.stream.holdout_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
 fi
-if [ -s /tmp/proxyrift/light-stats.json ]; then
-  input_candidates="$(jq -r '.input_candidates // "unknown"' /tmp/proxyrift/light-stats.json)"
-  security_rejected="$(jq -r '.security_rejected // "unknown"' /tmp/proxyrift/light-stats.json)"
-  strict_verified="$(jq -r '.strict_verified // "unknown"' /tmp/proxyrift/light-stats.json)"
-  selection_target="$(jq -r '.selection_target // "unknown"' /tmp/proxyrift/light-stats.json)"
-  strict_selectable="$(jq -r '.strict_selectable // "unknown"' /tmp/proxyrift/light-stats.json)"
-  stability_selectable="$(jq -r '.stability_selectable // "unknown"' /tmp/proxyrift/light-stats.json)"
-  transfer_selectable="$(jq -r '.transfer_selectable // "unknown"' /tmp/proxyrift/light-stats.json)"
-  stream_selectable="$(jq -r '.stream_selectable // "unknown"' /tmp/proxyrift/light-stats.json)"
-  selection_shortfall="$(jq -r '.selection_shortfall // "unknown"' /tmp/proxyrift/light-stats.json)"
-  transfer_tested="$(jq -r '.transfer_tested // "unknown"' /tmp/proxyrift/light-stats.json)"
-  transfer_passed="$(jq -r '.transfer_passed // "unknown"' /tmp/proxyrift/light-stats.json)"
-  stream_tested="$(jq -r '.stream_continuity_tested // "unknown"' /tmp/proxyrift/light-stats.json)"
-  stream_passed="$(jq -r '.stream_continuity_passed // "unknown"' /tmp/proxyrift/light-stats.json)"
-  published="$(jq -r '.published // "unknown"' /tmp/proxyrift/light-stats.json)"
+if [ -s "$PROXYRIFT_TMP_DIR/light-stats.json" ]; then
+  input_candidates="$(jq -r '.input_candidates // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  security_rejected="$(jq -r '.security_rejected // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  strict_verified="$(jq -r '.strict_verified // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  selection_target="$(jq -r '.selection_target // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  strict_selectable="$(jq -r '.strict_selectable // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  stability_selectable="$(jq -r '.stability_selectable // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  transfer_selectable="$(jq -r '.transfer_selectable // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  stream_selectable="$(jq -r '.stream_selectable // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  selection_shortfall="$(jq -r '.selection_shortfall // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  transfer_tested="$(jq -r '.transfer_tested // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  transfer_passed="$(jq -r '.transfer_passed // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  stream_tested="$(jq -r '.stream_continuity_tested // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  stream_passed="$(jq -r '.stream_continuity_passed // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  published="$(jq -r '.published // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
 fi
 
 current_jobs=""
@@ -331,8 +358,8 @@ light_delta_display="$(format_delta "$light_elapsed" "$previous_light_elapsed")"
   echo
   echo "| Subscription | Config entries | Formats |"
   echo "|---|---:|---|"
-  echo "| All | $all_count | Base64, Clash/Mihomo YAML, sing-box JSON |"
-  echo "| Light | $light_count | Base64, Clash/Mihomo YAML, sing-box JSON |"
+  echo "| All | $all_count | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |"
+  echo "| Light | $light_count | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |"
   echo
   echo "## Light selection"
   echo
