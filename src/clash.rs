@@ -608,8 +608,8 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
         &["eh", "earlyDataHeaderName", "early_data_header_name"],
     );
     let alpn = query_list(&url, "alpn");
-    let sni =
-        query_any(&url, &["sni", "servername", "server_name", "peer"]).or_else(|| Some(server.clone()));
+    let sni = query_any(&url, &["sni", "servername", "server_name", "peer"])
+        .or_else(|| Some(server.clone()));
     let client_fingerprint = query_any(&url, &["fp", "clientFingerprint", "client-fingerprint"]);
     let fingerprint = query_any(&url, &["fingerprint", "certFingerprint"]);
     let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(|value| {
