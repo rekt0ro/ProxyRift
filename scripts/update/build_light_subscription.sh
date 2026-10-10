@@ -3,12 +3,6 @@ set -euo pipefail
 
 mkdir -p /tmp/proxyrift
 
-# Remove the legacy interval header from a preserved subscription; do not add metadata.
-if [ -f subscriptions/light.txt ] && grep -q '^#profile-update-interval:' subscriptions/light.txt; then
-  awk '!/^#profile-update-interval:/' subscriptions/light.txt > subscriptions/.light.txt.clean
-  mv -f subscriptions/.light.txt.clean subscriptions/light.txt
-fi
-
 light_started_epoch="$(date +%s)"
 set +e
 ./target/release/polish_light \
