@@ -2,16 +2,16 @@
 
 Public proxy collector and validator.
 
-**Supported:** VLESS · VMess · Trojan · Shadowsocks · Hysteria · Hysteria2 · SOCKS · HTTP
+**Supported:** VLESS · VMess · Trojan · Shadowsocks · Hysteria · Hysteria2 · TUIC · SOCKS · HTTP · WireGuard (All only)
 
 ## 📡 Subscriptions
 
-Subscriptions are **updated hourly** with newly collected and validated configurations.
+Subscriptions are **regenerated hourly** from newly collected configurations. The All and Light lists use different screening and validation paths.
 
-| List      | Description                                             |
-| --------- | ------------------------------------------------------- |
-| **Light** | Up to 200 configs, deeply tested                        |
-| **All**   | Up to 2,000 configs that pass transport-level screening |
+| List | Description |
+| --- | --- |
+| **Light** | Up to 200 configs, deeply tested |
+| **All** | Up to 2,000 configs, primarily transport-screened |
 
 ### Light
 
@@ -75,9 +75,9 @@ Passing validation does **not** mean that a proxy will remain available or conti
 
 ### All
 
-All is a larger pool of configurations that pass the initial transport-level screening.
+All is a larger pool of configurations. Most entries pass the initial transport-level screening. Some candidates whose transports are deferred from the initial probe can be added to All only after passing Light validation.
 
-A configuration appearing in All means it passed transport screening at collection time. It is not a guarantee of speed, stability, or long-term usability.
+A configuration appearing in All means it passed transport screening at collection time or, if its transport was deferred, passed the Light validation pipeline. Neither path guarantees speed, stability, or long-term usability.
 
 ## 🧠 LightGBM
 
@@ -95,7 +95,7 @@ ProxyRift collects third-party proxy configurations and validates selected candi
 
 During Light validation, supported proxy URI formats are parsed and constrained configurations are constructed instead of directly executing arbitrary proxy configuration blobs. Endpoint resolution also rejects private, loopback, link-local, multicast, and other disallowed address ranges.
 
-The All list does not go through the same deep Xray/sing-box validation. It is based on transport-level screening and should be treated accordingly.
+The All list does not go through the same deep Xray/sing-box validation for every entry. It is primarily based on transport-level screening, with deferred candidates added only after they pass Light validation, and should be treated accordingly.
 
 These checks reduce the attack surface, but they do not make third-party proxy endpoints trustworthy. Run ProxyRift in an isolated or sandboxed environment when operating it locally.
 
@@ -122,7 +122,5 @@ Each update:
 5. Validates the selected Light candidates
 6. Generates the subscription formats
 7. Publishes the updated results
-
-The GitHub Actions workflow is triggered hourly by an external scheduler.
 
 [![Update Configs](https://github.com/rekt0ro/ProxyRift/actions/workflows/update.yml/badge.svg?branch=main)](https://github.com/rekt0ro/ProxyRift/actions/workflows/update.yml)
