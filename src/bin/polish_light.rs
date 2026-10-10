@@ -3896,9 +3896,7 @@ async fn main() -> Result<(), String> {
                 stagnant_waves = 0;
             }
         } else {
-            // Before the strict pool is full, low yield must still influence the
-            // next discovery wave; otherwise this path scans the whole candidate
-            // set in fixed-size waves before running the downstream gates.
+
             let newly_selectable = strict_eligible.saturating_sub(strict_selectable_before);
             let candidates_remaining = discovery_candidates.len().saturating_sub(discovery_cursor);
             let next_floor = adjust_discovery_batch_for_yield(
@@ -3982,8 +3980,7 @@ async fn main() -> Result<(), String> {
         &global_positions,
         &history,
     );
-    // The selection target controls when validation can stop, not the number of
-    // continuity-qualified configs that may be published from an already-tested pool.
+
     let publication_limit = final_publication_limit(selection_limit, stream_verified.len());
     let (selected, previous_selected, older_selected) = select_verified_configs_with_cohort_floor(
         &stream_ranked,
