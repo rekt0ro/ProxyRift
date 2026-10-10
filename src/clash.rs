@@ -355,6 +355,17 @@ fn push_transport(
     }
 }
 
+fn normalize_clash_transport(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" => "tcp".to_string(),
+        "tcp" | "raw" | "none" => "tcp".to_string(),
+        "websocket" => "ws".to_string(),
+        "http-upgrade" => "httpupgrade".to_string(),
+        "splithttp" => "xhttp".to_string(),
+        other => other.to_string(),
+    }
+}
+
 fn name_from_config(config: &str, fallback_index: usize) -> String {
     let fragment = config
         .split_once('#')
@@ -381,14 +392,21 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
         return Err("VLESS UUID missing".to_string());
     }
 
-    let security = query(&url, "security")
+    let security_raw = query(&url, "security")
         .unwrap_or_else(|| "none".to_string())
+        .trim()
+        .trim_end_matches('.')
         .to_ascii_lowercase();
+    let security = match security_raw.as_str() {
+        "t" | "tl" => "tls".to_string(),
+        other => other.to_string(),
+    };
     if !matches!(security.as_str(), "none" | "tls" | "reality") {
         return Err(format!("unsupported VLESS security {security}"));
     }
 
-    let network = query(&url, "type").unwrap_or_else(|| "tcp".to_string());
+    let network_raw = query(&url, "type").unwrap_or_else(|| "tcp".to_string());
+    let network = normalize_clash_transport(&network_raw);
     let host = query(&url, "host");
     let path = query(&url, "path");
     let service_name = query_any(&url, &["serviceName", "service-name", "grpc-service-name"]);
@@ -398,7 +416,7 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
         &["eh", "earlyDataHeaderName", "early_data_header_name"],
     );
     let alpn = query_list(&url, "alpn");
-    let sni = query_any(&url, &["sni", "servername"]);
+    let sni = query_any(&url, &["sni", "servername", "server_name"]);
     let client_fingerprint = query_any(&url, &["fp", "client-fingerprint"]);
     let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(|value| {
         matches!(
@@ -406,10 +424,10 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
             "1" | "true" | "yes" | "on"
         )
     });
-    let flow = query(&url, "flow");
+    let flow = query(&url, "flow").map(|value| value.trim().to_ascii_lowercase());
     let encryption = query(&url, "encryption");
-    let public_key = query_any(&url, &["pbk", "publicKey", "public-key"]);
-    let short_id = query_any(&url, &["sid", "shortId", "short-id"]);
+    let public_key = query_any(&url, &["pbk", "publicKey", "public_key", "public-key"]);
+    let short_id = query_any(&url, &["sid", "shortId", "short_id", "short-id"]);
 
     let mut lines = vec![format!(
         "  - name: {}",
@@ -471,7 +489,8 @@ fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "VMess UUID missing".to_string())?;
 
-    let network = json_string(object.get("net")).unwrap_or_else(|| "tcp".to_string());
+    let network_raw = json_string(object.get("net")).unwrap_or_else(|| "tcp".to_string());
+    let network = normalize_clash_transport(&network_raw);
     let host = json_string(object.get("host"));
     let path = json_string(object.get("path"));
     let service_name =
@@ -480,10 +499,16 @@ fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
         json_string(object.get("ed")).or_else(|| json_string(object.get("maxEarlyData")));
     let early_data_header_name =
         json_string(object.get("eh")).or_else(|| json_string(object.get("earlyDataHeaderName")));
-    let security = json_string(object.get("tls"))
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let tls_enabled = matches!(security.as_str(), "tls" | "true" | "1" | "yes");
+    let security = match object.get("tls") {
+        Some(Value::String(value)) => value.trim().to_ascii_lowercase(),
+        Some(Value::Bool(value)) => value.to_string(),
+        Some(Value::Number(value)) => value.to_string(),
+        _ => String::new(),
+    };
+    let tls_enabled = matches!(
+        security.as_str(),
+        "tls" | "t" | "tl" | "true" | "1" | "yes" | "on"
+    );
     let sni = json_string(object.get("sni"))
         .or_else(|| json_string(object.get("servername")))
         .or_else(|| host.clone())
@@ -572,7 +597,8 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
         return Err("Trojan password missing".to_string());
     }
 
-    let network = query(&url, "type").unwrap_or_else(|| "tcp".to_string());
+    let network_raw = query(&url, "type").unwrap_or_else(|| "tcp".to_string());
+    let network = normalize_clash_transport(&network_raw);
     let host = query(&url, "host");
     let path = query(&url, "path");
     let service_name = query_any(&url, &["serviceName", "service-name", "grpc-service-name"]);
@@ -582,7 +608,8 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
         &["eh", "earlyDataHeaderName", "early_data_header_name"],
     );
     let alpn = query_list(&url, "alpn");
-    let sni = query_any(&url, &["sni", "servername"]).or_else(|| Some(server.clone()));
+    let sni = query_any(&url, &["sni", "servername", "server_name"])
+        .or_else(|| Some(server.clone()));
     let client_fingerprint = query_any(&url, &["fp", "clientFingerprint", "client-fingerprint"]);
     let fingerprint = query_any(&url, &["fingerprint", "certFingerprint"]);
     let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(|value| {
@@ -591,8 +618,8 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
             "1" | "true" | "yes" | "on"
         )
     });
-    let public_key = query_any(&url, &["pbk", "publicKey", "public-key"]);
-    let short_id = query_any(&url, &["sid", "shortId", "short-id"]);
+    let public_key = query_any(&url, &["pbk", "publicKey", "public_key", "public-key"]);
+    let short_id = query_any(&url, &["sid", "shortId", "short_id", "short-id"]);
 
     let mut lines = vec![format!(
         "  - name: {}",
@@ -629,6 +656,146 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
     Ok(lines.join("\n"))
 }
 
+fn shadowsocks_plugin_bool(value: &str, key: &str) -> Result<bool, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(format!("invalid Shadowsocks v2ray-plugin {key} boolean")),
+    }
+}
+
+fn push_shadowsocks_plugin(lines: &mut Vec<String>, url: &Url) -> Result<(), String> {
+    let Some(plugin) = query(url, "plugin") else {
+        return Ok(());
+    };
+
+    let mut parts = plugin.split(';');
+    let name = parts.next().unwrap_or("").trim();
+    let mut options: Vec<(String, Option<String>)> = Vec::new();
+    let mut seen = Vec::<String>::new();
+
+    for part in parts {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (key, value) = match part.split_once('=') {
+            Some((key, value)) => (
+                key.trim().to_ascii_lowercase(),
+                Some(value.trim().to_string()),
+            ),
+            None => (part.to_ascii_lowercase(), None),
+        };
+        if key.is_empty() {
+            return Err("empty Shadowsocks plugin option".to_string());
+        }
+        if seen.iter().any(|existing| existing == &key) {
+            return Err(format!("duplicate Shadowsocks plugin option {key}"));
+        }
+        seen.push(key.clone());
+        options.push((key, value));
+    }
+
+    match name {
+        "obfs-local" => {
+            let mut mode = "http".to_string();
+            let mut host: Option<String> = None;
+
+            for (key, value) in options {
+                match key.as_str() {
+                    "obfs" => {
+                        mode = value
+                            .as_deref()
+                            .ok_or_else(|| "Shadowsocks obfs option requires a value".to_string())?
+                            .trim()
+                            .to_ascii_lowercase();
+                        if !matches!(mode.as_str(), "http" | "tls") {
+                            return Err(format!("unsupported Shadowsocks obfs mode {mode}"));
+                        }
+                    }
+                    "obfs-host" => {
+                        host = Some(value.ok_or_else(|| {
+                            "Shadowsocks obfs-host option requires a value".to_string()
+                        })?);
+                    }
+                    _ => return Err(format!("unsupported obfs-local option {key}")),
+                }
+            }
+
+            push_field(lines, 4, "plugin", "obfs");
+            lines.push("    plugin-opts:".to_string());
+            push_field(lines, 6, "mode", &mode);
+            if let Some(host) = host.filter(|value| !value.is_empty()) {
+                push_field(lines, 6, "host", &host);
+            }
+        }
+        "v2ray-plugin" => {
+            let mut mode = "websocket".to_string();
+            let mut tls: Option<bool> = None;
+            let mut host: Option<String> = None;
+            let mut path: Option<String> = None;
+            let mut mux: Option<bool> = None;
+
+            for (key, value) in options {
+                match key.as_str() {
+                    "mode" => {
+                        mode = value
+                            .as_deref()
+                            .ok_or_else(|| "v2ray-plugin mode requires a value".to_string())?
+                            .trim()
+                            .to_ascii_lowercase();
+                        if mode != "websocket" {
+                            return Err(format!("unsupported Mihomo v2ray-plugin mode {mode}"));
+                        }
+                    }
+                    "tls" => {
+                        tls = Some(match value {
+                            Some(value) => shadowsocks_plugin_bool(&value, "tls")?,
+                            None => true,
+                        });
+                    }
+                    "host" => {
+                        host = Some(value.ok_or_else(|| {
+                            "v2ray-plugin host requires a value".to_string()
+                        })?);
+                    }
+                    "path" => {
+                        path = Some(value.ok_or_else(|| {
+                            "v2ray-plugin path requires a value".to_string()
+                        })?);
+                    }
+                    "mux" => {
+                        mux = Some(match value {
+                            Some(value) => shadowsocks_plugin_bool(&value, "mux")?,
+                            None => true,
+                        });
+                    }
+                    _ => return Err(format!("unsupported v2ray-plugin option {key}")),
+                }
+            }
+
+            push_field(lines, 4, "plugin", "v2ray-plugin");
+            lines.push("    plugin-opts:".to_string());
+            push_field(lines, 6, "mode", &mode);
+            if let Some(tls) = tls {
+                push_raw_field(lines, 6, "tls", if tls { "true" } else { "false" });
+            }
+            if let Some(host) = host.filter(|value| !value.is_empty()) {
+                push_field(lines, 6, "host", &host);
+            }
+            if let Some(path) = path.filter(|value| !value.is_empty()) {
+                push_field(lines, 6, "path", &path);
+            }
+            if let Some(mux) = mux {
+                push_raw_field(lines, 6, "mux", if mux { "true" } else { "false" });
+            }
+        }
+        _ => return Err(format!("unsupported Shadowsocks plugin {name}")),
+    }
+
+    Ok(())
+}
+
 fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
     let cleaned = clean(config)
         .strip_prefix("ss://")
@@ -648,7 +815,13 @@ fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
                 .ok_or_else(|| "invalid Shadowsocks credentials".to_string())?;
             (server, port, cipher.to_string(), password.to_string())
         } else {
-            let payload = cleaned.split('#').next().unwrap_or_default();
+            let payload = cleaned
+                .split('?')
+                .next()
+                .unwrap_or_default()
+                .split('#')
+                .next()
+                .unwrap_or_default();
             let decoded = b64decode(&decode_component(payload)?)
                 .and_then(|bytes| String::from_utf8(bytes).ok())
                 .ok_or_else(|| "invalid legacy Shadowsocks base64".to_string())?;
@@ -674,6 +847,8 @@ fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
     push_field(&mut lines, 4, "cipher", &cipher);
     push_field(&mut lines, 4, "password", &password);
     push_raw_field(&mut lines, 4, "udp", "true");
+    let url = Url::parse(clean(config)).map_err(|error| error.to_string())?;
+    push_shadowsocks_plugin(&mut lines, &url)?;
 
     Ok(lines.join("\n"))
 }
@@ -681,6 +856,7 @@ fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
 fn required_hysteria_mbps(url: &Url, key: &str) -> Result<String, String> {
     let value = query(url, key).ok_or_else(|| format!("Hysteria {key} missing"))?;
     let mbps = value
+        .trim()
         .parse::<u32>()
         .map_err(|_| format!("invalid Hysteria {key}"))?;
     if mbps == 0 {
@@ -694,6 +870,7 @@ fn convert_hysteria(config: &str, index: usize) -> Result<String, String> {
     let (server, port) = endpoint_from_url(&url)?;
     let protocol = query_any(&url, &["obfs-protocol", "protocol"])
         .unwrap_or_else(|| "udp".to_string())
+        .trim()
         .to_ascii_lowercase();
     if !matches!(protocol.as_str(), "udp" | "wechat-video" | "faketcp") {
         return Err(format!("unsupported Hysteria protocol {protocol}"));
@@ -997,6 +1174,35 @@ mod tests {
     use super::render;
 
     #[test]
+    fn normalizes_vless_tls_flow_transport_and_reality_aliases() {
+        let tls = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=TL.&type=websocket&flow=XTLS-RPRX-VISION";
+        let tls_yaml = super::render(&[tls.to_string()]).expect("TLS aliases should render");
+        assert!(tls_yaml.contains("tls: true"));
+        assert!(tls_yaml.contains("network: 'ws'"));
+        assert!(tls_yaml.contains("flow: 'xtls-rprx-vision'"));
+
+        let reality = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=tcp&public_key=public-key&short_id=abcd&server_name=cover.example.com";
+        let reality_yaml = super::render(&[reality.to_string()]).expect("Reality aliases should render");
+        assert!(reality_yaml.contains("public-key: 'public-key'"));
+        assert!(reality_yaml.contains("short-id: 'abcd'"));
+        assert!(reality_yaml.contains("servername: 'cover.example.com'"));
+    }
+
+    #[test]
+    fn normalizes_transport_aliases_for_clash_output() {
+        let configs = [
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=websocket",
+            "vless://00000000-0000-0000-0000-000000000002@example.com:443?type=http-upgrade",
+        ]
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+        let yaml = super::render(&configs).expect("supported transport aliases should render");
+        assert!(yaml.contains("network: 'ws'"));
+        assert!(yaml.contains("network: 'httpupgrade'"));
+    }
+
+    #[test]
     fn renders_vless_reality_and_websocket() {
         let configs = vec![
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=ws&host=cdn.example.com&path=%2Fws&sni=cdn.example.com&fp=chrome&pbk=public-key&sid=abcd#VLESS%20001".to_string(),
@@ -1035,6 +1241,67 @@ mod tests {
     }
 
     #[test]
+    fn renders_supported_shadowsocks_plugin_options() {
+        let configs = vec![
+            "ss://aes-256-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dedge.example.com".to_string(),
+            "ss://aes-256-gcm:password@example.net:443?plugin=v2ray-plugin%3Btls%3Bhost%3Dcdn.example.net%3Bpath%3D%2Fproxy".to_string(),
+        ];
+
+        let yaml = super::render(&configs).expect("supported SIP003 plugins should render");
+        assert!(yaml.contains("plugin: 'obfs'"));
+        assert!(yaml.contains("mode: 'http'"));
+        assert!(yaml.contains("host: 'edge.example.com'"));
+        assert!(yaml.contains("plugin: 'v2ray-plugin'"));
+        assert!(yaml.contains("mode: 'websocket'"));
+        assert!(yaml.contains("tls: true"));
+        assert!(yaml.contains("path: '/proxy'"));
+    }
+
+    #[test]
+    fn rejects_v2ray_plugin_quic_mode_for_current_mihomo_output() {
+        let config = "ss://aes-256-gcm:password@example.com:8388?plugin=v2ray-plugin%3Bmode%3Dquic";
+        assert!(super::convert_shadowsocks(config, 0).is_err());
+    }
+
+    #[test]
+    fn vmess_tls_aliases_match_compatibility_screening() {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine as _;
+
+        for (tls, expected) in [
+            (serde_json::json!("tls"), true),
+            (serde_json::json!(" t "), true),
+            (serde_json::json!("tl"), true),
+            (serde_json::json!("true"), true),
+            (serde_json::json!("1"), true),
+            (serde_json::json!("yes"), true),
+            (serde_json::json!("on"), true),
+            (serde_json::json!(true), true),
+            (serde_json::json!(1), true),
+            (serde_json::json!("none"), false),
+            (serde_json::json!("false"), false),
+            (serde_json::json!(false), false),
+            (serde_json::json!(0), false),
+        ] {
+            let payload = serde_json::json!({
+                "add": "example.com",
+                "port": 443,
+                "id": "00000000-0000-0000-0000-000000000001",
+                "net": "tcp",
+                "tls": tls.clone(),
+            });
+            let encoded = STANDARD.encode(payload.to_string());
+            let yaml = super::convert_vmess(&format!("vmess://{encoded}"), 0)
+                .expect("VMess TLS alias should render");
+            assert_eq!(
+                yaml.contains("tls: true"),
+                expected,
+                "unexpected TLS rendering for {tls}"
+            );
+        }
+    }
+
+    #[test]
     fn renders_shadowsocks_explicit_default_port() {
         let configs = vec!["ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@example.com:80#SS%20002".to_string()];
         let yaml = render(&configs).unwrap();
@@ -1058,6 +1325,20 @@ mod tests {
         assert!(yaml.contains("type: 'socks5'"));
         assert!(yaml.contains("port: 80"));
         assert!(yaml.contains("port: 1080"));
+    }
+
+    #[test]
+    fn renders_hysteria_v1_protocols_supported_by_mihomo() {
+        for protocol in ["wechat-video", "faketcp"] {
+            let configs = vec![format!(
+                "hysteria://password@example.com:443?protocol={protocol}&upmbps=100&downmbps=100"
+            )];
+            let yaml = super::render(&configs).expect("Mihomo supports Hysteria v1 protocol");
+            assert!(
+                yaml.contains(&format!("protocol: '{protocol}'")),
+                "{protocol} should be preserved in Clash output"
+            );
+        }
     }
 
     #[test]

@@ -528,6 +528,16 @@ fn first_query(url: &Url, names: &[&str], default: Option<&str>) -> String {
     default.unwrap_or_default().to_string()
 }
 
+fn hysteria_v1_protocol(url: &Url) -> String {
+    for name in ["obfs-protocol", "protocol"] {
+        let value = first_query(url, &[name], Some(""));
+        if !value.trim().is_empty() {
+            return value;
+        }
+    }
+    "udp".to_string()
+}
+
 fn repair_websocket_early_data(value: &str) -> Option<String> {
     let mut normalized = value.trim().to_string();
     if normalized.is_empty() {
@@ -1294,14 +1304,10 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         _ => return Err(format!("unsupported security {security}")),
     };
 
-    if security == "reality" && matches!(network.as_str(), "kcp" | "quic") {
+    if security == "reality" && !matches!(network.as_str(), "raw" | "xhttp" | "grpc") {
         return Err(format!(
             "Reality security is incompatible with {network} transport"
         ));
-    }
-
-    if security == "reality" && !matches!(network.as_str(), "raw" | "xhttp" | "grpc") {
-        security = "tls".to_string();
     }
 
     let sni = first_query(url, &["sni", "server_name", "peer"], Some(host));
@@ -1760,10 +1766,50 @@ fn supported_ss_plugin(key: &str, value: &str) -> bool {
         return true;
     }
 
-    matches!(
-        value.split(';').next().unwrap_or("").trim(),
-        "obfs-local" | "v2ray-plugin"
-    )
+    let mut parts = value.split(';');
+    let name = parts.next().unwrap_or("").trim();
+    let mut seen = HashSet::new();
+
+    for option in parts {
+        let option = option.trim();
+        if option.is_empty() {
+            continue;
+        }
+
+        let (key, value) = option
+            .split_once('=')
+            .map(|(key, value)| (key.trim().to_ascii_lowercase(), Some(value.trim())))
+            .unwrap_or_else(|| (option.to_ascii_lowercase(), None));
+        if key.is_empty() || !seen.insert(key.clone()) {
+            return false;
+        }
+
+        match name {
+            "obfs-local" => match key.as_str() {
+                "obfs" if value.is_some_and(|value| {
+                    matches!(value.trim().to_ascii_lowercase().as_str(), "http" | "tls")
+                }) => {}
+                "obfs-host" if value.is_some() => {}
+                _ => return false,
+            },
+            "v2ray-plugin" => match key.as_str() {
+                "mode" if value.is_some_and(|value| {
+                    value.trim().eq_ignore_ascii_case("websocket")
+                }) => {}
+                "host" | "path" if value.is_some() => {}
+                "tls" | "mux" if value.is_none_or(|value| {
+                    matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+                    )
+                }) => {}
+                _ => return false,
+            },
+            _ => return false,
+        }
+    }
+
+    matches!(name, "obfs-local" | "v2ray-plugin")
 }
 
 fn parse_ss(config: &str) -> Result<Value, String> {
@@ -2212,6 +2258,12 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
             }
 
             if security == "reality"
+                && !matches!(transport.as_str(), "raw" | "xhttp" | "grpc")
+            {
+                return Some("incompatible-security-transport");
+            }
+
+            if security == "reality"
                 && matches!(transport.as_str(), "raw" | "xhttp" | "grpc")
                 && first_query(&url, &["pbk", "publicKey", "public_key", "public-key"], Some("")).is_empty()
             {
@@ -2228,8 +2280,11 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("invalid-endpoint");
             }
 
-            let protocol = first_query(&url, &["protocol"], Some("udp"));
-            if !protocol.trim().eq_ignore_ascii_case("udp") {
+            let protocol = hysteria_v1_protocol(&url);
+            if !matches!(
+                protocol.trim().to_ascii_lowercase().as_str(),
+                "udp" | "wechat-video" | "faketcp"
+            ) {
                 return Some("unsupported-hysteria-transport");
             }
 
@@ -2436,14 +2491,18 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 .trim_end_matches('.')
                 .to_ascii_lowercase();
             let valid_security = if scheme == "trojan" {
-                matches!(security.as_str(), "" | "tls" | "reality")
+                matches!(security.as_str(), "" | "tls" | "t" | "tl" | "reality")
             } else {
-                matches!(security.as_str(), "" | "none" | "tls" | "reality")
+                matches!(security.as_str(), "" | "none" | "tls" | "t" | "tl" | "reality")
             };
             if !valid_security {
                 return false;
             }
             if scheme == "trojan" && security == "none" {
+                return false;
+            }
+
+            if security == "reality" && !matches!(transport.as_str(), "raw" | "grpc") {
                 return false;
             }
 
@@ -2714,7 +2773,7 @@ pub fn is_locally_supported_config(config: &str) -> bool {
             return false;
         }
 
-        let protocol = first_query(&url, &["protocol"], Some("udp"));
+        let protocol = hysteria_v1_protocol(&url);
         if !protocol.trim().eq_ignore_ascii_case("udp") {
             return false;
         }
@@ -5576,8 +5635,13 @@ mod tests {
     #[test]
     fn supports_shadowsocks_sip003_plugins() {
         assert!(supported_ss_plugin("plugin", "obfs-local;obfs=http"));
+        assert!(supported_ss_plugin("plugin", "obfs-local;obfs=tls;obfs-host=example.com"));
         assert!(supported_ss_plugin("plugin", "v2ray-plugin;tls"));
+        assert!(supported_ss_plugin("plugin", "v2ray-plugin;mode=websocket;tls=true;host=example.com;path=/ws;mux=false"));
         assert!(!supported_ss_plugin("plugin", "unsupported-plugin"));
+        assert!(!supported_ss_plugin("plugin", "v2ray-plugin;mode=quic"));
+        assert!(!supported_ss_plugin("plugin", "obfs-local;obfs=unknown"));
+        assert!(!supported_ss_plugin("plugin", "v2ray-plugin;tls=true;tls=false"));
     }
 
     #[test]
@@ -6085,6 +6149,17 @@ mod tests {
     }
 
     #[test]
+    fn reality_is_not_silently_downgraded_on_unsupported_transports() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=ws&pbk=public-key&sni=example.com";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(config),
+            Some("incompatible-security-transport")
+        );
+        assert!(parse_config(config).is_err());
+        assert!(!is_light_consumer_compatible(config));
+    }
+
+    #[test]
     fn cheap_compatibility_accepts_vmess_tls_none_alias() {
         let payload = serde_json::json!({
             "v": "2",
@@ -6212,6 +6287,30 @@ mod tests {
     #[test]
     fn cheap_compatibility_rejects_hysteria2_without_password() {
         assert!(!is_cheaply_supported_config("hy2://example.com:443"));
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_mihomo_hysteria_v1_protocols_but_keeps_singbox_restricted() {
+        for protocol in ["udp", "wechat-video", "faketcp"] {
+            let config = format!(
+                "hysteria://password@example.com:443?protocol={protocol}&upmbps=100&downmbps=100"
+            );
+            assert_eq!(cheap_compatibility_rejection_reason(&config), None, "{protocol}");
+        }
+
+        let alias = "hysteria://password@example.com:443?obfs-protocol=faketcp&upmbps=100&downmbps=100";
+        assert_eq!(cheap_compatibility_rejection_reason(alias), None);
+        assert!(!is_locally_supported_config(alias));
+
+        let conflicting_aliases = "hysteria://password@example.com:443?protocol=udp&obfs-protocol=faketcp&upmbps=100&downmbps=100";
+        assert_eq!(cheap_compatibility_rejection_reason(conflicting_aliases), None);
+        assert!(!is_locally_supported_config(conflicting_aliases));
+
+        let unsupported = "hysteria://password@example.com:443?protocol=tcp&upmbps=100&downmbps=100";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(unsupported),
+            Some("unsupported-hysteria-transport")
+        );
     }
 
     #[test]

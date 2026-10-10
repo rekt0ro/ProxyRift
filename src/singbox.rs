@@ -472,12 +472,18 @@ fn singbox_hysteria_outbound(config: &str) -> Result<Value, String> {
     let protocol = url
         .query_pairs()
         .find_map(|(key, value)| {
-            (key.eq_ignore_ascii_case("protocol") && !value.trim().is_empty())
+            (key.eq_ignore_ascii_case("obfs-protocol") && !value.trim().is_empty())
                 .then_some(value.into_owned())
+        })
+        .or_else(|| {
+            url.query_pairs().find_map(|(key, value)| {
+                (key.eq_ignore_ascii_case("protocol") && !value.trim().is_empty())
+                    .then_some(value.into_owned())
+            })
         })
         .unwrap_or_else(|| "udp".to_string());
 
-    if !protocol.eq_ignore_ascii_case("udp") {
+    if !protocol.trim().eq_ignore_ascii_case("udp") {
         return Err(format!(
             "unsupported Hysteria protocol {protocol}; only udp maps to sing-box"
         ));
@@ -487,6 +493,7 @@ fn singbox_hysteria_outbound(config: &str) -> Result<Value, String> {
         .query_pairs()
         .find_map(|(key, value)| (key.eq_ignore_ascii_case("upmbps")).then_some(value.into_owned()))
         .ok_or_else(|| "Hysteria upmbps missing".to_string())?
+        .trim()
         .parse::<u32>()
         .map_err(|_| "invalid Hysteria upmbps".to_string())?;
 
@@ -496,6 +503,7 @@ fn singbox_hysteria_outbound(config: &str) -> Result<Value, String> {
             (key.eq_ignore_ascii_case("downmbps")).then_some(value.into_owned())
         })
         .ok_or_else(|| "Hysteria downmbps missing".to_string())?
+        .trim()
         .parse::<u32>()
         .map_err(|_| "invalid Hysteria downmbps".to_string())?;
 
@@ -2958,6 +2966,21 @@ mod tests {
         let config = "hysteria://example.com:443?protocol=faketcp&upmbps=100&downmbps=100";
         let error = singbox_outbound(config).expect_err("faketcp cannot be mapped faithfully");
         assert!(error.contains("unsupported Hysteria protocol"));
+    }
+
+    #[test]
+    fn rejects_hysteria_v1_obfs_protocol_alias_when_not_udp() {
+        let config = "hysteria://example.com:443?protocol=udp&obfs-protocol=faketcp&upmbps=100&downmbps=100";
+        let error = singbox_outbound(config).expect_err("faketcp alias cannot map to sing-box UDP");
+        assert!(error.contains("unsupported Hysteria protocol"));
+    }
+
+    #[test]
+    fn trims_hysteria_v1_bandwidth_values() {
+        let config = "hysteria://example.com:443?upmbps=%20100%20&downmbps=%2050%20";
+        let outbound = singbox_outbound(config).expect("valid bandwidth with whitespace should parse");
+        assert_eq!(outbound["up_mbps"], 100);
+        assert_eq!(outbound["down_mbps"], 50);
     }
 
     #[test]
