@@ -45,10 +45,12 @@ fn rename_subscription_configs(configs: &[String]) -> Result<Vec<String>, String
             .unwrap_or_default();
 
         if scheme == "vmess" {
-            let decoded = decode_vmess_payload(config)
-                .ok_or_else(|| "cannot decode VMess config while assigning subscription names".to_string())?;
-            let mut value: Value = serde_json::from_slice(&decoded)
-                .map_err(|error| format!("invalid VMess JSON while assigning subscription names: {error}"))?;
+            let decoded = decode_vmess_payload(config).ok_or_else(|| {
+                "cannot decode VMess config while assigning subscription names".to_string()
+            })?;
+            let mut value: Value = serde_json::from_slice(&decoded).map_err(|error| {
+                format!("invalid VMess JSON while assigning subscription names: {error}")
+            })?;
             let object = value
                 .as_object_mut()
                 .ok_or_else(|| "VMess payload must be a JSON object".to_string())?;
@@ -88,7 +90,10 @@ fn rename_subscription_file(path: &str) -> Result<(), String> {
         .and_then(|_| fs::rename(&temporary, path))
         .map_err(|error| {
             let _ = fs::remove_file(&temporary);
-            format!("cannot write renamed subscription {}: {error}", path.display())
+            format!(
+                "cannot write renamed subscription {}: {error}",
+                path.display()
+            )
         })
 }
 
