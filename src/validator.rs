@@ -1297,7 +1297,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         })
         .unwrap_or_else(|| "none".to_string());
 
-    let mut security = match security.as_str() {
+    let security = match security.as_str() {
         "none" => "none".to_string(),
         "tls" | "t" | "tl" => "tls".to_string(),
         "reality" => "reality".to_string(),
