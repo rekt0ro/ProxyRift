@@ -1,4 +1,3 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures::stream::{self, StreamExt};
 use reqwest::Client;
 use serde_json::{Map, Value};
@@ -2809,9 +2808,9 @@ mod tests {
         unix_days_to_ymd, validate_no_self_sources, Candidate, CollectionOutcome, Registry,
         Repository, Value, MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK,
         MAX_FAILURE_STREAK, MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH,
-        RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
+        RETIRED_SOURCE_COOLDOWN_SECS,
     };
-    use base64::Engine as _;
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     use std::collections::HashSet;
 
     #[test]
