@@ -1307,7 +1307,11 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         ));
     }
 
-    let sni = first_query(url, &["sni", "servername", "server_name", "peer"], Some(host));
+    let sni = first_query(
+        url,
+        &["sni", "servername", "server_name", "peer"],
+        Some(host),
+    );
     let alpn = csv(&first_query(url, &["alpn"], Some("")));
     let mut out = json!({
         "network": network,
@@ -2607,7 +2611,11 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                     &["pbk", "publicKey", "public_key", "public-key"],
                     Some(""),
                 );
-                let sni = first_query(&url, &["sni", "servername", "server_name", "peer"], url.host_str().unwrap_or(""));
+                let sni = first_query(
+                    &url,
+                    &["sni", "servername", "server_name", "peer"],
+                    url.host_str().unwrap_or(""),
+                );
                 if pbk.trim().is_empty() || sni.trim().is_empty() {
                     return false;
                 }
