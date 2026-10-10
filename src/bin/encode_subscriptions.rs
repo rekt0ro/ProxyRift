@@ -137,22 +137,38 @@ fn output_path(path: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(format!("{}-base64.txt", path.display())))
 }
 
-fn render_clash_file(input: &str, output: &str) -> Result<(), String> {
-    let count = clash::render_file(input, output)?;
-    println!(
-        "[INFO] 🧩 [Clash/Mihomo] Rendered {} configs | {}",
-        count, output
-    );
-    Ok(())
+fn subscription_config_count(path: &str) -> Result<usize, String> {
+    let content =
+        fs::read_to_string(path).map_err(|error| format!("cannot read {path}: {error}"))?;
+    Ok(content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#') && line.contains("://"))
+        .count())
 }
 
-fn render_singbox_file(input: &str, output: &str) -> Result<(), String> {
-    let count = singbox::render_subscription_file(input, output)?;
+fn render_clash_file(input: &str, output: &str) -> Result<usize, String> {
+    let source_count = subscription_config_count(input)?;
+    let rendered = clash::render_file(input, output)?;
+    let omitted = source_count.checked_sub(rendered).ok_or_else(|| {
+        format!("Clash renderer returned {rendered} entries for {source_count} source configs")
+    })?;
     println!(
-        "[INFO] 🧩 [sing-box] Rendered {} configs | {}",
-        count, output
+        "[INFO] 🧩 [Clash/Mihomo] Rendered {rendered}/{source_count} configs | Omitted: {omitted} | {output}"
     );
-    Ok(())
+    Ok(rendered)
+}
+
+fn render_singbox_file(input: &str, output: &str) -> Result<usize, String> {
+    let source_count = subscription_config_count(input)?;
+    let rendered = singbox::render_subscription_file(input, output)?;
+    let omitted = source_count.checked_sub(rendered).ok_or_else(|| {
+        format!("sing-box renderer returned {rendered} entries for {source_count} source configs")
+    })?;
+    println!(
+        "[INFO] 🧩 [sing-box] Rendered {rendered}/{source_count} configs | Omitted: {omitted} | {output}"
+    );
+    Ok(rendered)
 }
 
 fn main() -> Result<(), String> {
@@ -160,13 +176,40 @@ fn main() -> Result<(), String> {
     rename_subscription_file("subscriptions/light.txt")?;
     encode_file("subscriptions/all.txt")?;
     encode_file("subscriptions/light.txt")?;
-    render_clash_file("subscriptions/all.txt", "subscriptions/all-clash.yaml")?;
-    render_clash_file("subscriptions/light.txt", "subscriptions/light-clash.yaml")?;
-    render_singbox_file("subscriptions/all.txt", "subscriptions/all-singbox.json")?;
-    render_singbox_file(
+
+    let all_source_count = subscription_config_count("subscriptions/all.txt")?;
+    let light_source_count = subscription_config_count("subscriptions/light.txt")?;
+    let all_clash_count =
+        render_clash_file("subscriptions/all.txt", "subscriptions/all-clash.yaml")?;
+    let light_clash_count =
+        render_clash_file("subscriptions/light.txt", "subscriptions/light-clash.yaml")?;
+    let all_singbox_count =
+        render_singbox_file("subscriptions/all.txt", "subscriptions/all-singbox.json")?;
+    let light_singbox_count = render_singbox_file(
         "subscriptions/light.txt",
         "subscriptions/light-singbox.json",
     )?;
+
+    let counts = serde_json::json!({
+        "all": {
+            "source": all_source_count,
+            "clash": all_clash_count,
+            "singbox": all_singbox_count,
+        },
+        "light": {
+            "source": light_source_count,
+            "clash": light_clash_count,
+            "singbox": light_singbox_count,
+        },
+    });
+    let counts_json = serde_json::to_string_pretty(&counts)
+        .map_err(|error| format!("cannot serialize subscription output counts: {error}"))?;
+    fs::write(
+        "subscriptions/.output-counts.json",
+        format!("{counts_json}\n"),
+    )
+    .map_err(|error| format!("cannot write subscription output counts: {error}"))?;
+
     Ok(())
 }
 
