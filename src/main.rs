@@ -1890,12 +1890,12 @@ mod tests {
         let payload = b"probe-packet";
 
         for obfuscation in [
-            ProbeObfuscation::Salamander("secret".to_string()),
-            ProbeObfuscation::XPlus("secret".to_string()),
+            super::ProbeObfuscation::Salamander("secret".to_string()),
+            super::ProbeObfuscation::XPlus("secret".to_string()),
         ] {
-            let encoded = obfuscate_packet(payload, &obfuscation).unwrap();
+            let encoded = super::obfuscate_packet(payload, &obfuscation).unwrap();
             let mut received = encoded.clone();
-            let decoded_len = deobfuscate_packet(&mut received, &obfuscation).unwrap();
+            let decoded_len = super::deobfuscate_packet(&mut received, &obfuscation).unwrap();
             assert_eq!(&received[..decoded_len], payload);
             assert_ne!(encoded.as_slice(), &payload[..]);
         }
@@ -1908,17 +1908,17 @@ mod tests {
         let gecko = "hysteria2://auth@example.com:443?obfs=gecko&obfs-password=secret";
 
         assert!(matches!(
-            quic_probe_obfuscation(salamander),
-            Ok(Some(ProbeObfuscation::Salamander(_)))
+            super::quic_probe_obfuscation(salamander),
+            Ok(Some(super::ProbeObfuscation::Salamander(_)))
         ));
         assert!(matches!(
-            quic_probe_obfuscation(xplus),
-            Ok(Some(ProbeObfuscation::XPlus(_)))
+            super::quic_probe_obfuscation(xplus),
+            Ok(Some(super::ProbeObfuscation::XPlus(_)))
         ));
-        assert!(quic_probe_obfuscation(gecko).is_err());
-        assert!(!needs_deferred_transport_validation(salamander));
-        assert!(!needs_deferred_transport_validation(xplus));
-        assert!(needs_deferred_transport_validation(gecko));
+        assert!(super::quic_probe_obfuscation(gecko).is_err());
+        assert!(!super::needs_deferred_transport_validation(salamander));
+        assert!(!super::needs_deferred_transport_validation(xplus));
+        assert!(super::needs_deferred_transport_validation(gecko));
     }
 
     #[test]
