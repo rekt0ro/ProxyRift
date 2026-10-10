@@ -1203,25 +1203,20 @@ fn kcp_settings(url: &Url) -> Result<Value, String> {
         }
     }
 
-    for (names, field) in [
-        (
-            &["readBufferSize", "read_buffer_size"][..],
-            "readBufferSize",
-        ),
-        (
-            &["writeBufferSize", "write_buffer_size"][..],
-            "writeBufferSize",
-        ),
+    for key in [
+        "congestion",
+        "readBufferSize",
+        "read_buffer_size",
+        "writeBufferSize",
+        "write_buffer_size",
     ] {
-        let raw = first_query(url, names, Some(""));
-        if !raw.is_empty() {
-            let value = raw
-                .trim()
-                .parse::<u32>()
-                .ok()
-                .filter(|value| *value > 0)
-                .ok_or_else(|| format!("invalid mKCP {field}; expected a positive integer"))?;
-            settings[field] = json!(value);
+        if url
+            .query_pairs()
+            .any(|(name, _)| name.eq_ignore_ascii_case(key))
+        {
+            return Err(format!(
+                "unsupported legacy mKCP parameter {key}; current Xray mKCP does not expose this field"
+            ));
         }
     }
 
@@ -1248,19 +1243,7 @@ fn kcp_settings(url: &Url) -> Result<Value, String> {
         settings["maxSendingWindow"] = json!(value);
     }
 
-    let congestion = first_query(url, &["congestion"], Some(""))
-        .trim()
-        .to_ascii_lowercase();
-    if !congestion.is_empty() {
-        let value = match congestion.as_str() {
-            "1" | "true" | "yes" | "on" => true,
-            "0" | "false" | "no" | "off" => false,
-            _ => return Err("invalid mKCP congestion boolean".to_string()),
-        };
-        settings["congestion"] = json!(value);
-    }
-
-    Ok(settings)
+remove legacy congestion mapping    Ok(settings)
 }
 
 fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
@@ -5966,7 +5949,7 @@ mod tests {
         ));
 
         let tuned = parse_config(
-            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=mkcp&mtu=1200&tti=30&uplinkCapacity=10&downlinkCapacity=100&congestion=true&readBufferSize=3&writeBufferSize=4&cwndMultiplier=2&maxSendingWindow=2097152",
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=mkcp&mtu=1200&tti=30&uplinkCapacity=10&downlinkCapacity=100&cwndMultiplier=2&maxSendingWindow=2097152",
         )
         .expect("supported mKCP tuning parameters should be preserved");
         assert_eq!(tuned["streamSettings"]["kcpSettings"]["mtu"], 1200);
@@ -5976,10 +5959,7 @@ mod tests {
             tuned["streamSettings"]["kcpSettings"]["downlinkCapacity"],
             100
         );
-        assert_eq!(tuned["streamSettings"]["kcpSettings"]["congestion"], true);
-        assert_eq!(tuned["streamSettings"]["kcpSettings"]["readBufferSize"], 3);
-        assert_eq!(tuned["streamSettings"]["kcpSettings"]["writeBufferSize"], 4);
-        assert_eq!(tuned["streamSettings"]["kcpSettings"]["cwndMultiplier"], 2);
+remove old fields assertions        assert_eq!(tuned["streamSettings"]["kcpSettings"]["cwndMultiplier"], 2);
         assert_eq!(
             tuned["streamSettings"]["kcpSettings"]["maxSendingWindow"],
             2097152
@@ -5990,6 +5970,12 @@ mod tests {
         assert_eq!(
             cheap_compatibility_rejection_reason(
                 "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&mtu=2000"
+            ),
+            Some("invalid-kcp-parameters")
+        );
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&congestion=true"
             ),
             Some("invalid-kcp-parameters")
         );
@@ -6023,7 +6009,6 @@ mod tests {
             parsed["streamSettings"]["kcpSettings"]["downlinkCapacity"],
             100
         );
-        assert_eq!(parsed["streamSettings"]["kcpSettings"]["congestion"], false);
         assert!(is_cheaply_supported_config(&config));
         assert!(is_light_consumer_compatible(&config));
     }
