@@ -397,6 +397,9 @@ fn transport_settings(stream: &Value) -> Result<Option<Value>, String> {
 
             Ok(Some(transport))
         }
+        "quic" => Ok(Some(json!({
+            "type": "quic",
+        }))),
         "xhttp" => Err("sing-box standard build does not support XHTTP".to_string()),
         "hysteria" => Ok(None),
         "tcp" => Ok(None),
@@ -2588,6 +2591,37 @@ mod tests {
         assert_eq!(outbound["server_port"], 8080);
         assert!(outbound.get("username").is_none());
         assert!(outbound.get("password").is_none());
+    }
+
+    #[test]
+    fn maps_vless_quic_transport() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic";
+        let outbound = singbox_outbound(config).expect("sing-box QUIC transport should map");
+
+        assert_eq!(outbound["type"], "vless");
+        assert_eq!(outbound["transport"]["type"], "quic");
+    }
+
+    #[test]
+    fn maps_vmess_quic_transport() {
+        let payload = json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "aid": 0,
+            "net": "quic",
+            "type": "none",
+            "tls": "tls",
+            "scy": "auto",
+        });
+        let encoded = STANDARD.encode(payload.to_string());
+        let config = format!("vmess://{encoded}");
+        let outbound = singbox_outbound(&config).expect("VMess QUIC transport should map");
+
+        assert_eq!(outbound["type"], "vmess");
+        assert_eq!(outbound["transport"]["type"], "quic");
+        assert_eq!(outbound["tls"]["enabled"], true);
     }
 
     #[test]
