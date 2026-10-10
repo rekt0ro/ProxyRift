@@ -3443,8 +3443,7 @@ async fn main() -> Result<(), String> {
     let mut stagnant_waves = 0usize;
     let mut strict_pool_ready_logged = false;
     let mut discovery_batch_floor = DISCOVERY_BATCH_MIN;
-    let mut last_funnel_snapshot: Option<(usize, usize, usize, usize, usize, usize, usize, usize, bool)> =
-        None;
+    let mut last_funnel_snapshot = None;
 
     println!(
         "[INFO] 🔬 [Light] Validation started | {} Candidates | Targets: {} | ML/history ranked with {}% exploration",
