@@ -606,6 +606,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .iter()
         .filter(|config| {
             is_kcp_transport_config(config)
+                || is_quic_transport_config(config)
                 || matches!(
                     config_scheme(config).as_str(),
                     "hysteria" | "hysteria2" | "hy2" | "tuic" | "wg"
@@ -1918,6 +1919,17 @@ mod tests {
         assert!(super::is_kcp_transport_config(&vmess));
         assert!(super::needs_deferred_transport_validation(&vmess));
         assert!(transport_probe_key(&vmess).is_none());
+
+        let quic = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic";
+        assert!(super::is_quic_transport_config(quic));
+        assert!(super::needs_deferred_transport_validation(quic));
+        assert!(transport_probe_key(quic).is_none());
+
+        let vmess_quic_payload = r#"{"v":"2","add":"example.com","port":"443","id":"00000000-0000-0000-0000-000000000001","net":"quic","type":"none"}"#;
+        let vmess_quic = format!("vmess://{}", STANDARD.encode(vmess_quic_payload));
+        assert!(super::is_quic_transport_config(&vmess_quic));
+        assert!(super::needs_deferred_transport_validation(&vmess_quic));
+        assert!(transport_probe_key(&vmess_quic).is_none());
     }
 
     #[test]
@@ -2603,6 +2615,7 @@ mod tests {
 
 fn needs_deferred_transport_validation(config: &str) -> bool {
     is_kcp_transport_config(config)
+        || is_quic_transport_config(config)
         || (matches!(
             config_scheme(config).as_str(),
             "hysteria" | "hysteria2" | "hy2"
@@ -2628,6 +2641,29 @@ fn is_kcp_transport_config(config: &str) -> bool {
             url.query_pairs().any(|(key, value)| {
                 (key.eq_ignore_ascii_case("type") || key.eq_ignore_ascii_case("network"))
                     && matches!(value.trim().to_ascii_lowercase().as_str(), "kcp" | "mkcp")
+            })
+        })
+}
+
+fn is_quic_transport_config(config: &str) -> bool {
+    let scheme = config_scheme(config);
+    if scheme == "vmess" {
+        let payload = config
+            .split_once("://")
+            .map(|(_, payload)| payload.split('#').next().unwrap_or("").trim())
+            .unwrap_or_default();
+        return decode_vmess_payload(payload)
+            .and_then(|decoded| serde_json::from_str::<Value>(&decoded).ok())
+            .and_then(|value| value.get("net").and_then(Value::as_str).map(str::to_owned))
+            .is_some_and(|network| network.trim().eq_ignore_ascii_case("quic"));
+    }
+
+    Url::parse(config.split('#').next().unwrap_or(config))
+        .ok()
+        .is_some_and(|url| {
+            url.query_pairs().any(|(key, value)| {
+                (key.eq_ignore_ascii_case("type") || key.eq_ignore_ascii_case("network"))
+                    && value.trim().eq_ignore_ascii_case("quic")
             })
         })
 }
@@ -2837,6 +2873,7 @@ fn tcp_endpoint_groups(configs: &[String]) -> HashMap<(String, u16), Vec<usize>>
 
     for (index, config) in configs.iter().enumerate() {
         if is_kcp_transport_config(config)
+            || is_quic_transport_config(config)
             || matches!(
                 config_scheme(config).as_str(),
                 "hysteria" | "hysteria2" | "hy2" | "tuic" | "wg"
@@ -2854,7 +2891,7 @@ fn tcp_endpoint_groups(configs: &[String]) -> HashMap<(String, u16), Vec<usize>>
 }
 
 fn transport_probe_key(config: &str) -> Option<TransportProbeKey> {
-    if is_kcp_transport_config(config) {
+    if is_kcp_transport_config(config) || is_quic_transport_config(config) {
         return None;
     }
 
@@ -3618,7 +3655,7 @@ async fn wireguard_latency(config: &str) -> Option<u64> {
 }
 
 async fn transport_latency(config: &str) -> Option<u64> {
-    if is_kcp_transport_config(config) {
+    if is_kcp_transport_config(config) || is_quic_transport_config(config) {
         return None;
     }
 
