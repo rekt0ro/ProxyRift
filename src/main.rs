@@ -2460,20 +2460,31 @@ mod tests {
     }
 
     #[test]
-    fn alias_protocols_share_display_counter() {
+    fn assigns_global_names_across_protocols() {
         let configs = vec![
             "hy2://password@example.com:443".to_string(),
             "hysteria2://password@example.net:443".to_string(),
             "socks4://127.0.0.1:1080".to_string(),
             "socks5://127.0.0.1:1081".to_string(),
+            "tuic://00000000-0000-0000-0000-000000000001:secret@example.org:443".to_string(),
         ];
 
         let named = assign_config_names(configs);
 
-        assert!(named[0].contains("#ProxyRift%20001"));
-        assert!(named[1].contains("#ProxyRift%20002"));
-        assert!(named[2].contains("#ProxyRift%20003"));
-        assert!(named[3].contains("#ProxyRift%20004"));
+        for (index, config) in named.iter().enumerate() {
+            let expected = format!("#ProxyRift%20{:03}", index + 1);
+            if config.starts_with("vmess://") {
+                assert!(config.starts_with("vmess://"));
+            } else {
+                assert!(config.contains(&expected), "{config}");
+            }
+        }
+    }
+
+    #[test]
+    fn accepts_tuic_links_for_compatibility_screening() {
+        let config = "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443";
+        assert!(normalize_config(config).is_some());
     }
 
     #[test]
