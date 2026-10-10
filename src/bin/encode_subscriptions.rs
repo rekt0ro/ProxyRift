@@ -138,7 +138,8 @@ fn output_path(path: &str) -> PathBuf {
 }
 
 fn subscription_config_count(path: &str) -> Result<usize, String> {
-    let content = fs::read_to_string(path).map_err(|error| format!("cannot read {path}: {error}"))?;
+    let content =
+        fs::read_to_string(path).map_err(|error| format!("cannot read {path}: {error}"))?;
     Ok(content
         .lines()
         .map(str::trim)
@@ -149,9 +150,9 @@ fn subscription_config_count(path: &str) -> Result<usize, String> {
 fn render_clash_file(input: &str, output: &str) -> Result<usize, String> {
     let source_count = subscription_config_count(input)?;
     let rendered = clash::render_file(input, output)?;
-    let omitted = source_count
-        .checked_sub(rendered)
-        .ok_or_else(|| format!("Clash renderer returned {rendered} entries for {source_count} source configs"))?;
+    let omitted = source_count.checked_sub(rendered).ok_or_else(|| {
+        format!("Clash renderer returned {rendered} entries for {source_count} source configs")
+    })?;
     println!(
         "[INFO] 🧩 [Clash/Mihomo] Rendered {rendered}/{source_count} configs | Omitted: {omitted} | {output}"
     );
@@ -161,9 +162,9 @@ fn render_clash_file(input: &str, output: &str) -> Result<usize, String> {
 fn render_singbox_file(input: &str, output: &str) -> Result<usize, String> {
     let source_count = subscription_config_count(input)?;
     let rendered = singbox::render_subscription_file(input, output)?;
-    let omitted = source_count
-        .checked_sub(rendered)
-        .ok_or_else(|| format!("sing-box renderer returned {rendered} entries for {source_count} source configs"))?;
+    let omitted = source_count.checked_sub(rendered).ok_or_else(|| {
+        format!("sing-box renderer returned {rendered} entries for {source_count} source configs")
+    })?;
     println!(
         "[INFO] 🧩 [sing-box] Rendered {rendered}/{source_count} configs | Omitted: {omitted} | {output}"
     );
@@ -178,9 +179,12 @@ fn main() -> Result<(), String> {
 
     let all_source_count = subscription_config_count("subscriptions/all.txt")?;
     let light_source_count = subscription_config_count("subscriptions/light.txt")?;
-    let all_clash_count = render_clash_file("subscriptions/all.txt", "subscriptions/all-clash.yaml")?;
-    let light_clash_count = render_clash_file("subscriptions/light.txt", "subscriptions/light-clash.yaml")?;
-    let all_singbox_count = render_singbox_file("subscriptions/all.txt", "subscriptions/all-singbox.json")?;
+    let all_clash_count =
+        render_clash_file("subscriptions/all.txt", "subscriptions/all-clash.yaml")?;
+    let light_clash_count =
+        render_clash_file("subscriptions/light.txt", "subscriptions/light-clash.yaml")?;
+    let all_singbox_count =
+        render_singbox_file("subscriptions/all.txt", "subscriptions/all-singbox.json")?;
     let light_singbox_count = render_singbox_file(
         "subscriptions/light.txt",
         "subscriptions/light-singbox.json",
