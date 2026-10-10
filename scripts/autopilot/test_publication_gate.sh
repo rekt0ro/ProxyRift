@@ -73,6 +73,33 @@ make_outputs 50
 run_gate >/dev/null
 echo "[OK] Valid generated outputs pass the publication gate."
 
+make_outputs 50
+printf 'wireguard://test@example.com:51820\n' >> "$work/subscriptions/all.txt"
+python3 - "$work/subscriptions" <<'PY'
+import base64
+import json
+import pathlib
+import sys
+
+directory = pathlib.Path(sys.argv[1])
+source = (directory / "all.txt").read_bytes().rstrip(b"\r\n")
+(directory / "all-base64.txt").write_text(
+    base64.b64encode(source).decode("ascii") + "\n", encoding="ascii"
+)
+counts_path = directory / ".output-counts.json"
+counts = json.loads(counts_path.read_text(encoding="utf-8"))
+counts["all"]["source"] += 1
+counts_path.write_text(json.dumps(counts) + "\n", encoding="utf-8")
+PY
+if ! run_gate >"$tmp/omissions.log" 2>&1; then
+  echo "[ERROR] Publication gate rejected explicitly accounted unsupported-format omissions." >&2
+  cat "$tmp/omissions.log" >&2
+  exit 1
+fi
+grep --quiet "all source: 2 | Clash: 1 (omitted: 1) | sing-box: 1 (omitted: 1)" "$tmp/omissions.log"
+echo "[OK] Accounted unsupported-format omissions are allowed and reported."
+
+make_outputs 50
 python3 - "$work/subscriptions/all-singbox.json" <<'PY'
 import json
 import pathlib
