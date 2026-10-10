@@ -1,5 +1,4 @@
 pub mod clash;
-pub mod intelligence;
 pub mod light_gbm;
 pub mod light_training;
 pub mod singbox;
