@@ -67,7 +67,6 @@ chmod +x "$tmp/bin/gh"
   DISCOVERY_OUTCOME="success" \
   COLLECT_OUTCOME="success" \
   LIGHT_OUTCOME="success" \
-  METADATA_OUTCOME="success" \
   GENERATION_OUTCOME="success" \
   PREPARE_OUTCOME="success" \
   PUBLISH_OUTCOME="success" \
@@ -79,13 +78,13 @@ chmod +x "$tmp/bin/gh"
 
 grep -Fq '| All | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
 grep -Fq '| Light | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
-grep -Fq '| Strict validation | Promoted |' "$tmp/summary.md"
+grep -Fq '| Strict validation | Promoted after temporal validation |' "$tmp/summary.md"
 grep -Fq '| Transfer (10 MiB) | Did not beat temporal baseline |' "$tmp/summary.md"
 grep -Fq '| Stream stability | Top-20% pass rate below random baseline |' "$tmp/summary.md"
 
-if grep -Eq 'model_did_not_beat_temporal_baseline|top_20pct_below_random_selection_baseline|\| Strict validation \| promoted \|' "$tmp/summary.md"; then
+if grep -Eq 'promoted_after_temporal_validation|model_did_not_beat_temporal_baseline|top_20pct_below_random_selection_baseline|\| Strict validation \| promoted \|' "$tmp/summary.md"; then
   echo "[ERROR] Summary contains a raw LightGBM reason or unnormalized status." >&2
   exit 1
 fi
 
-echo "[OK] Update summary reports TXT and human-readable LightGBM statuses."
+echo "[OK] Update summary reports TXT and human-readable temporal LightGBM statuses without metadata injection."
