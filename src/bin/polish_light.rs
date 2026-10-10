@@ -2667,6 +2667,9 @@ fn light_backend(config: &str) -> LightBackend {
                         if matches!(network.as_str(), "xhttp" | "splithttp" | "kcp" | "mkcp") {
                             return LightBackend::Xray;
                         }
+                        if network == "quic" {
+                            return LightBackend::SingBox;
+                        }
 
                         if network == "grpc" {
                             let mode = value
@@ -2715,6 +2718,9 @@ fn light_backend(config: &str) -> LightBackend {
 
     if matches!(transport.as_str(), "xhttp" | "splithttp" | "kcp" | "mkcp") {
         return LightBackend::Xray;
+    }
+    if transport == "quic" {
+        return LightBackend::SingBox;
     }
 
     if transport == "grpc"
@@ -4810,6 +4816,19 @@ mod tests {
     fn routes_url_kcp_to_xray_only() {
         let config = "vless://uuid@example.com:443?security=tls&type=kcp";
         assert_eq!(light_backend(config), LightBackend::Xray);
+    }
+
+    #[test]
+    fn routes_vmess_quic_to_singbox() {
+        let payload = r#"{"v":"2","add":"example.com","port":"443","id":"00000000-0000-0000-0000-000000000001","net":"quic","type":"none"}"#;
+        let config = format!("vmess://{}", STANDARD.encode(payload));
+        assert_eq!(light_backend(&config), LightBackend::SingBox);
+    }
+
+    #[test]
+    fn routes_url_quic_to_singbox() {
+        let config = "vless://uuid@example.com:443?security=none&type=quic";
+        assert_eq!(light_backend(config), LightBackend::SingBox);
     }
 
     #[test]
