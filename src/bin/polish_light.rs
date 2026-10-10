@@ -3896,7 +3896,6 @@ async fn main() -> Result<(), String> {
                 stagnant_waves = 0;
             }
         } else {
-
             let newly_selectable = strict_eligible.saturating_sub(strict_selectable_before);
             let candidates_remaining = discovery_candidates.len().saturating_sub(discovery_cursor);
             let next_floor = adjust_discovery_batch_for_yield(
@@ -3980,7 +3979,6 @@ async fn main() -> Result<(), String> {
         &global_positions,
         &history,
     );
-
     let publication_limit = final_publication_limit(selection_limit, stream_verified.len());
     let (selected, previous_selected, older_selected) = select_verified_configs_with_cohort_floor(
         &stream_ranked,
