@@ -5478,6 +5478,88 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_accepts_socks4_and_socks4a() {
+        assert!(is_cheaply_supported_config("socks4://example.com:1080"));
+        assert!(is_cheaply_supported_config("socks4a://example.com:1080"));
+        assert!(is_light_consumer_compatible("socks4://example.com:1080"));
+        assert!(is_light_consumer_compatible("socks4a://example.com:1080"));
+    }
+
+    #[test]
+    fn cheap_compatibility_reports_stable_rejection_reasons() {
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=madeup"
+            ),
+            Some("unsupported-transport")
+        );
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?flow=legacy-flow"
+            ),
+            Some("unsupported-flow")
+        );
+        assert_eq!(
+            cheap_compatibility_rejection_reason("hy2://example.com:443"),
+            Some("invalid-hysteria2-endpoint-or-auth")
+        );
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_supported_mkcp_and_rejects_legacy_obfuscation() {
+        for config in [
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp",
+            "trojan://password@example.com:443?security=tls&type=mkcp",
+        ] {
+            assert!(is_cheaply_supported_config(config), "{config}");
+        }
+
+        assert!(!is_cheaply_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&headerType=wechat-video"
+        ));
+        assert!(!is_cheaply_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&seed=legacy"
+        ));
+        assert!(!is_cheaply_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=kcp&pbk=key"
+        ));
+        assert!(is_light_consumer_compatible(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp"
+        ));
+    }
+
+    #[test]
+    fn parses_mkcp_to_xray_kcp_settings() {
+        let parsed = parse_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp",
+        )
+        .expect("mKCP should be represented for Xray validation");
+
+        assert_eq!(parsed["streamSettings"]["network"], "kcp");
+        assert_eq!(parsed["streamSettings"]["kcpSettings"], serde_json::json!({}));
+        assert!(is_locally_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp"
+        ));
+    }
+
+    #[test]
+    fn cheap_compatibility_normalizes_boolean_vmess_tls_aliases() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": "tcp",
+            "tls": "1"
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert!(is_cheaply_supported_config(&config));
+        let parsed = parse_config(&config).expect("VMess TLS alias should parse");
+        assert_eq!(parsed["streamSettings"]["security"], "tls");
+    }
+
+    #[test]
     fn cheap_compatibility_rejects_vmess_none_transport() {
         let config = "vmess://eyJ2IjoiMiIsInBzIjoiIiwiYWRkIjoiZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJhaWQiOiIwIiwibmV0Ijoibm9uZSJ9";
         assert!(!is_cheaply_supported_config(config));
