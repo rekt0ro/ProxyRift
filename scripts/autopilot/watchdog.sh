@@ -20,7 +20,7 @@ dispatch_update() {
   {
     echo "## ProxyRift Autopilot"
     echo
-    echo "Dispatched a recovery run of **Update Configs** on `main`."
+    echo "Dispatched a recovery run of **Update Configs** on \`main\`."
   } >> "$GITHUB_STEP_SUMMARY"
 }
 
@@ -139,7 +139,7 @@ if [[ "$EVENT_NAME" == "workflow_run" ]]; then
   {
     echo "## ProxyRift Autopilot"
     echo
-    echo "Update Configs concluded with `$conclusion`. No retry was attempted for this outcome."
+    echo "Update Configs concluded with \`$conclusion\`. No retry was attempted for this outcome."
   } >> "$GITHUB_STEP_SUMMARY"
   exit 0
 fi
@@ -170,7 +170,7 @@ if [[ -n "$active_run" ]]; then
     {
       echo "## ProxyRift Autopilot"
       echo
-      echo "Update Configs run [$run_id](https://github.com/$repo/actions/runs/$run_id) is `$status`; no duplicate run was started."
+      echo "Update Configs run [$run_id](https://github.com/$repo/actions/runs/$run_id) is \`$status\`; no duplicate run was started."
     } >> "$GITHUB_STEP_SUMMARY"
   fi
   exit 0
@@ -197,6 +197,6 @@ else
   {
     echo "## ProxyRift Autopilot"
     echo
-    echo "Update Configs has recent activity; latest run [$latest_id](https://github.com/$repo/actions/runs/$latest_id) is `$conclusion`."
+    echo "Update Configs has recent activity; latest run [$latest_id](https://github.com/$repo/actions/runs/$latest_id) is \`$conclusion\`."
   } >> "$GITHUB_STEP_SUMMARY"
 fi
