@@ -3428,11 +3428,8 @@ async fn main() -> Result<(), String> {
     let mut stream_task: Option<StreamTask> = None;
 
     let discovery_seed = recheck_exploration_seed(0);
-    let discovery_candidates = rank_discovery_candidates(
-        &candidates,
-        &light_gbm_scores,
-        discovery_seed,
-    );
+    let discovery_candidates =
+        rank_discovery_candidates(&candidates, &light_gbm_scores, discovery_seed);
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
     let mut stagnant_waves = 0usize;
@@ -4165,9 +4162,8 @@ mod tests {
         selection_eligible_count, selection_potential_count, selection_rejection_counts,
         should_quarantine_transfer_target, stream_selection_count, strict_validation_target,
         transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
-        LightBackend, LightGbmScores, ProxyMetrics, TransferConcurrencyState,
-        TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS,
-        MAX_DISCOVERY_CANDIDATES,
+        LightBackend, LightGbmScores, ProxyMetrics, TransferConcurrencyState, TransferTargetState,
+        FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, MAX_DISCOVERY_CANDIDATES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
