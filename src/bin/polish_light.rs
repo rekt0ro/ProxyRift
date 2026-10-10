@@ -3439,6 +3439,7 @@ async fn main() -> Result<(), String> {
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
     let mut stagnant_waves = 0usize;
+    let mut strict_pool_ready_logged = false;
     let mut discovery_batch_floor = DISCOVERY_BATCH_MIN;
 
     println!(
@@ -3712,10 +3713,13 @@ async fn main() -> Result<(), String> {
         );
 
         if strict_selected.len() >= selection_limit {
-            println!(
-                "[INFO] 🚀 [Light] Strict pool reached {} | Starting downstream funnel immediately",
-                selection_limit
-            );
+            if !strict_pool_ready_logged {
+                println!(
+                    "[INFO] 🚀 [Light] Strict pool reached {} | Starting downstream validation",
+                    selection_limit
+                );
+                strict_pool_ready_logged = true;
+            }
 
             let _ = fill_transfer_gate(
                 &xray,
