@@ -8,7 +8,7 @@ Public proxy collector and validator.
 
 Subscriptions are **regenerated hourly** from newly collected configurations. The All and Light lists use different screening and validation paths.
 
-The plain-text and Base64 subscriptions are the canonical lists. Clash/Mihomo and sing-box exports include only configurations that their converters can represent faithfully, so they can contain fewer entries than the corresponding plain-text list. Each update records the source and rendered counts, reports omitted entries, and checks that the generated format files match those counts before publication.
+The plain-text and Base64 subscriptions are the canonical lists. Clash/Mihomo and sing-box exports include only configurations that their converters can represent faithfully, so they can contain fewer entries than the corresponding plain-text list.
 
 | List | Description |
 | --- | --- |
