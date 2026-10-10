@@ -58,6 +58,7 @@ while (($#)); do
 done
 file="${url##*/}"
 file="${file%%\?*}"
+printf '%s\n' "$url" >> "${WATCHDOG_CURL_LOG:?}"
 cp "${WATCHDOG_FIXTURES:?}/$file" "$output"
 CURL
 chmod +x "$bin/curl"
@@ -72,6 +73,9 @@ if ! WATCHDOG_FIXTURES="$fixtures" \
   EVENT_NAME="workflow_run" \
   EVENT_PATH="$tmp/event.json" \
   GITHUB_STEP_SUMMARY="$tmp/summary.md" \
+  GH_TOKEN="test-token" \
+  GITHUB_SHA="fixture-sha" \
+  WATCHDOG_CURL_LOG="$tmp/curl.log" \
   bash "$repo_root/scripts/autopilot/watchdog.sh" >"$tmp/watchdog.log" 2>&1; then
   cat "$tmp/watchdog.log" >&2
   echo "[ERROR] Watchdog rejected valid outputs or failed during cleanup." >&2
@@ -79,6 +83,10 @@ if ! WATCHDOG_FIXTURES="$fixtures" \
 fi
 
 grep --fixed-strings --quiet "[OK] Published outputs passed integrity checks (Light=50, All=1000)." "$tmp/watchdog.log"
+if [[ "$(grep --count --fixed-strings '?ref=fixture-sha' "$tmp/curl.log")" -ne 8 ]]; then
+  echo "[ERROR] Watchdog did not pin every published-output request to GITHUB_SHA." >&2
+  exit 1
+fi
 if grep --quiet "tmp: unbound variable" "$tmp/watchdog.log"; then
   echo "[ERROR] Watchdog cleanup still references an unset temporary-directory variable." >&2
   exit 1
