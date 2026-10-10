@@ -2,7 +2,6 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use futures::stream::{self, StreamExt};
 use percent_encoding::percent_decode_str;
-use proxyrift::consumer_history::ConsumerEvidence;
 use proxyrift::light_gbm::LightGbmScores;
 use proxyrift::source_discovery::CollectionOutcome;
 use proxyrift::validator::{
@@ -520,10 +519,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return Err("no proxy configurations were collected".into());
     }
 
-    let consumer_evidence = ConsumerEvidence::load_with_consumer_history(
-        "subscriptions/light-consumer-evidence.json",
-        "subscriptions/light-consumer-results.json",
-    );
     let light_gbm = match LightGbmScores::train_and_score(&configs) {
         Ok(scores) => {
             println!(
@@ -541,27 +536,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     configs.sort_unstable_by(|a, b| {
-        let a_score = 0.60 * light_gbm.score(a) + 0.40 * consumer_evidence.score(a);
-        let b_score = 0.60 * light_gbm.score(b) + 0.40 * consumer_evidence.score(b);
-        consumer_evidence
-            .recent_consumer_priority(b)
-            .cmp(&consumer_evidence.recent_consumer_priority(a))
-            .then_with(|| {
-                consumer_evidence
-                    .recent_consumer_observed_at(b)
-                    .cmp(&consumer_evidence.recent_consumer_observed_at(a))
-            })
-            .then_with(|| b_score.total_cmp(&a_score))
-            .then_with(|| {
-                consumer_evidence
-                    .learning_priority(b)
-                    .cmp(&consumer_evidence.learning_priority(a))
-            })
+        light_gbm
+            .score(b)
+            .total_cmp(&light_gbm.score(a))
             .then_with(|| a.cmp(b))
     });
 
     println!(
-        "[INFO] 🧠 [Collection ranking] Ranked {} retained configs | Consumer evidence + LightGBM",
+        "[INFO] 🧠 [Collection ranking] Ranked {} retained configs | LightGBM",
         configs.len()
     );
 
@@ -671,16 +653,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     ranked_working_configs.sort_unstable_by(|(config_a, latency_a), (config_b, latency_b)| {
-        let a_score = 0.60 * light_gbm.score(config_a) + 0.40 * consumer_evidence.score(config_a);
-        let b_score = 0.60 * light_gbm.score(config_b) + 0.40 * consumer_evidence.score(config_b);
-
-        b_score
-            .total_cmp(&a_score)
-            .then_with(|| {
-                consumer_evidence
-                    .learning_priority(config_b)
-                    .cmp(&consumer_evidence.learning_priority(config_a))
-            })
+        light_gbm
+            .score(config_b)
+            .total_cmp(&light_gbm.score(config_a))
             .then_with(|| latency_a.cmp(latency_b))
             .then_with(|| config_a.cmp(config_b))
     });
@@ -704,22 +679,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let sampled_transport_count = light_candidates.len();
     special_hysteria_candidates.sort_unstable_by(|a, b| {
-        let a_score = 0.60 * light_gbm.score(a) + 0.40 * consumer_evidence.score(a);
-        let b_score = 0.60 * light_gbm.score(b) + 0.40 * consumer_evidence.score(b);
-        consumer_evidence
-            .recent_consumer_priority(b)
-            .cmp(&consumer_evidence.recent_consumer_priority(a))
-            .then_with(|| {
-                consumer_evidence
-                    .recent_consumer_observed_at(b)
-                    .cmp(&consumer_evidence.recent_consumer_observed_at(a))
-            })
-            .then_with(|| b_score.total_cmp(&a_score))
-            .then_with(|| {
-                consumer_evidence
-                    .learning_priority(b)
-                    .cmp(&consumer_evidence.learning_priority(a))
-            })
+        light_gbm
+            .score(b)
+            .total_cmp(&light_gbm.score(a))
             .then_with(|| a.cmp(b))
     });
 

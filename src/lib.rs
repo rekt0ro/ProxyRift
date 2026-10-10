@@ -1,5 +1,4 @@
 pub mod clash;
-pub mod consumer_history;
 pub mod intelligence;
 pub mod light_gbm;
 pub mod light_training;
