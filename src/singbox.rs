@@ -2595,7 +2595,8 @@ mod tests {
 
     #[test]
     fn maps_vless_quic_transport() {
-        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic";
+        let config =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic";
         let outbound = singbox_outbound(config).expect("sing-box QUIC transport should map");
 
         assert_eq!(outbound["type"], "vless");
