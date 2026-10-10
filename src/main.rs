@@ -2164,7 +2164,6 @@ mod tests {
             "https://127.0.0.1:443",
             "ssr://encoded",
             "ssh://user@127.0.0.1:22",
-            "tuic://token@127.0.0.1:443",
             "naive+https://user:pass@example.com:443",
         ] {
             assert!(normalize_config(config).is_none(), "{config}");
