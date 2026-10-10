@@ -66,6 +66,9 @@ jobs:
       - name: Test publication quality gate
         run: bash scripts/autopilot/test_publication_gate.sh
 
+      - name: Test watchdog output validation and cleanup
+        run: bash scripts/autopilot/test_watchdog.sh
+
       - name: Install native LightGBM runtime
         env:
           GH_TOKEN: ${{ github.token }}
