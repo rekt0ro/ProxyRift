@@ -24,9 +24,6 @@ fi
 
 generation_status="$(stage_status "$GENERATION_OUTCOME")"
 if [ "$generation_status" = "✅ Complete" ] && [ "$PREPARE_OUTCOME" != "success" ]; then
-  generation_status="$(stage_status "$GENERATION_OUTCOME")"
-fi
-if [ "$generation_status" = "✅ Complete" ] && [ "$PREPARE_OUTCOME" != "success" ]; then
   generation_status="$(stage_status "$PREPARE_OUTCOME")"
 fi
 
