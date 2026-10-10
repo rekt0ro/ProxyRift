@@ -3481,14 +3481,7 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
     let mut available = targets
         .iter()
         .filter(|target| {
-            let cooling = target_is_rate_limited(target.as_str());
-            if cooling {
-                println!(
-                    "[INFO] ⏭️ [Targets] Skipping cooling-down host | {}",
-                    target.host_str().unwrap_or(target.as_str())
-                );
-            }
-            !cooling
+            !target_is_rate_limited(target.as_str())
         })
         .cloned()
         .collect::<Vec<_>>();
