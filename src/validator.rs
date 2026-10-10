@@ -2212,8 +2212,8 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                     .get("quicSecurity")
                     .and_then(Value::as_str)
                     .is_some_and(|item| {
-                            !matches!(item.trim().to_ascii_lowercase().as_str(), "" | "none")
-                        })
+                        !matches!(item.trim().to_ascii_lowercase().as_str(), "" | "none")
+                    })
                 {
                     return Some("unsupported-quic-encryption");
                 }
