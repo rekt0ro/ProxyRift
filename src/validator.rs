@@ -80,6 +80,20 @@ fn next_target_pool_probe_chunk_size(current: usize, maximum: usize, rate_limits
 }
 
 static RATE_LIMIT_EVENTS: AtomicU64 = AtomicU64::new(0);
+static LAST_TARGET_HEALTH_SUMMARY: OnceLock<Mutex<Option<(usize, usize)>>> = OnceLock::new();
+
+fn should_log_target_health_summary(usable: usize, total: usize) -> bool {
+    let mut last = LAST_TARGET_HEALTH_SUMMARY
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *last == Some((usable, total)) {
+        false
+    } else {
+        *last = Some((usable, total));
+        true
+    }
+}
 
 #[derive(Default)]
 struct TargetRateLimitState {
@@ -4333,7 +4347,9 @@ async fn validate_candidates_targets_inner(
 
     let original_target_count = targets.len();
     targets = healthy_targets(&targets, policy.min_successful_targets).await;
-    if targets.len() != original_target_count {
+    if targets.len() != original_target_count
+        && should_log_target_health_summary(targets.len(), original_target_count)
+    {
         println!(
             "[INFO] 🔎 [Targets] Health/Circuit Breaker | {}/{} Usable",
             targets.len(),
