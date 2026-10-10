@@ -22,8 +22,8 @@ if [ "$collection_status" = "✅ Complete" ] && [ "$LIGHT_OUTCOME" != "success" 
   collection_status="$(stage_status "$LIGHT_OUTCOME")"
 fi
 
-generation_status="$(stage_status "$METADATA_OUTCOME")"
-if [ "$generation_status" = "✅ Complete" ] && [ "$GENERATION_OUTCOME" != "success" ]; then
+generation_status="$(stage_status "$GENERATION_OUTCOME")"
+if [ "$generation_status" = "✅ Complete" ] && [ "$PREPARE_OUTCOME" != "success" ]; then
   generation_status="$(stage_status "$GENERATION_OUTCOME")"
 fi
 if [ "$generation_status" = "✅ Complete" ] && [ "$PREPARE_OUTCOME" != "success" ]; then
@@ -47,11 +47,14 @@ count_configs() {
 format_lightgbm_status() {
   local target="$1"
   local raw_status
-  raw_status="$(jq -r --arg target "$target" '.model_report.targets[$target] | if .accepted == true then "promoted" else (.reason // "not evaluated") end' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'not evaluated')"
+  raw_status="$(jq -r --arg target "$target" '.model_report.targets[$target] | if .accepted == true then (.reason // "promoted") else (.reason // "not evaluated") end' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'not evaluated')"
 
   case "$raw_status" in
-    promoted|promoted_after_temporal_validation)
+    promoted)
       printf 'Promoted'
+      ;;
+    promoted_after_temporal_validation)
+      printf 'Promoted after temporal validation'
       ;;
     model_did_not_beat_temporal_baseline)
       printf 'Did not beat temporal baseline'
