@@ -661,6 +661,7 @@ fn normalize_transport(value: &str) -> String {
             "grpc" => Some("grpc".to_string()),
             "httpupgrade" => Some("httpupgrade".to_string()),
             "kcp" | "mkcp" => Some("kcp".to_string()),
+            "quic" => Some("quic".to_string()),
             "xhttp" | "splithttp" => Some("xhttp".to_string()),
             _ => None,
         })
@@ -1151,7 +1152,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
     let network = normalize_transport(&first_query(url, &["type", "network"], Some("tcp")));
 
     match network.as_str() {
-        "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" => {}
+        "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic" => {}
         _ => return Err(format!("unsupported transport {network}")),
     }
 
@@ -1173,8 +1174,8 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         _ => return Err(format!("unsupported security {security}")),
     };
 
-    if security == "reality" && network == "kcp" {
-        return Err("Reality security is incompatible with mKCP".to_string());
+    if security == "reality" && matches!(network.as_str(), "kcp" | "quic") {
+        return Err(format!("Reality security is incompatible with {network} transport"));
     }
 
     if security == "reality" && !matches!(network.as_str(), "raw" | "xhttp" | "grpc") {
@@ -1393,6 +1394,22 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         }
         "kcp" => {
             out["kcpSettings"] = json!({});
+        }
+        "quic" => {
+            let quic_security =
+                first_query(url, &["quicSecurity", "quic_security"], Some("none"))
+                    .trim()
+                    .to_ascii_lowercase();
+            let header_type = first_query(url, &["headerType", "header_type"], Some(""));
+            if !matches!(quic_security.as_str(), "" | "none")
+                || (!header_type.is_empty() && !header_type.eq_ignore_ascii_case("none"))
+                || !first_query(url, &["key"], Some("")).is_empty()
+                || !path.is_empty()
+                || !host_header.is_empty()
+            {
+                return Err("unsupported legacy QUIC transport parameters".to_string());
+            }
+            out["quicSettings"] = json!({});
         }
         _ => unreachable!(),
     }
@@ -2012,7 +2029,7 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 normalize_transport(&first_query(&url, &["type", "network"], Some("tcp")));
             if !matches!(
                 transport.as_str(),
-                "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp"
+                "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic"
             ) {
                 return Some("unsupported-transport");
             }
@@ -2033,6 +2050,28 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 }
                 if !seed.is_empty() {
                     return Some("unsupported-kcp-seed");
+                }
+                if security == "reality" {
+                    return Some("incompatible-security-transport");
+                }
+            }
+
+            if transport == "quic" {
+                let quic_security =
+                    first_query(&url, &["quicSecurity", "quic_security"], Some("none"))
+                        .trim()
+                        .to_ascii_lowercase();
+                let header_type = first_query(&url, &["headerType", "header_type"], Some(""));
+                if !matches!(quic_security.as_str(), "" | "none") {
+                    return Some("unsupported-quic-encryption");
+                }
+                if !header_type.is_empty() && !header_type.eq_ignore_ascii_case("none") {
+                    return Some("unsupported-quic-header");
+                }
+                if !first_query(&url, &["key", "path"], Some("")).is_empty()
+                    || !first_query(&url, &["host"], Some("")).is_empty()
+                {
+                    return Some("unsupported-quic-parameters");
                 }
                 if security == "reality" {
                     return Some("incompatible-security-transport");
@@ -2134,7 +2173,7 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
             );
             if !matches!(
                 network.as_str(),
-                "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp"
+                "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic"
             ) {
                 return Some("unsupported-vmess-transport");
             }
@@ -2149,6 +2188,31 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 }
                 if json_text(value.get("path")).is_some_and(|path| !path.trim().is_empty()) {
                     return Some("unsupported-vmess-kcp-seed");
+                }
+            }
+
+            if network == "quic" {
+                let vmess_type = json_text(value.get("type"))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase();
+                if !matches!(vmess_type.as_str(), "" | "none") {
+                    return Some("unsupported-vmess-quic-header");
+                }
+                if ["path", "host", "key"].iter().any(|key| {
+                    value
+                        .get(*key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|item| !item.trim().is_empty())
+                }) {
+                    return Some("unsupported-vmess-quic-parameters");
+                }
+                if value
+                    .get("quicSecurity")
+                    .and_then(Value::as_str)
+                    .is_some_and(|item| !matches!(item.trim().to_ascii_lowercase().as_str(), "" | "none"))
+                {
+                    return Some("unsupported-quic-encryption");
                 }
             }
 
@@ -2192,7 +2256,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
 
             let transport =
                 normalize_transport(&first_query(&url, &["type", "network"], Some("tcp")));
-            if !matches!(transport.as_str(), "raw" | "ws" | "grpc" | "kcp") {
+            if !matches!(transport.as_str(), "raw" | "ws" | "grpc" | "kcp" | "quic") {
                 return false;
             }
 
@@ -2259,6 +2323,19 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
             {
                 return false;
             }
+            if transport == "quic" {
+                let quic_security =
+                    first_query(&url, &["quicSecurity", "quic_security"], Some("none"))
+                        .trim()
+                        .to_ascii_lowercase();
+                if !matches!(quic_security.as_str(), "" | "none")
+                    || !first_query(&url, &["key", "path"], Some("")).is_empty()
+                    || !first_query(&url, &["host"], Some("")).is_empty()
+                    || security == "reality"
+                {
+                    return false;
+                }
+            }
 
             if transport == "grpc" {
                 let mode = first_query(&url, &["mode"], Some("gun"))
@@ -2324,7 +2401,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
             let network = normalize_transport(
                 &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
             );
-            if !matches!(network.as_str(), "raw" | "ws" | "grpc" | "kcp") {
+            if !matches!(network.as_str(), "raw" | "ws" | "grpc" | "kcp" | "quic") {
                 return false;
             }
 
@@ -2344,6 +2421,21 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                         .get("path")
                         .and_then(Value::as_str)
                         .is_some_and(|path| !path.trim().is_empty()))
+            {
+                return false;
+            }
+            if network == "quic"
+                && (!matches!(vmess_type.as_str(), "" | "none")
+                    || ["path", "host", "key"].iter().any(|key| {
+                        value
+                            .get(*key)
+                            .and_then(Value::as_str)
+                            .is_some_and(|item| !item.trim().is_empty())
+                    })
+                    || value
+                        .get("quicSecurity")
+                        .and_then(Value::as_str)
+                        .is_some_and(|item| !matches!(item.trim().to_ascii_lowercase().as_str(), "" | "none")))
             {
                 return false;
             }
