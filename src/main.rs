@@ -1251,6 +1251,15 @@ fn normalize_shadowsocks(config: &str, url: &Url) -> Option<String> {
         "aes-128-gcm",
         "aes-192-gcm",
         "aes-256-gcm",
+        "aes-128-ctr",
+        "aes-192-ctr",
+        "aes-256-ctr",
+        "aes-128-cfb",
+        "aes-192-cfb",
+        "aes-256-cfb",
+        "rc4-md5",
+        "chacha20-ietf",
+        "xchacha20",
         "chacha20-ietf-poly1305",
         "xchacha20-ietf-poly1305",
         "none",
@@ -1893,6 +1902,39 @@ mod tests {
         );
 
         assert_ne!(hy2_obfs, hy2_obfs_other_password);
+
+        let kcp = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp";
+        assert!(super::is_kcp_transport_config(kcp));
+        assert!(super::needs_deferred_transport_validation(kcp));
+        assert!(transport_probe_key(kcp).is_none());
+
+        let tcp = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=tcp";
+        assert!(!super::is_kcp_transport_config(tcp));
+        assert!(!super::needs_deferred_transport_validation(tcp));
+
+        let vmess_payload = r#"{"v":"2","add":"example.com","port":"443","id":"00000000-0000-0000-0000-000000000001","net":"mkcp"}"#;
+        let vmess = format!("vmess://{}", STANDARD.encode(vmess_payload));
+        assert!(super::is_kcp_transport_config(&vmess));
+        assert!(super::needs_deferred_transport_validation(&vmess));
+        assert!(transport_probe_key(&vmess).is_none());
+    }
+
+    #[test]
+    fn normalize_config_accepts_legacy_shadowsocks_methods_supported_by_singbox() {
+        for method in [
+            "aes-128-ctr",
+            "aes-192-ctr",
+            "aes-256-ctr",
+            "aes-128-cfb",
+            "aes-192-cfb",
+            "aes-256-cfb",
+            "rc4-md5",
+            "chacha20-ietf",
+            "xchacha20",
+        ] {
+            let config = format!("ss://{method}:password@example.com:8388");
+            assert!(normalize_config(&config).is_some(), "{method}");
+        }
     }
 
     #[test]
