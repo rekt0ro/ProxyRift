@@ -204,8 +204,11 @@ fn main() -> Result<(), String> {
     });
     let counts_json = serde_json::to_string_pretty(&counts)
         .map_err(|error| format!("cannot serialize subscription output counts: {error}"))?;
-    fs::write("subscriptions/.output-counts.json", format!("{counts_json}\n"))
-        .map_err(|error| format!("cannot write subscription output counts: {error}"))?;
+    fs::write(
+        "subscriptions/.output-counts.json",
+        format!("{counts_json}\n"),
+    )
+    .map_err(|error| format!("cannot write subscription output counts: {error}"))?;
 
     Ok(())
 }
