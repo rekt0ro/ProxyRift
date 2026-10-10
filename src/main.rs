@@ -1134,6 +1134,7 @@ fn normalize_config(config: &str) -> Option<String> {
             | "hysteria"
             | "hysteria2"
             | "hy2"
+            | "tuic"
             | "wg"
             | "socks"
             | "socks4"
