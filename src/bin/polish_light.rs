@@ -3028,7 +3028,7 @@ fn persist_light_training_data(
     write_readiness_report(LIGHT_TRAINING_STATS_PATH, &stats)?;
 
     println!(
-        "[INFO] 🧠 [Light ml data] +{} Rows | Total: {} | Runs: {} | Candidates: {} | Features: {} | Strict: {}/{} | Transfer: {}/{} | Stream: {}/{} | Strict-ML: {} | E2E-ML: {}",
+        "[INFO] 🧠 [Light ml data] +{} Rows | Total: {} | Runs: {} | Candidates: {} | Features: {} | Strict: {}/{} | Transfer: {}/{} | Stream: {}/{} | Strict-data: {} | E2E-data: {}",
         stats.new_rows,
         stats.rows,
         stats.unique_runs,
@@ -4000,7 +4000,7 @@ async fn main() -> Result<(), String> {
             .filter(|config| cohort_generations
                 .get(*config)
                 .copied()
-                .unwrap_or(usize::MAX)
+                .unwrap_or(0)
                 == 0)
             .count()
     );
