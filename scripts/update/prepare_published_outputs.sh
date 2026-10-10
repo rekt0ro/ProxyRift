@@ -3,8 +3,9 @@ set -euo pipefail
 
 minimum_light="${LIGHT_MIN_PUBLISH:-50}"
 minimum_all="${ALL_MIN_PUBLISH:-1}"
+counts_file="subscriptions/.output-counts.json"
 
-for f in subscriptions/all.txt subscriptions/light.txt subscriptions/all-base64.txt subscriptions/light-base64.txt subscriptions/all-clash.yaml subscriptions/light-clash.yaml subscriptions/all-singbox.json subscriptions/light-singbox.json; do
+for f in subscriptions/all.txt subscriptions/light.txt subscriptions/all-base64.txt subscriptions/light-base64.txt subscriptions/all-clash.yaml subscriptions/light-clash.yaml subscriptions/all-singbox.json subscriptions/light-singbox.json "$counts_file"; do
   if [ ! -s "$f" ]; then
     echo "[ERROR] Required output is missing or empty: $f" >&2
     exit 1
@@ -57,11 +58,54 @@ PY
     exit 1
   fi
 
-  if ! grep --quiet --extended-regexp '^proxies:[[:space:]]*$' "subscriptions/$name-clash.yaml" \
+  if ! grep --quiet --extended-regexp '^proxies:[[:space:]]*
+ "subscriptions/$name-clash.yaml" \
       || ! grep --quiet --extended-regexp '^[[:space:]]+- name:' "subscriptions/$name-clash.yaml"; then
     echo "[ERROR] Clash output has no proxy entries: subscriptions/$name-clash.yaml" >&2
     exit 1
   fi
+
+  source_count="$all_count"
+  if [[ "$name" == "light" ]]; then
+    source_count="$light_count"
+  fi
+
+  if ! jq --exit-status --arg name "$name" '
+    def nonnegative_integer: type == "number" and . >= 0 and floor == .;
+    .[$name] as $counts
+    | ($counts | type == "object")
+      and ($counts.source | nonnegative_integer)
+      and ($counts.clash | nonnegative_integer)
+      and ($counts.singbox | nonnegative_integer)
+      and ($counts.clash <= $counts.source)
+      and ($counts.singbox <= $counts.source)
+  ' "$counts_file" >/dev/null; then
+    echo "[ERROR] Invalid or inconsistent format-count manifest for $name: $counts_file" >&2
+    exit 1
+  fi
+
+  manifest_source="$(jq --exit-status --arg name "$name" '.[$name].source' "$counts_file")"
+  manifest_clash="$(jq --exit-status --arg name "$name" '.[$name].clash' "$counts_file")"
+  manifest_singbox="$(jq --exit-status --arg name "$name" '.[$name].singbox' "$counts_file")"
+  clash_count="$(awk '/^[[:space:]]+- name:[[:space:]]*/ { count++ } END { print count + 0 }' "subscriptions/$name-clash.yaml")"
+  singbox_count="$(jq --exit-status '.outbounds | length' "subscriptions/$name-singbox.json")"
+
+  if (( manifest_source != source_count )); then
+    echo "[ERROR] Source count does not match format-count manifest for $name: manifest=$manifest_source, file=$source_count." >&2
+    exit 1
+  fi
+  if (( manifest_clash != clash_count )); then
+    echo "[ERROR] Clash entry count does not match format-count manifest for $name: manifest=$manifest_clash, file=$clash_count." >&2
+    exit 1
+  fi
+  if (( manifest_singbox != singbox_count )); then
+    echo "[ERROR] sing-box entry count does not match format-count manifest for $name: manifest=$manifest_singbox, file=$singbox_count." >&2
+    exit 1
+  fi
+
+  printf '[INFO] Format accounting | %s source: %s | Clash: %s (omitted: %s) | sing-box: %s (omitted: %s)\n' \
+    "$name" "$source_count" "$clash_count" "$((source_count - clash_count))" \
+    "$singbox_count" "$((source_count - singbox_count))"
 done
 
 echo "[OK] Publication gate passed | Light: $light_count (minimum $minimum_light) | All: $all_count"
