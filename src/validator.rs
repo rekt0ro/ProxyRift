@@ -2614,7 +2614,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 let sni = first_query(
                     &url,
                     &["sni", "servername", "server_name", "peer"],
-                    url.host_str().unwrap_or(""),
+                    Some(url.host_str().unwrap_or("")),
                 );
                 if pbk.trim().is_empty() || sni.trim().is_empty() {
                     return false;
