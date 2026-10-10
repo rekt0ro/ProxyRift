@@ -191,6 +191,21 @@ mod tests {
     }
 
     #[test]
+    fn removes_legacy_subscription_metadata_without_numbering_gaps() {
+        let configs = vec![
+            "#profile-update-interval: 1".to_string(),
+            String::new(),
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443#old".to_string(),
+        ];
+
+        let renamed = rename_subscription_configs(&configs).unwrap();
+
+        assert_eq!(renamed.len(), 1);
+        assert!(renamed[0].ends_with("#ProxyRift%20001"));
+        assert!(!renamed[0].contains("profile-update-interval"));
+    }
+
+    #[test]
     fn renames_vmess_ps_field_for_subscription_consistency() {
         let payload = serde_json::json!({
             "v": "2",
