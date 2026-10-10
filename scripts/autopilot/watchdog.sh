@@ -57,7 +57,7 @@ validate_published_outputs() {
   if (( light_count < 50 )); then
     fail "Published Light subscription has $light_count entries; expected at least 50. The publication gate should prevent this."
   fi
-  if (( all_count < 1 )); then
+  if (( all_count < 1000 )); then
     fail "Published All subscription has no entries."
   fi
 
@@ -95,7 +95,7 @@ PY
     echo "## ProxyRift output health"
     echo
     echo "- Light entries: **$light_count** (minimum: 50)"
-    echo "- All entries: **$all_count**"
+    echo "- All entries: **$all_count** (minimum: 1000)"
     echo "- Base64 mirrors: valid"
     echo "- sing-box JSON: valid"
     echo "- Clash outputs: proxy entries present"
