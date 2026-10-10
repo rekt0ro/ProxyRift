@@ -3443,6 +3443,8 @@ async fn main() -> Result<(), String> {
     let mut stagnant_waves = 0usize;
     let mut strict_pool_ready_logged = false;
     let mut discovery_batch_floor = DISCOVERY_BATCH_MIN;
+    let mut last_funnel_snapshot: Option<(usize, usize, usize, usize, usize, usize, usize, usize, bool)> =
+        None;
 
     println!(
         "[INFO] 🔬 [Light] Validation started | {} Candidates | Targets: {} | ML/history ranked with {}% exploration",
@@ -3816,8 +3818,7 @@ async fn main() -> Result<(), String> {
             )
             .len();
 
-            println!(
-                "[INFO] 📈 [Light adaptive funnel] Strict: {} | 1 MiB: {}/{} | 10 MiB: {}/{} | Stream: {}/{} | Publishable: {}/{} | Background: {}",
+            let funnel_snapshot = (
                 final_metadata.len(),
                 stability_verified.len(),
                 stability_tested.len(),
@@ -3826,9 +3827,24 @@ async fn main() -> Result<(), String> {
                 stream_verified.len(),
                 stream_tested.len(),
                 publishable_selected,
-                selection_limit,
-                stream_task.is_some()
+                stream_task.is_some(),
             );
+            if last_funnel_snapshot != Some(funnel_snapshot) {
+                println!(
+                    "[INFO] 📈 [Light adaptive funnel] Strict: {} | 1 MiB: {}/{} | 10 MiB: {}/{} | Stream: {}/{} | Publishable: {}/{} | Background: {}",
+                    final_metadata.len(),
+                    stability_verified.len(),
+                    stability_tested.len(),
+                    transfer_verified.len(),
+                    transfer_tested.len(),
+                    stream_verified.len(),
+                    stream_tested.len(),
+                    publishable_selected,
+                    selection_limit,
+                    stream_task.is_some()
+                );
+                last_funnel_snapshot = Some(funnel_snapshot);
+            }
 
             if publishable_selected >= selection_limit {
                 break;
