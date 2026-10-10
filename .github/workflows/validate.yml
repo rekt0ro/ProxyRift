@@ -66,6 +66,9 @@ jobs:
       - name: Test publication quality gate
         run: bash scripts/autopilot/test_publication_gate.sh
 
+      - name: Test update run summary formatting
+        run: bash scripts/update/test_write_run_summary.sh
+
       - name: Install native LightGBM runtime
         env:
           GH_TOKEN: ${{ github.token }}

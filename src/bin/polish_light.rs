@@ -36,7 +36,7 @@ const DISCOVERY_BATCH_MAX: usize = 300;
 const DISCOVERY_BATCH_HARD_MAX: usize = 600;
 const DISCOVERY_STALL_BATCH_SIZE: usize = DISCOVERY_BATCH_HARD_MAX;
 const DISCOVERY_STAGNATION_WAVES: usize = 4;
-const MAX_DISCOVERY_CANDIDATES: usize = 10000;
+const MAX_DISCOVERY_CANDIDATES: usize = 15_000;
 const DISCOVERY_SAFETY_FACTOR: f64 = 1.15;
 const TRANSFER_RESERVE_DEFAULT_PASS_RATE: f64 = 0.80;
 const FINAL_RECHECK_LIMIT: usize = 350;
@@ -93,6 +93,10 @@ const MIN_COHORT_RETENTION_COUNT: usize = 4;
 
 type StreamTaskResult = Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String>;
 type StreamTask = tokio::task::JoinHandle<StreamTaskResult>;
+
+fn final_publication_limit(selection_target: usize, continuity_passed: usize) -> usize {
+    selection_target.max(continuity_passed)
+}
 
 fn transfer_validation_target(selection_limit: usize) -> usize {
     if selection_limit == 0 {
@@ -4099,10 +4103,13 @@ async fn main() -> Result<(), String> {
         &global_positions,
         &history,
     );
+    // The selection target controls when validation can stop, not the number of
+    // continuity-qualified configs that may be published from an already-tested pool.
+    let publication_limit = final_publication_limit(selection_limit, stream_verified.len());
     let (selected, previous_selected, older_selected) = select_verified_configs_with_cohort_floor(
         &stream_ranked,
         &cohort_generations,
-        selection_limit,
+        publication_limit,
         max_per_endpoint,
         max_per_family,
     );
@@ -4121,7 +4128,7 @@ async fn main() -> Result<(), String> {
     );
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(
         &stream_ranked,
-        selection_limit,
+        publication_limit,
         max_per_endpoint,
         max_per_family,
     );
@@ -4174,7 +4181,7 @@ async fn main() -> Result<(), String> {
         &stream_verified,
         &global_positions,
         &history,
-        selection_limit,
+        publication_limit,
         max_per_endpoint,
         max_per_family,
     );
@@ -4273,17 +4280,18 @@ mod tests {
     use super::{
         adaptive_discovery_batch_size, adaptive_recheck_limit, adaptive_stability_pool_target,
         adaptive_stability_target, adaptive_strict_validation_target, adaptive_transfer_test_limit,
-        adjust_discovery_batch_for_yield, adjust_transfer_workers, has_disabled_tls_verification,
-        history_fingerprint, light_backend, light_training_features, merge_light_metadata,
-        normalize_light_config, observation_fingerprint, rank_discovery_candidates,
-        recheck_exploration_limit, select_recheck_candidates, select_stability_test_batch,
-        select_transfer_target, select_verified_configs, select_verified_configs_with_cohort_floor,
-        selection_additional_potential_count, selection_eligible_count, selection_potential_count,
-        selection_rejection_counts, should_quarantine_transfer_target, stream_selection_count,
-        strict_validation_target, transfer_target_batch_limit, transfer_validation_target,
-        update_transfer_target_state, ConsumerEvidence, LightBackend, LightGbmScores, ProxyMetrics,
-        TransferConcurrencyState, TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS,
-        FINAL_TRANSFER_WORKERS,
+        adjust_discovery_batch_for_yield, adjust_transfer_workers, final_publication_limit,
+        has_disabled_tls_verification, history_fingerprint, light_backend, light_training_features,
+        merge_light_metadata, normalize_light_config, observation_fingerprint,
+        rank_discovery_candidates, recheck_exploration_limit, select_recheck_candidates,
+        select_stability_test_batch, select_transfer_target, select_verified_configs,
+        select_verified_configs_with_cohort_floor, selection_additional_potential_count,
+        selection_eligible_count, selection_potential_count, selection_rejection_counts,
+        should_quarantine_transfer_target, stream_selection_count, strict_validation_target,
+        transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
+        ConsumerEvidence, LightBackend, LightGbmScores, ProxyMetrics, TransferConcurrencyState,
+        TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS,
+        MAX_DISCOVERY_CANDIDATES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -4336,6 +4344,30 @@ mod tests {
         assert_eq!(selected.len(), 8);
         assert_eq!(previous, 3);
         assert_eq!(older, 2);
+    }
+
+    #[test]
+    fn max_light_candidates_matches_update_workflow_limit() {
+        assert_eq!(MAX_DISCOVERY_CANDIDATES, 15_000);
+    }
+
+    #[test]
+    fn final_publication_keeps_completed_stream_overshoot() {
+        let configs = (0..143)
+            .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
+            .collect::<Vec<_>>();
+        let generations = HashMap::new();
+        let publication_limit = final_publication_limit(130, configs.len());
+
+        assert_eq!(publication_limit, 143);
+        let (selected, _, _) = select_verified_configs_with_cohort_floor(
+            &configs,
+            &generations,
+            publication_limit,
+            1,
+            3,
+        );
+        assert_eq!(selected.len(), 143);
     }
 
     #[test]
