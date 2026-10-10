@@ -858,7 +858,6 @@ fn cap_configs_globally(
         selected.push(config.clone());
     };
 
-    // Preserve protocol diversity before spending the remaining cap.
     let mut schemes = ranked
         .iter()
         .map(|config| config_scheme(config))
@@ -884,8 +883,6 @@ fn cap_configs_globally(
         }
     }
 
-    // Prefer a new endpoint whenever possible so one server cannot consume
-    // the whole cap with transport/config variants.
     if selected.len() < target {
         for config in &ranked {
             if selected.len() >= target {
@@ -910,7 +907,6 @@ fn cap_configs_globally(
         }
     }
 
-    // Fill any remaining capacity using source-backed ranking.
     for config in &ranked {
         if selected.len() >= target {
             break;
