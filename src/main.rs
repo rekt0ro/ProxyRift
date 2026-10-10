@@ -605,10 +605,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let non_tcp_transport_count = configs
         .iter()
         .filter(|config| {
-            matches!(
-                config_scheme(config).as_str(),
-                "hysteria" | "hysteria2" | "hy2" | "tuic" | "wg"
-            )
+            is_kcp_transport_config(config)
+                || matches!(
+                    config_scheme(config).as_str(),
+                    "hysteria" | "hysteria2" | "hy2" | "tuic" | "wg"
+                )
         })
         .count();
 
@@ -1935,6 +1936,23 @@ mod tests {
             let config = format!("ss://{method}:password@example.com:8388");
             assert!(normalize_config(&config).is_some(), "{method}");
         }
+    }
+
+    #[test]
+    fn tcp_endpoint_groups_excludes_mkcp_candidates() {
+        let configs = vec![
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp"
+                .to_string(),
+            "vless://00000000-0000-0000-0000-000000000002@example.com:443?security=tls&type=tcp"
+                .to_string(),
+        ];
+
+        let groups = tcp_endpoint_groups(&configs);
+
+        assert_eq!(
+            groups.get(&("example.com".to_string(), 443)),
+            Some(&vec![1])
+        );
     }
 
     #[test]
