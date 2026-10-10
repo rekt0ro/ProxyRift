@@ -5993,8 +5993,7 @@ remove old fields assertions        assert_eq!(tuned["streamSettings"]["kcpSetti
             "mtu": 1200,
             "tti": 30,
             "uplinkCapacity": 10,
-            "downlinkCapacity": 100,
-            "congestion": false
+            "downlinkCapacity": 100
         });
         let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
         let parsed = parse_config(&config).expect("VMess mKCP settings should parse");
