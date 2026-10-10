@@ -210,8 +210,6 @@ fn record_target_performance(
     }
 }
 
-/// Scores download hosts using observed reliability, rate-limit pressure, and
-/// latency normalized to MiB. Unproven hosts retain an exploration bonus.
 pub fn target_performance_score(target: &str) -> f64 {
     let Some(key) = target_rate_limit_key(target) else {
         return TARGET_PERFORMANCE_EXPLORATION_WEIGHT;
@@ -4120,8 +4118,6 @@ async fn check_batch_targets(
             let pooled =
                 validate_clients_with_target_pool(&clients, targets, workers, policy).await;
 
-            // A core crash invalidates this batch's results, just as it does in the
-            // non-pooled path. Split the batch so one bad config cannot poison others.
             if child.try_wait().ok().flatten().is_some() {
                 core_failures += 1;
                 if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
