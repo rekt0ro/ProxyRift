@@ -87,4 +87,4 @@ if grep -Eq 'promoted_after_temporal_validation|model_did_not_beat_temporal_base
   exit 1
 fi
 
-echo "[OK] Update summary reports TXT and human-readable temporal LightGBM statuses without metadata injection."
+echo "[OK] Update summary reports TXT and human-readable temporal LightGBM statuses."
