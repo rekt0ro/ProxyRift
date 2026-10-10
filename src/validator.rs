@@ -1148,6 +1148,93 @@ fn xhttp_extra_value(url: &Url) -> Result<Option<Value>, String> {
     Ok(None)
 }
 
+fn kcp_settings(url: &Url) -> Result<Value, String> {
+    let mut settings = json!({});
+    let mtu = first_query(url, &["mtu"], Some("")).trim();
+    if !mtu.is_empty() {
+        let value = mtu
+            .parse::<u16>()
+            .ok()
+            .filter(|value| (576..=1460).contains(value))
+            .ok_or_else(|| "invalid mKCP mtu; expected 576..1460".to_string())?;
+        settings["mtu"] = json!(value);
+    }
+
+    let tti = first_query(url, &["tti"], Some("")).trim();
+    if !tti.is_empty() {
+        let value = tti
+            .parse::<u16>()
+            .ok()
+            .filter(|value| (10..=100).contains(value))
+            .ok_or_else(|| "invalid mKCP tti; expected 10..100".to_string())?;
+        settings["tti"] = json!(value);
+    }
+
+    for (names, field) in [
+        (&["uplinkCapacity", "uplink_capacity"][..], "uplinkCapacity"),
+        (&["downlinkCapacity", "downlink_capacity"][..], "downlinkCapacity"),
+    ] {
+        let raw = first_query(url, names, Some(""));
+        if !raw.is_empty() {
+            let value = raw
+                .trim()
+                .parse::<u32>()
+                .map_err(|_| format!("invalid mKCP {field}"))?;
+            settings[field] = json!(value);
+        }
+    }
+
+    for (names, field) in [
+        (&["readBufferSize", "read_buffer_size"][..], "readBufferSize"),
+        (&["writeBufferSize", "write_buffer_size"][..], "writeBufferSize"),
+    ] {
+        let raw = first_query(url, names, Some(""));
+        if !raw.is_empty() {
+            let value = raw
+                .trim()
+                .parse::<u32>()
+                .ok()
+                .filter(|value| *value > 0)
+                .ok_or_else(|| format!("invalid mKCP {field}; expected a positive integer"))?;
+            settings[field] = json!(value);
+        }
+    }
+
+    let cwnd = first_query(url, &["cwndMultiplier", "cwnd_multiplier"], Some("")).trim();
+    if !cwnd.is_empty() {
+        let value = cwnd
+            .parse::<u32>()
+            .ok()
+            .filter(|value| *value >= 1)
+            .ok_or_else(|| "invalid mKCP cwndMultiplier; expected >= 1".to_string())?;
+        settings["cwndMultiplier"] = json!(value);
+    }
+
+    let max_window =
+        first_query(url, &["maxSendingWindow", "max_sending_window"], Some("")).trim();
+    if !max_window.is_empty() {
+        let minimum_mtu = settings["mtu"].as_u64().unwrap_or(1350);
+        let value = max_window
+            .parse::<u64>()
+            .ok()
+            .filter(|value| *value >= minimum_mtu)
+            .ok_or_else(|| "invalid mKCP maxSendingWindow; must be >= mtu".to_string())?;
+        settings["maxSendingWindow"] = json!(value);
+    }
+
+    let congestion = first_query(url, &["congestion"], Some("")).trim().to_ascii_lowercase();
+    if !congestion.is_empty() {
+        let value = match congestion.as_str() {
+            "1" | "true" | "yes" | "on" => true,
+            "0" | "false" | "no" | "off" => false,
+            _ => return Err("invalid mKCP congestion boolean".to_string()),
+        };
+        settings["congestion"] = json!(value);
+    }
+
+    Ok(settings)
+}
+
 fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
     let network = normalize_transport(&first_query(url, &["type", "network"], Some("tcp")));
 
@@ -1395,7 +1482,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
             out["xhttpSettings"] = settings;
         }
         "kcp" => {
-            out["kcpSettings"] = json!({});
+            out["kcpSettings"] = kcp_settings(url)?;
         }
         "quic" => {
             let quic_security = first_query(url, &["quicSecurity", "quic_security"], Some("none"))
@@ -1518,6 +1605,24 @@ fn parse_vmess(config: &str) -> Result<Value, String> {
             .filter(|value| matches!(value.as_str(), "gun" | "multi"))
         {
             q.push(("mode".to_string(), mode));
+        }
+    }
+
+    if network.eq_ignore_ascii_case("kcp") {
+        for key in [
+            "mtu",
+            "tti",
+            "uplinkCapacity",
+            "downlinkCapacity",
+            "congestion",
+            "readBufferSize",
+            "writeBufferSize",
+            "cwndMultiplier",
+            "maxSendingWindow",
+        ] {
+            if let Some(value) = json_text(value.get(key)).filter(|value| !value.trim().is_empty()) {
+                q.push((key.to_string(), value));
+            }
         }
     }
 
@@ -2055,6 +2160,9 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 if security == "reality" {
                     return Some("incompatible-security-transport");
                 }
+                if kcp_settings(&url).is_err() {
+                    return Some("invalid-kcp-parameters");
+                }
             }
 
             if transport == "quic" {
@@ -2190,6 +2298,27 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 if json_text(value.get("path")).is_some_and(|path| !path.trim().is_empty()) {
                     return Some("unsupported-vmess-kcp-seed");
                 }
+                let synthetic_query = Url::parse(&format!(
+                    "https://example.invalid/?{}",
+                    [
+                        "mtu",
+                        "tti",
+                        "uplinkCapacity",
+                        "downlinkCapacity",
+                        "congestion",
+                        "readBufferSize",
+                        "writeBufferSize",
+                        "cwndMultiplier",
+                        "maxSendingWindow",
+                    ]
+                    .iter()
+                    .filter_map(|key| json_text(value.get(*key)).map(|raw| format!("{}={}", key, urlencoding(&raw))))
+                    .collect::<Vec<_>>()
+                    .join("&")
+                ));
+                if synthetic_query.ok().is_none_or(|url| kcp_settings(&url).is_err()) {
+                    return Some("invalid-vmess-kcp-parameters");
+                }
             }
 
             if network == "quic" {
@@ -2220,6 +2349,13 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
             }
 
             None
+        }
+        "tuic" => {
+            if is_supported_tuic_config(config) {
+                None
+            } else {
+                Some("invalid-tuic-config")
+            }
         }
         "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" | "wg" => None,
         _ => Some("unsupported-scheme"),
@@ -2322,7 +2458,9 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 return false;
             }
             if transport == "kcp"
-                && (!first_query(&url, &["seed"], Some("")).is_empty() || security == "reality")
+                && (!first_query(&url, &["seed"], Some("")).is_empty()
+                    || security == "reality"
+                    || kcp_settings(&url).is_err())
             {
                 return false;
             }
@@ -2513,6 +2651,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
 
             true
         }
+        "tuic" => is_supported_tuic_config(cleaned),
         "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" => Url::parse(cleaned)
             .ok()
             .is_some_and(|url| endpoint_from_url(&url, Some(1080)).is_ok()),
@@ -2534,6 +2673,10 @@ fn boolish_value(value: Option<&Value>) -> bool {
 
 pub fn is_locally_supported_config(config: &str) -> bool {
     let scheme = scheme_of(clean(config));
+
+    if scheme == "tuic" {
+        return is_supported_tuic_config(config);
+    }
 
     if scheme == "hysteria" {
         let Ok(url) = Url::parse(clean(config)) else {
@@ -2589,7 +2732,102 @@ pub fn is_locally_supported_config(config: &str) -> bool {
     true
 }
 
-pub(crate) fn parse_config(config: &str) -> Result<Value, String> {
+pub fn is_supported_tuic_config(config: &str) -> bool {
+    let cleaned = clean(config);
+    if scheme_of(cleaned) != "tuic" {
+        return false;
+    }
+
+    let Ok(url) = Url::parse(cleaned) else {
+        return false;
+    };
+    if url.host().is_none() || url.port().is_none() || url.port() == Some(0) {
+        return false;
+    }
+
+    let uuid = decode_component(url.username());
+    if !is_uuid(uuid.trim()) {
+        return false;
+    }
+    if url.password().is_some_and(|password| decode_component(password).is_empty()) {
+        return false;
+    }
+
+    let congestion = first_query(&url, &["congestion_control", "congestionControl"], Some("cubic"))
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(congestion.as_str(), "cubic" | "new_reno" | "bbr") {
+        return false;
+    }
+
+    let relay_mode = first_query(&url, &["udp_relay_mode", "udpRelayMode"], Some("native"))
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(relay_mode.as_str(), "native" | "quic") {
+        return false;
+    }
+
+    let has_relay_mode = url.query_pairs().any(|(key, _)| {
+        key.eq_ignore_ascii_case("udp_relay_mode") || key.eq_ignore_ascii_case("udpRelayMode")
+    });
+    let udp_over_stream_raw = first_query(&url, &["udp_over_stream", "udpOverStream"], Some(""));
+    if !udp_over_stream_raw.trim().is_empty() {
+        let value = match udp_over_stream_raw.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => true,
+            "0" | "false" | "no" | "off" => false,
+            _ => return false,
+        };
+        if value && has_relay_mode {
+            return false;
+        }
+    }
+
+    for key in ["zero_rtt_handshake", "zeroRttHandshake", "insecure", "allowInsecure"] {
+        let raw = first_query(&url, &[key], Some(""));
+        if !raw.trim().is_empty()
+            && !matches!(
+                raw.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+            )
+        {
+            return false;
+        }
+    }
+
+    let network = first_query(&url, &["network"], Some(""));
+    if !network.trim().is_empty()
+        && !matches!(network.trim().to_ascii_lowercase().as_str(), "tcp" | "udp")
+    {
+        return false;
+    }
+
+    let heartbeat = first_query(&url, &["heartbeat"], Some(""));
+    if !heartbeat.trim().is_empty() && !valid_duration(&heartbeat) {
+        return false;
+    }
+
+    true
+}
+
+fn valid_duration(value: &str) -> bool {
+    let value = value.trim();
+    let split = value
+        .char_indices()
+        .find(|(_, ch)| !ch.is_ascii_digit())
+        .map(|(index, _)| index)
+        .unwrap_or(value.len());
+    if split == 0 {
+        return false;
+    }
+    let amount = match value[..split].parse::<u64>() {
+        Ok(amount) if amount > 0 => amount,
+        _ => return false,
+    };
+    let unit = &value[split..];
+    matches!(unit, "" | "ms" | "s" | "m" | "h") && amount <= u32::MAX as u64
+}
+
+fn parse_config(config: &str) -> Result<Value, String> {
     let scheme = scheme_of(clean(config));
 
     match scheme.as_str() {
