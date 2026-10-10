@@ -528,6 +528,16 @@ fn first_query(url: &Url, names: &[&str], default: Option<&str>) -> String {
     default.unwrap_or_default().to_string()
 }
 
+fn hysteria_v1_protocol(url: &Url) -> String {
+    for name in ["obfs-protocol", "protocol"] {
+        let value = first_query(url, &[name], Some(""));
+        if !value.trim().is_empty() {
+            return value;
+        }
+    }
+    "udp".to_string()
+}
+
 fn repair_websocket_early_data(value: &str) -> Option<String> {
     let mut normalized = value.trim().to_string();
     if normalized.is_empty() {
@@ -645,6 +655,18 @@ fn vmess_tls_security(value: Option<&Value>) -> String {
     }
 }
 
+fn normalize_vless_flow(value: &str) -> Option<String> {
+    let flow = value.trim().to_ascii_lowercase();
+    if matches!(
+        flow.as_str(),
+        "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
+    ) {
+        Some(flow)
+    } else {
+        None
+    }
+}
+
 fn json_u64(value: Option<&Value>) -> u64 {
     match value {
         Some(Value::Number(value)) => value.as_u64().unwrap_or(0),
@@ -664,16 +686,19 @@ fn csv(value: &str) -> Vec<String> {
 
 fn normalize_transport(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return "raw".to_string();
+    }
 
     normalized
         .split([',', ';', '|'])
         .map(str::trim)
         .find_map(|candidate| match candidate {
             "raw" | "tcp" => Some("raw".to_string()),
-            "ws" => Some("ws".to_string()),
+            "ws" | "websocket" => Some("ws".to_string()),
             "http" | "h2" => Some("http".to_string()),
             "grpc" => Some("grpc".to_string()),
-            "httpupgrade" => Some("httpupgrade".to_string()),
+            "httpupgrade" | "http-upgrade" => Some("httpupgrade".to_string()),
             "kcp" | "mkcp" => Some("kcp".to_string()),
             "quic" => Some("quic".to_string()),
             "xhttp" | "splithttp" => Some("xhttp".to_string()),
@@ -923,6 +948,20 @@ fn ss_legacy_decode(payload: &str) -> Option<String> {
     String::from_utf8(b64decode(&decode_component(encoded))?).ok()
 }
 
+fn decode_ss_credentials(credentials: &str) -> Option<(String, String)> {
+    let decoded_component = decode_component(credentials);
+
+    if let Some((method, password)) = decoded_component.split_once(':') {
+        return (!method.trim().is_empty() && !password.is_empty())
+            .then(|| (method.to_string(), password.to_string()));
+    }
+
+    let decoded = b64decode(&decoded_component).and_then(|bytes| String::from_utf8(bytes).ok())?;
+    let (method, password) = decoded.split_once(':')?;
+    (!method.trim().is_empty() && !password.is_empty())
+        .then(|| (method.to_string(), password.to_string()))
+}
+
 fn ss_has_nonempty_password(config: &str) -> bool {
     let config = clean(config);
     let Ok(url) = Url::parse(config) else {
@@ -939,15 +978,7 @@ fn ss_has_nonempty_password(config: &str) -> bool {
         .unwrap_or_default();
 
     if let Some((credentials, _remote)) = payload.rsplit_once('@') {
-        let decoded = b64decode(&decode_component(credentials))
-            .and_then(|bytes| String::from_utf8(bytes).ok());
-        let Some(credentials) = decoded else {
-            return false;
-        };
-
-        return credentials
-            .split_once(':')
-            .is_some_and(|(_, password)| !password.is_empty());
+        return decode_ss_credentials(credentials).is_some();
     }
 
     let Some(decoded) = ss_legacy_decode(payload) else {
@@ -957,9 +988,7 @@ fn ss_has_nonempty_password(config: &str) -> bool {
         return false;
     };
 
-    credentials
-        .split_once(':')
-        .is_some_and(|(_, password)| !password.is_empty())
+    decode_ss_credentials(credentials).is_some()
 }
 
 pub fn endpoint(config: &str) -> Option<(String, u16)> {
@@ -1265,24 +1294,24 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         })
         .unwrap_or_else(|| "none".to_string());
 
-    let mut security = match security.as_str() {
+    let security = match security.as_str() {
         "none" => "none".to_string(),
         "tls" | "t" | "tl" => "tls".to_string(),
         "reality" => "reality".to_string(),
         _ => return Err(format!("unsupported security {security}")),
     };
 
-    if security == "reality" && matches!(network.as_str(), "kcp" | "quic") {
+    if security == "reality" && !matches!(network.as_str(), "raw" | "xhttp" | "grpc") {
         return Err(format!(
             "Reality security is incompatible with {network} transport"
         ));
     }
 
-    if security == "reality" && !matches!(network.as_str(), "raw" | "xhttp" | "grpc") {
-        security = "tls".to_string();
-    }
-
-    let sni = first_query(url, &["sni", "server_name", "peer"], Some(host));
+    let sni = first_query(
+        url,
+        &["sni", "servername", "server_name", "peer"],
+        Some(host),
+    );
     let alpn = csv(&first_query(url, &["alpn"], Some("")));
     let mut out = json!({
         "network": network,
@@ -1312,7 +1341,11 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         }
         out["tlsSettings"] = tls;
     } else if security == "reality" {
-        let pbk = first_query(url, &["pbk", "publicKey"], Some(""));
+        let pbk = first_query(
+            url,
+            &["pbk", "publicKey", "public_key", "public-key"],
+            Some(""),
+        );
         if pbk.is_empty() {
             return Err("reality public key missing".to_string());
         }
@@ -1322,7 +1355,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
             "publicKey": pbk,
         });
         let fp = first_query(url, &["fp", "fingerprint"], Some(""));
-        let sid = first_query(url, &["sid", "shortId"], Some(""));
+        let sid = first_query(url, &["sid", "shortId", "short_id", "short-id"], Some(""));
         let spx = first_query(url, &["spx", "spiderX"], Some(""));
         if !fp.is_empty() {
             reality["fingerprint"] = json!(fp);
@@ -1527,13 +1560,9 @@ fn parse_vless(config: &str) -> Result<Value, String> {
         "id": uuid,
         "encryption": first_query(&url, &["encryption"], Some("none")),
     });
-    let flow = first_query(&url, &["flow"], Some(""));
-    if !matches!(
-        flow.as_str(),
-        "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
-    ) {
-        return Err(format!("unsupported VLESS flow: {flow}"));
-    }
+    let flow_raw = first_query(&url, &["flow"], Some(""));
+    let flow = normalize_vless_flow(&flow_raw)
+        .ok_or_else(|| format!("unsupported VLESS flow: {flow_raw}"))?;
     if !flow.is_empty() {
         user["flow"] = json!(flow);
     }
@@ -1742,10 +1771,52 @@ fn supported_ss_plugin(key: &str, value: &str) -> bool {
         return true;
     }
 
-    matches!(
-        value.split(';').next().unwrap_or("").trim(),
-        "obfs-local" | "v2ray-plugin"
-    )
+    let mut parts = value.split(';');
+    let name = parts.next().unwrap_or("").trim();
+    let mut seen = HashSet::new();
+
+    for option in parts {
+        let option = option.trim();
+        if option.is_empty() {
+            continue;
+        }
+
+        let (key, value) = option
+            .split_once('=')
+            .map(|(key, value)| (key.trim().to_ascii_lowercase(), Some(value.trim())))
+            .unwrap_or_else(|| (option.to_ascii_lowercase(), None));
+        if key.is_empty() || !seen.insert(key.clone()) {
+            return false;
+        }
+
+        match name {
+            "obfs-local" => match key.as_str() {
+                "obfs"
+                    if value.is_some_and(|value| {
+                        matches!(value.trim().to_ascii_lowercase().as_str(), "http" | "tls")
+                    }) => {}
+                "obfs-host" if value.is_some() => {}
+                _ => return false,
+            },
+            "v2ray-plugin" => match key.as_str() {
+                "mode"
+                    if value
+                        .is_some_and(|value| value.trim().eq_ignore_ascii_case("websocket")) => {}
+                "host" | "path" if value.is_some() => {}
+                "tls" | "mux"
+                    if value.is_none_or(|value| {
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+                        )
+                    }) => {}
+                _ => return false,
+            },
+            _ => return false,
+        }
+    }
+
+    matches!(name, "obfs-local" | "v2ray-plugin")
 }
 
 fn parse_ss(config: &str) -> Result<Value, String> {
@@ -1772,27 +1843,18 @@ fn parse_ss(config: &str) -> Result<Value, String> {
 
         let (method, password, remote) =
             if let Some((credentials, remote)) = payload.rsplit_once('@') {
-                let decoded = String::from_utf8(
-                    b64decode(&decode_component(credentials))
-                        .ok_or_else(|| "invalid Shadowsocks base64".to_string())?,
-                )
-                .map_err(|error| error.to_string())?;
-                let (method, password) = decoded
-                    .split_once(':')
+                let (method, password) = decode_ss_credentials(credentials)
                     .ok_or_else(|| "invalid Shadowsocks credentials".to_string())?;
-
-                (method.to_string(), password.to_string(), remote.to_string())
+                (method, password, remote.to_string())
             } else {
                 let decoded = ss_legacy_decode(payload)
                     .ok_or_else(|| "invalid Shadowsocks base64".to_string())?;
                 let (credentials, remote) = decoded
                     .rsplit_once('@')
                     .ok_or_else(|| "invalid Shadowsocks payload".to_string())?;
-                let (method, password) = credentials
-                    .split_once(':')
+                let (method, password) = decode_ss_credentials(credentials)
                     .ok_or_else(|| "invalid Shadowsocks credentials".to_string())?;
-
-                (method.to_string(), password.to_string(), remote.to_string())
+                (method, password, remote.to_string())
             };
 
         let remote_url =
@@ -1800,6 +1862,10 @@ fn parse_ss(config: &str) -> Result<Value, String> {
         let (host, port) = endpoint_from_url(&remote_url, None)?;
         (host, port, method, password)
     };
+
+    if method.trim().is_empty() || password.is_empty() {
+        return Err("Shadowsocks method or password missing".to_string());
+    }
 
     Ok(json!({
         "protocol": "shadowsocks",
@@ -2135,11 +2201,9 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 }
             }
 
-            let flow = first_query(&url, &["flow"], Some(""));
-            if !matches!(
-                flow.as_str(),
-                "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
-            ) {
+            if scheme == "vless"
+                && normalize_vless_flow(&first_query(&url, &["flow"], Some(""))).is_none()
+            {
                 return Some("unsupported-flow");
             }
 
@@ -2199,9 +2263,18 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 }
             }
 
+            if security == "reality" && !matches!(transport.as_str(), "raw" | "xhttp" | "grpc") {
+                return Some("incompatible-security-transport");
+            }
+
             if security == "reality"
                 && matches!(transport.as_str(), "raw" | "xhttp" | "grpc")
-                && first_query(&url, &["pbk", "publicKey"], Some("")).is_empty()
+                && first_query(
+                    &url,
+                    &["pbk", "publicKey", "public_key", "public-key"],
+                    Some(""),
+                )
+                .is_empty()
             {
                 return Some("missing-reality-key");
             }
@@ -2216,13 +2289,17 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("invalid-endpoint");
             }
 
-            let protocol = first_query(&url, &["protocol"], Some("udp"));
-            if !protocol.eq_ignore_ascii_case("udp") {
+            let protocol = hysteria_v1_protocol(&url);
+            if !matches!(
+                protocol.trim().to_ascii_lowercase().as_str(),
+                "udp" | "wechat-video" | "faketcp"
+            ) {
                 return Some("unsupported-hysteria-transport");
             }
 
             let parse_positive = |name: &str| {
                 first_query(&url, &[name], Some(""))
+                    .trim()
                     .parse::<u32>()
                     .ok()
                     .is_some_and(|value| value > 0)
@@ -2231,7 +2308,9 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("invalid-hysteria-bandwidth");
             }
 
-            let obfs = first_query(&url, &["obfs"], Some("")).to_ascii_lowercase();
+            let obfs = first_query(&url, &["obfs"], Some(""))
+                .trim()
+                .to_ascii_lowercase();
             let obfs_param = first_query(&url, &["obfsparam"], Some(""));
             if !obfs.is_empty() && obfs != "xplus" {
                 return Some("unsupported-hysteria-obfuscation");
@@ -2423,9 +2502,12 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 .trim_end_matches('.')
                 .to_ascii_lowercase();
             let valid_security = if scheme == "trojan" {
-                matches!(security.as_str(), "" | "tls" | "reality")
+                matches!(security.as_str(), "" | "tls" | "t" | "tl" | "reality")
             } else {
-                matches!(security.as_str(), "" | "none" | "tls" | "reality")
+                matches!(
+                    security.as_str(),
+                    "" | "none" | "tls" | "t" | "tl" | "reality"
+                )
             };
             if !valid_security {
                 return false;
@@ -2434,12 +2516,12 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 return false;
             }
 
-            let flow = first_query(&url, &["flow"], Some(""));
+            if security == "reality" && !matches!(transport.as_str(), "raw" | "grpc") {
+                return false;
+            }
+
             if scheme == "vless"
-                && !matches!(
-                    flow.as_str(),
-                    "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
-                )
+                && normalize_vless_flow(&first_query(&url, &["flow"], Some(""))).is_none()
             {
                 return false;
             }
@@ -2524,8 +2606,16 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
             }
 
             if security == "reality" {
-                let pbk = first_query(&url, &["pbk", "publicKey"], Some(""));
-                let sni = first_query(&url, &["sni", "serverName"], Some(""));
+                let pbk = first_query(
+                    &url,
+                    &["pbk", "publicKey", "public_key", "public-key"],
+                    Some(""),
+                );
+                let sni = first_query(
+                    &url,
+                    &["sni", "servername", "server_name", "peer"],
+                    Some(url.host_str().unwrap_or("")),
+                );
                 if pbk.trim().is_empty() || sni.trim().is_empty() {
                     return false;
                 }
@@ -2705,13 +2795,14 @@ pub fn is_locally_supported_config(config: &str) -> bool {
             return false;
         }
 
-        let protocol = first_query(&url, &["protocol"], Some("udp"));
-        if !protocol.eq_ignore_ascii_case("udp") {
+        let protocol = hysteria_v1_protocol(&url);
+        if !protocol.trim().eq_ignore_ascii_case("udp") {
             return false;
         }
 
         let parse_positive = |name: &str| {
             first_query(&url, &[name], Some(""))
+                .trim()
                 .parse::<u32>()
                 .ok()
                 .is_some_and(|value| value > 0)
@@ -2721,7 +2812,9 @@ pub fn is_locally_supported_config(config: &str) -> bool {
             return false;
         }
 
-        let obfs = first_query(&url, &["obfs"], Some("")).to_ascii_lowercase();
+        let obfs = first_query(&url, &["obfs"], Some(""))
+            .trim()
+            .to_ascii_lowercase();
         let obfs_param = first_query(&url, &["obfsparam"], Some(""))
             .trim()
             .to_string();
@@ -5422,15 +5515,13 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_tls_for_invalid_reality_transport() {
-        let config = parse_config(
+    fn rejects_reality_on_incompatible_transport() {
+        let error = parse_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=ws&sni=example.com&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=",
         )
-        .expect("invalid REALITY transport should fall back to TLS");
+        .expect_err("invalid REALITY transport must be rejected instead of downgraded");
 
-        assert_eq!(config["streamSettings"]["security"], "tls");
-        assert!(config["streamSettings"].get("tlsSettings").is_some());
-        assert!(config["streamSettings"].get("realitySettings").is_none());
+        assert!(error.contains("Reality security is incompatible with ws transport"));
     }
 
     #[test]
@@ -5566,8 +5657,22 @@ mod tests {
     #[test]
     fn supports_shadowsocks_sip003_plugins() {
         assert!(supported_ss_plugin("plugin", "obfs-local;obfs=http"));
+        assert!(supported_ss_plugin(
+            "plugin",
+            "obfs-local;obfs=tls;obfs-host=example.com"
+        ));
         assert!(supported_ss_plugin("plugin", "v2ray-plugin;tls"));
+        assert!(supported_ss_plugin(
+            "plugin",
+            "v2ray-plugin;mode=websocket;tls=true;host=example.com;path=/ws;mux=false"
+        ));
         assert!(!supported_ss_plugin("plugin", "unsupported-plugin"));
+        assert!(!supported_ss_plugin("plugin", "v2ray-plugin;mode=quic"));
+        assert!(!supported_ss_plugin("plugin", "obfs-local;obfs=unknown"));
+        assert!(!supported_ss_plugin(
+            "plugin",
+            "v2ray-plugin;tls=true;tls=false"
+        ));
     }
 
     #[test]
@@ -5910,6 +6015,22 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_accepts_common_transport_aliases() {
+        for (transport, expected) in [("websocket", "ws"), ("http-upgrade", "httpupgrade")] {
+            let config = format!(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?type={transport}"
+            );
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{transport}"
+            );
+            let parsed = parse_config(&config).expect("recognized transport alias should parse");
+            assert_eq!(parsed["streamSettings"]["network"], expected);
+        }
+    }
+
+    #[test]
     fn cheap_compatibility_accepts_supported_mkcp_and_rejects_legacy_obfuscation() {
         for config in [
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp",
@@ -6049,6 +6170,46 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_accepts_alternate_reality_public_key_names() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=tcp&public_key=public-key&sni=example.com";
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        let parsed = parse_config(config).expect("alternate Reality public key name should parse");
+        assert_eq!(
+            parsed["streamSettings"]["realitySettings"]["publicKey"],
+            "public-key"
+        );
+    }
+
+    #[test]
+    fn reality_is_not_silently_downgraded_on_unsupported_transports() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=ws&pbk=public-key&sni=example.com";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(config),
+            Some("incompatible-security-transport")
+        );
+        assert!(parse_config(config).is_err());
+        assert!(!is_light_consumer_compatible(config));
+    }
+
+    #[test]
+    fn reality_aliases_are_preserved_for_local_and_light_consumers() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=tcp&public_key=public-key&short_id=abcd&server_name=cover.example.com";
+
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        assert!(is_light_consumer_compatible(config));
+
+        let parsed = parse_config(config).expect("Reality aliases should parse");
+        assert_eq!(
+            parsed["streamSettings"]["realitySettings"]["serverName"],
+            "cover.example.com"
+        );
+        assert_eq!(
+            parsed["streamSettings"]["realitySettings"]["shortId"],
+            "abcd"
+        );
+    }
+
+    #[test]
     fn cheap_compatibility_accepts_vmess_tls_none_alias() {
         let payload = serde_json::json!({
             "v": "2",
@@ -6116,6 +6277,23 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_treats_empty_vmess_network_as_tcp_default() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": ""
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert_eq!(cheap_compatibility_rejection_reason(&config), None);
+        let parsed = parse_config(&config).expect("empty VMess network should use TCP");
+        assert_eq!(parsed["streamSettings"]["network"], "raw");
+        assert!(is_locally_supported_config(&config));
+    }
+
+    #[test]
     fn cheap_compatibility_accepts_vmess_tcp_transport() {
         let config = "vmess://eyJ2IjoiMiIsInBzIjoiIiwiYWRkIjoiZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJhaWQiOiIwIiwibmV0IjoidGNwIn0";
         assert!(is_cheaply_supported_config(config));
@@ -6126,6 +6304,22 @@ mod tests {
         assert!(!is_cheaply_supported_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=madeup"
         ));
+    }
+
+    #[test]
+    fn cheap_compatibility_normalizes_vless_flow_and_ignores_trojan_flow() {
+        let vless =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?flow=XTLS-RPRX-VISION";
+        assert_eq!(cheap_compatibility_rejection_reason(vless), None);
+        let parsed = parse_config(vless).expect("case-insensitive VLESS flow should parse");
+        assert_eq!(
+            parsed["settings"]["vnext"][0]["users"][0]["flow"],
+            "xtls-rprx-vision"
+        );
+
+        let trojan = "trojan://secret@example.com:443?security=tls&flow=legacy-flow";
+        assert_eq!(cheap_compatibility_rejection_reason(trojan), None);
+        assert!(parse_config(trojan).is_ok());
     }
 
     #[test]
@@ -6147,6 +6341,39 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_accepts_mihomo_hysteria_v1_protocols_but_keeps_singbox_restricted() {
+        for protocol in ["udp", "wechat-video", "faketcp"] {
+            let config = format!(
+                "hysteria://password@example.com:443?protocol={protocol}&upmbps=100&downmbps=100"
+            );
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{protocol}"
+            );
+        }
+
+        let alias =
+            "hysteria://password@example.com:443?obfs-protocol=faketcp&upmbps=100&downmbps=100";
+        assert_eq!(cheap_compatibility_rejection_reason(alias), None);
+        assert!(!is_locally_supported_config(alias));
+
+        let conflicting_aliases = "hysteria://password@example.com:443?protocol=udp&obfs-protocol=faketcp&upmbps=100&downmbps=100";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(conflicting_aliases),
+            None
+        );
+        assert!(!is_locally_supported_config(conflicting_aliases));
+
+        let unsupported =
+            "hysteria://password@example.com:443?protocol=tcp&upmbps=100&downmbps=100";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(unsupported),
+            Some("unsupported-hysteria-transport")
+        );
+    }
+
+    #[test]
     fn cheap_compatibility_preserves_trojan_username_fallback() {
         assert!(is_cheaply_supported_config(
             "trojan://user:@example.com:443?security=tls"
@@ -6158,6 +6385,25 @@ mod tests {
         assert!(is_cheaply_supported_config(
             "socks5://user@example.com:1080"
         ));
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_percent_encoded_plain_sip002_credentials() {
+        let config = "ss://aes-256-gcm%3Apass%40word@example.com:8388";
+
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        let parsed = parse_config(config).expect("percent-encoded SIP002 credentials should parse");
+        assert_eq!(parsed["settings"]["servers"][0]["method"], "aes-256-gcm");
+        assert_eq!(parsed["settings"]["servers"][0]["password"], "pass@word");
+    }
+
+    #[test]
+    fn cheap_compatibility_rejects_percent_encoded_empty_sip002_password() {
+        let config = "ss://aes-256-gcm%3A@example.com:8388";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(config),
+            Some("missing-shadowsocks-password")
+        );
     }
 
     #[test]
