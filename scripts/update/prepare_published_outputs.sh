@@ -3,6 +3,8 @@ set -euo pipefail
 
 minimum_light="${LIGHT_MIN_PUBLISH:-50}"
 minimum_all="${ALL_MIN_PUBLISH:-1}"
+maximum_light="${LIGHT_SELECTION_LIMIT:-200}"
+maximum_all="${ALL_MAX_PUBLISH:-2000}"
 counts_file="subscriptions/.output-counts.json"
 
 for f in subscriptions/all.txt subscriptions/light.txt subscriptions/all-base64.txt subscriptions/light-base64.txt subscriptions/all-clash.yaml subscriptions/light-clash.yaml subscriptions/all-singbox.json subscriptions/light-singbox.json "$counts_file"; do
@@ -23,8 +25,16 @@ if (( light_count < minimum_light )); then
   echo "[ERROR] Refusing to publish Light with $light_count entries; minimum is $minimum_light." >&2
   exit 1
 fi
+if (( light_count > maximum_light )); then
+  echo "[ERROR] Refusing to publish Light with $light_count entries; maximum is $maximum_light." >&2
+  exit 1
+fi
 if (( all_count < minimum_all )); then
   echo "[ERROR] Refusing to publish All with $all_count entries; minimum is $minimum_all." >&2
+  exit 1
+fi
+if (( all_count > maximum_all )); then
+  echo "[ERROR] Refusing to publish All with $all_count entries; maximum is $maximum_all." >&2
   exit 1
 fi
 

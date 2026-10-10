@@ -9,6 +9,7 @@ mkdir -p "$work/subscriptions"
 
 make_outputs() {
   local light_count="$1"
+  local all_count="${2:-1}"
   local dir="$work/subscriptions"
   : > "$dir/light.txt"
   : > "$dir/all.txt"
@@ -16,7 +17,9 @@ make_outputs() {
   for ((i = 1; i <= light_count; i++)); do
     printf 'vless://test-%s@example.com:443\n' "$i" >> "$dir/light.txt"
   done
-  printf 'socks5://test@example.com:1080\n' >> "$dir/all.txt"
+  for ((i = 1; i <= all_count; i++)); do
+    printf 'socks5://test-%s@example.com:1080\n' "$i" >> "$dir/all.txt"
+  done
 
   python3 - "$dir" <<'PY'
 import base64
@@ -72,6 +75,22 @@ run_gate() {
 make_outputs 50
 run_gate >/dev/null
 echo "[OK] Valid generated outputs pass the publication gate."
+
+make_outputs 201
+if run_gate >"$tmp/light-max.log" 2>&1; then
+  echo "[ERROR] Publication gate accepted Light above its hard maximum." >&2
+  exit 1
+fi
+grep --quiet "maximum is 200" "$tmp/light-max.log"
+echo "[OK] Light above the hard maximum is rejected."
+
+make_outputs 50 2001
+if run_gate >"$tmp/all-max.log" 2>&1; then
+  echo "[ERROR] Publication gate accepted All above its hard maximum." >&2
+  exit 1
+fi
+grep --quiet "maximum is 2000" "$tmp/all-max.log"
+echo "[OK] All above the hard maximum is rejected."
 
 make_outputs 50
 printf 'wireguard://test@example.com:51820\n' >> "$work/subscriptions/all.txt"
