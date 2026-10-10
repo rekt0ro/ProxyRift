@@ -1243,7 +1243,7 @@ fn kcp_settings(url: &Url) -> Result<Value, String> {
         settings["maxSendingWindow"] = json!(value);
     }
 
-remove legacy congestion mapping    Ok(settings)
+    Ok(settings)
 }
 
 fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
@@ -5959,7 +5959,7 @@ mod tests {
             tuned["streamSettings"]["kcpSettings"]["downlinkCapacity"],
             100
         );
-remove old fields assertions        assert_eq!(tuned["streamSettings"]["kcpSettings"]["cwndMultiplier"], 2);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["cwndMultiplier"], 2);
         assert_eq!(
             tuned["streamSettings"]["kcpSettings"]["maxSendingWindow"],
             2097152
