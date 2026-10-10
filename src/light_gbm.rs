@@ -525,9 +525,7 @@ struct TrainingData {
 
 fn temporal_reason_label(reason: &str) -> String {
     match reason {
-        "promoted_after_temporal_validation" => {
-            "Promoted after temporal validation".to_string()
-        }
+        "promoted_after_temporal_validation" => "Promoted after temporal validation".to_string(),
         "model_did_not_beat_temporal_baseline" => {
             "Model did not beat temporal baseline".to_string()
         }
