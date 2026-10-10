@@ -1834,13 +1834,6 @@ async fn fill_stream_continuity_gate(
         max_per_family,
     );
     if already_selectable >= selection_limit {
-        println!(
-            "[INFO] 🎯 [Stream] Output quota already fillable | Selectable: {}/{} | Tested: {} | Passed: {}",
-            already_selectable,
-            selection_limit,
-            stream_tested.len(),
-            stream_verified.len()
-        );
         return Ok(stream_verified.len());
     }
 
