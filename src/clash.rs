@@ -416,7 +416,7 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
         &["eh", "earlyDataHeaderName", "early_data_header_name"],
     );
     let alpn = query_list(&url, "alpn");
-    let sni = query_any(&url, &["sni", "servername", "server_name"]);
+    let sni = query_any(&url, &["sni", "servername", "server_name", "peer"]);
     let client_fingerprint = query_any(&url, &["fp", "client-fingerprint"]);
     let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(|value| {
         matches!(
@@ -609,7 +609,7 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
     );
     let alpn = query_list(&url, "alpn");
     let sni =
-        query_any(&url, &["sni", "servername", "server_name"]).or_else(|| Some(server.clone()));
+        query_any(&url, &["sni", "servername", "server_name", "peer"]).or_else(|| Some(server.clone()));
     let client_fingerprint = query_any(&url, &["fp", "clientFingerprint", "client-fingerprint"]);
     let fingerprint = query_any(&url, &["fingerprint", "certFingerprint"]);
     let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(|value| {
@@ -1189,6 +1189,10 @@ mod tests {
         assert!(reality_yaml.contains("public-key: 'public-key'"));
         assert!(reality_yaml.contains("short-id: 'abcd'"));
         assert!(reality_yaml.contains("servername: 'cover.example.com'"));
+
+        let peer = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=tcp&pbk=public-key&peer=peer.example.com";
+        let peer_yaml = super::render(&[peer.to_string()]).expect("peer should be accepted as SNI");
+        assert!(peer_yaml.contains("servername: 'peer.example.com'"));
     }
 
     #[test]
