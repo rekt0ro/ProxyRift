@@ -199,9 +199,6 @@ jobs:
           PROXYRIFT_LOG_MODE: "compact"
         run: bash scripts/update/build_light_subscription.sh
 
-      - name: "🏷️ Add subscription update metadata"
-        id: subscription_metadata
-        run: bash scripts/update/add_subscription_metadata.sh
       - name: "🧬 Generate subscriptions"
         id: generate_base64
         run: |
@@ -221,7 +218,6 @@ jobs:
           DISCOVERY_OUTCOME: ${{ steps.discovery.outcome }}
           COLLECT_OUTCOME: ${{ steps.collect_transport.outcome }}
           LIGHT_OUTCOME: ${{ steps.build_light.outcome }}
-          METADATA_OUTCOME: ${{ steps.subscription_metadata.outcome }}
           GENERATION_OUTCOME: ${{ steps.generate_base64.outcome }}
           PREPARE_OUTCOME: ${{ steps.prepare_outputs.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}

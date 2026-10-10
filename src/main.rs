@@ -770,6 +770,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     write_atomic(&light_candidates_path, light_candidates_subscription).await?;
 
+    let deferred_candidates_path = output_dir.join(".deferred-transport-candidates.txt");
+    let deferred_subscription = if deferred_transport_candidates.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", deferred_transport_candidates.join("\n"))
+    };
+    write_atomic(&deferred_candidates_path, deferred_subscription).await?;
+
     let working_configs = select_all_candidates(&ranked_working_configs, &[]);
 
     let all_subscription = if working_configs.is_empty() {
@@ -1126,6 +1134,7 @@ fn normalize_config(config: &str) -> Option<String> {
             | "hysteria"
             | "hysteria2"
             | "hy2"
+            | "tuic"
             | "wg"
             | "socks"
             | "socks4"
@@ -1708,25 +1717,16 @@ fn set_config_fragment(config: &str, name: &str) -> String {
 }
 
 fn assign_config_names(configs: Vec<String>) -> Vec<String> {
-    let mut counters: HashMap<String, usize> = HashMap::new();
     let mut named = Vec::with_capacity(configs.len());
 
-    for config in configs {
-        let scheme = config_scheme(&config);
-        let display = display_protocol(&scheme).to_string();
-
-        let counter = counters.entry(display.clone()).or_insert(0);
-        *counter += 1;
-
-        let name = format!("{} {:03}", display, *counter);
-
-        if scheme == "vmess" {
+    for (index, config) in configs.into_iter().enumerate() {
+        let name = format!("ProxyRift {:03}", index + 1);
+        if config_scheme(&config) == "vmess" {
             if let Some(named_config) = name_vmess_config(&config, &name) {
                 named.push(named_config);
                 continue;
             }
         }
-
         named.push(set_config_fragment(&config, &name));
     }
 
@@ -1744,26 +1744,6 @@ fn name_vmess_config(config: &str, name: &str) -> Option<String> {
     let payload = serde_json::to_vec(&Value::Object(object)).ok()?;
 
     Some(format!("vmess://{}", STANDARD.encode(payload)))
-}
-
-fn display_protocol(scheme: &str) -> &str {
-    match scheme {
-        "vmess" => "VMess",
-        "vless" => "VLESS",
-        "trojan" => "Trojan",
-        "ss" => "Shadowsocks",
-        "ssr" => "ShadowsocksR",
-        "hysteria" => "Hysteria",
-        "hysteria2" | "hy2" => "Hysteria2",
-        "tuic" => "TUIC",
-        "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" => "SOCKS",
-        "wg" => "WireGuard",
-        "ssh" => "SSH",
-        "naive+https" => "NaiveProxy",
-        "http" => "HTTP",
-        "https" => "HTTPS",
-        _ => scheme,
-    }
 }
 
 fn looks_like_base64(value: &str) -> bool {
@@ -2184,7 +2164,6 @@ mod tests {
             "https://127.0.0.1:443",
             "ssr://encoded",
             "ssh://user@127.0.0.1:22",
-            "tuic://token@127.0.0.1:443",
             "naive+https://user:pass@example.com:443",
         ] {
             assert!(normalize_config(config).is_none(), "{config}");
@@ -2480,20 +2459,31 @@ mod tests {
     }
 
     #[test]
-    fn alias_protocols_share_display_counter() {
+    fn assigns_global_names_across_protocols() {
         let configs = vec![
             "hy2://password@example.com:443".to_string(),
             "hysteria2://password@example.net:443".to_string(),
             "socks4://127.0.0.1:1080".to_string(),
             "socks5://127.0.0.1:1081".to_string(),
+            "tuic://00000000-0000-0000-0000-000000000001:secret@example.org:443".to_string(),
         ];
 
         let named = assign_config_names(configs);
 
-        assert!(named[0].contains("#Hysteria2%20001"));
-        assert!(named[1].contains("#Hysteria2%20002"));
-        assert!(named[2].contains("#SOCKS%20001"));
-        assert!(named[3].contains("#SOCKS%20002"));
+        for (index, config) in named.iter().enumerate() {
+            let expected = format!("#ProxyRift%20{:03}", index + 1);
+            if config.starts_with("vmess://") {
+                assert!(config.starts_with("vmess://"));
+            } else {
+                assert!(config.contains(&expected), "{config}");
+            }
+        }
+    }
+
+    #[test]
+    fn accepts_tuic_links_for_compatibility_screening() {
+        let config = "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443";
+        assert!(normalize_config(config).is_some());
     }
 
     #[test]

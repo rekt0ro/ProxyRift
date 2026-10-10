@@ -2639,6 +2639,9 @@ fn light_backend(config: &str) -> LightBackend {
     if matches!(scheme.as_str(), "http" | "socks" | "socks5" | "socks5h") {
         return LightBackend::Xray;
     }
+    if scheme == "tuic" {
+        return LightBackend::SingBox;
+    }
 
     if scheme == "vmess" {
         if let Some(encoded) = config.split_once("://").map(|(_, rest)| rest) {
@@ -3440,6 +3443,7 @@ async fn main() -> Result<(), String> {
     let mut stagnant_waves = 0usize;
     let mut strict_pool_ready_logged = false;
     let mut discovery_batch_floor = DISCOVERY_BATCH_MIN;
+    let mut last_funnel_snapshot = None;
 
     println!(
         "[INFO] 🔬 [Light] Validation started | {} Candidates | Targets: {} | ML/history ranked with {}% exploration",
@@ -3813,8 +3817,7 @@ async fn main() -> Result<(), String> {
             )
             .len();
 
-            println!(
-                "[INFO] 📈 [Light adaptive funnel] Strict: {} | 1 MiB: {}/{} | 10 MiB: {}/{} | Stream: {}/{} | Publishable: {}/{} | Background: {}",
+            let funnel_snapshot = (
                 final_metadata.len(),
                 stability_verified.len(),
                 stability_tested.len(),
@@ -3823,9 +3826,24 @@ async fn main() -> Result<(), String> {
                 stream_verified.len(),
                 stream_tested.len(),
                 publishable_selected,
-                selection_limit,
-                stream_task.is_some()
+                stream_task.is_some(),
             );
+            if last_funnel_snapshot != Some(funnel_snapshot) {
+                println!(
+                    "[INFO] 📈 [Light adaptive funnel] Strict: {} | 1 MiB: {}/{} | 10 MiB: {}/{} | Stream: {}/{} | Publishable: {}/{} | Background: {}",
+                    final_metadata.len(),
+                    stability_verified.len(),
+                    stability_tested.len(),
+                    transfer_verified.len(),
+                    transfer_tested.len(),
+                    stream_verified.len(),
+                    stream_tested.len(),
+                    publishable_selected,
+                    selection_limit,
+                    stream_task.is_some()
+                );
+                last_funnel_snapshot = Some(funnel_snapshot);
+            }
 
             if publishable_selected >= selection_limit {
                 break;
@@ -4911,6 +4929,14 @@ mod tests {
     fn routes_normal_vless_to_singbox() {
         let config = "vless://uuid@example.com:443?security=tls&type=ws&path=%2F&sni=example.com";
         assert_eq!(light_backend(config), LightBackend::SingBox);
+    }
+
+    #[test]
+    fn routes_tuic_to_singbox() {
+        assert_eq!(
+            light_backend("tuic://00000000-0000-0000-0000-000000000001:password@example.com:443"),
+            LightBackend::SingBox
+        );
     }
 
     #[test]

@@ -80,6 +80,20 @@ fn next_target_pool_probe_chunk_size(current: usize, maximum: usize, rate_limits
 }
 
 static RATE_LIMIT_EVENTS: AtomicU64 = AtomicU64::new(0);
+static LAST_TARGET_HEALTH_SUMMARY: OnceLock<Mutex<Option<(usize, usize)>>> = OnceLock::new();
+
+fn should_log_target_health_summary(usable: usize, total: usize) -> bool {
+    let mut last = LAST_TARGET_HEALTH_SUMMARY
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *last == Some((usable, total)) {
+        false
+    } else {
+        *last = Some((usable, total));
+        true
+    }
+}
 
 #[derive(Default)]
 struct TargetRateLimitState {
@@ -1148,6 +1162,90 @@ fn xhttp_extra_value(url: &Url) -> Result<Option<Value>, String> {
     Ok(None)
 }
 
+fn kcp_settings(url: &Url) -> Result<Value, String> {
+    let mut settings = json!({});
+    let mtu_value = first_query(url, &["mtu"], Some(""));
+    let mtu = mtu_value.trim();
+    if !mtu.is_empty() {
+        let value = mtu
+            .parse::<u16>()
+            .ok()
+            .filter(|value| (576..=1460).contains(value))
+            .ok_or_else(|| "invalid mKCP mtu; expected 576..1460".to_string())?;
+        settings["mtu"] = json!(value);
+    }
+
+    let tti_value = first_query(url, &["tti"], Some(""));
+    let tti = tti_value.trim();
+    if !tti.is_empty() {
+        let value = tti
+            .parse::<u16>()
+            .ok()
+            .filter(|value| (10..=100).contains(value))
+            .ok_or_else(|| "invalid mKCP tti; expected 10..100".to_string())?;
+        settings["tti"] = json!(value);
+    }
+
+    for (names, field) in [
+        (&["uplinkCapacity", "uplink_capacity"][..], "uplinkCapacity"),
+        (
+            &["downlinkCapacity", "downlink_capacity"][..],
+            "downlinkCapacity",
+        ),
+    ] {
+        let raw = first_query(url, names, Some(""));
+        if !raw.is_empty() {
+            let value = raw
+                .trim()
+                .parse::<u32>()
+                .map_err(|_| format!("invalid mKCP {field}"))?;
+            settings[field] = json!(value);
+        }
+    }
+
+    for key in [
+        "congestion",
+        "readBufferSize",
+        "read_buffer_size",
+        "writeBufferSize",
+        "write_buffer_size",
+    ] {
+        if url
+            .query_pairs()
+            .any(|(name, _)| name.eq_ignore_ascii_case(key))
+        {
+            return Err(format!(
+                "unsupported legacy mKCP parameter {key}; current Xray mKCP does not expose this field"
+            ));
+        }
+    }
+
+    let cwnd_value = first_query(url, &["cwndMultiplier", "cwnd_multiplier"], Some(""));
+    let cwnd = cwnd_value.trim();
+    if !cwnd.is_empty() {
+        let value = cwnd
+            .parse::<u32>()
+            .ok()
+            .filter(|value| *value >= 1)
+            .ok_or_else(|| "invalid mKCP cwndMultiplier; expected >= 1".to_string())?;
+        settings["cwndMultiplier"] = json!(value);
+    }
+
+    let max_window_value = first_query(url, &["maxSendingWindow", "max_sending_window"], Some(""));
+    let max_window = max_window_value.trim();
+    if !max_window.is_empty() {
+        let minimum_mtu = settings["mtu"].as_u64().unwrap_or(1350);
+        let value = max_window
+            .parse::<u64>()
+            .ok()
+            .filter(|value| *value >= minimum_mtu)
+            .ok_or_else(|| "invalid mKCP maxSendingWindow; must be >= mtu".to_string())?;
+        settings["maxSendingWindow"] = json!(value);
+    }
+
+    Ok(settings)
+}
+
 fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
     let network = normalize_transport(&first_query(url, &["type", "network"], Some("tcp")));
 
@@ -1395,7 +1493,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
             out["xhttpSettings"] = settings;
         }
         "kcp" => {
-            out["kcpSettings"] = json!({});
+            out["kcpSettings"] = kcp_settings(url)?;
         }
         "quic" => {
             let quic_security = first_query(url, &["quicSecurity", "quic_security"], Some("none"))
@@ -1518,6 +1616,25 @@ fn parse_vmess(config: &str) -> Result<Value, String> {
             .filter(|value| matches!(value.as_str(), "gun" | "multi"))
         {
             q.push(("mode".to_string(), mode));
+        }
+    }
+
+    if network.eq_ignore_ascii_case("kcp") {
+        for key in [
+            "mtu",
+            "tti",
+            "uplinkCapacity",
+            "downlinkCapacity",
+            "congestion",
+            "readBufferSize",
+            "writeBufferSize",
+            "cwndMultiplier",
+            "maxSendingWindow",
+        ] {
+            if let Some(value) = json_text(value.get(key)).filter(|value| !value.trim().is_empty())
+            {
+                q.push((key.to_string(), value));
+            }
         }
     }
 
@@ -2055,6 +2172,9 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 if security == "reality" {
                     return Some("incompatible-security-transport");
                 }
+                if kcp_settings(&url).is_err() {
+                    return Some("invalid-kcp-parameters");
+                }
             }
 
             if transport == "quic" {
@@ -2190,6 +2310,34 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 if json_text(value.get("path")).is_some_and(|path| !path.trim().is_empty()) {
                     return Some("unsupported-vmess-kcp-seed");
                 }
+                let synthetic_query = Url::parse(&format!(
+                    "https://example.invalid/?{}",
+                    [
+                        "mtu",
+                        "tti",
+                        "uplinkCapacity",
+                        "downlinkCapacity",
+                        "congestion",
+                        "readBufferSize",
+                        "writeBufferSize",
+                        "cwndMultiplier",
+                        "maxSendingWindow",
+                    ]
+                    .iter()
+                    .filter_map(|key| json_text(value.get(*key)).map(|raw| format!(
+                        "{}={}",
+                        key,
+                        urlencoding(&raw)
+                    )))
+                    .collect::<Vec<_>>()
+                    .join("&")
+                ));
+                if synthetic_query
+                    .ok()
+                    .is_none_or(|url| kcp_settings(&url).is_err())
+                {
+                    return Some("invalid-vmess-kcp-parameters");
+                }
             }
 
             if network == "quic" {
@@ -2220,6 +2368,13 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
             }
 
             None
+        }
+        "tuic" => {
+            if is_supported_tuic_config(config) {
+                None
+            } else {
+                Some("invalid-tuic-config")
+            }
         }
         "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" | "wg" => None,
         _ => Some("unsupported-scheme"),
@@ -2322,7 +2477,9 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 return false;
             }
             if transport == "kcp"
-                && (!first_query(&url, &["seed"], Some("")).is_empty() || security == "reality")
+                && (!first_query(&url, &["seed"], Some("")).is_empty()
+                    || security == "reality"
+                    || kcp_settings(&url).is_err())
             {
                 return false;
             }
@@ -2513,6 +2670,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
 
             true
         }
+        "tuic" => is_supported_tuic_config(cleaned),
         "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" => Url::parse(cleaned)
             .ok()
             .is_some_and(|url| endpoint_from_url(&url, Some(1080)).is_ok()),
@@ -2534,6 +2692,10 @@ fn boolish_value(value: Option<&Value>) -> bool {
 
 pub fn is_locally_supported_config(config: &str) -> bool {
     let scheme = scheme_of(clean(config));
+
+    if scheme == "tuic" {
+        return is_supported_tuic_config(config);
+    }
 
     if scheme == "hysteria" {
         let Ok(url) = Url::parse(clean(config)) else {
@@ -2587,6 +2749,128 @@ pub fn is_locally_supported_config(config: &str) -> bool {
     }
 
     true
+}
+
+fn is_valid_tuic_uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+
+    bytes.iter().enumerate().all(|(index, byte)| {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            *byte == b'-'
+        } else {
+            byte.is_ascii_hexdigit()
+        }
+    })
+}
+
+pub fn is_supported_tuic_config(config: &str) -> bool {
+    let cleaned = clean(config);
+    if scheme_of(cleaned) != "tuic" {
+        return false;
+    }
+
+    let Ok(url) = Url::parse(cleaned) else {
+        return false;
+    };
+    if url.host().is_none() || url.port().is_none() || url.port() == Some(0) {
+        return false;
+    }
+
+    let uuid = decode_component(url.username());
+    if !is_valid_tuic_uuid(uuid.trim()) {
+        return false;
+    }
+    if url
+        .password()
+        .is_some_and(|password| decode_component(password).is_empty())
+    {
+        return false;
+    }
+
+    let congestion = first_query(
+        &url,
+        &["congestion_control", "congestionControl"],
+        Some("cubic"),
+    )
+    .trim()
+    .to_ascii_lowercase();
+    if !matches!(congestion.as_str(), "cubic" | "new_reno" | "bbr") {
+        return false;
+    }
+
+    let relay_mode = first_query(&url, &["udp_relay_mode", "udpRelayMode"], Some("native"))
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(relay_mode.as_str(), "native" | "quic") {
+        return false;
+    }
+
+    let has_relay_mode = url.query_pairs().any(|(key, _)| {
+        key.eq_ignore_ascii_case("udp_relay_mode") || key.eq_ignore_ascii_case("udpRelayMode")
+    });
+    let udp_over_stream_raw = first_query(&url, &["udp_over_stream", "udpOverStream"], Some(""));
+    if !udp_over_stream_raw.trim().is_empty() {
+        let value = match udp_over_stream_raw.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => true,
+            "0" | "false" | "no" | "off" => false,
+            _ => return false,
+        };
+        if value && has_relay_mode {
+            return false;
+        }
+    }
+
+    for key in [
+        "zero_rtt_handshake",
+        "zeroRttHandshake",
+        "insecure",
+        "allowInsecure",
+    ] {
+        let raw = first_query(&url, &[key], Some(""));
+        if !raw.trim().is_empty()
+            && !matches!(
+                raw.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+            )
+        {
+            return false;
+        }
+    }
+
+    let network = first_query(&url, &["network"], Some(""));
+    if !network.trim().is_empty()
+        && !matches!(network.trim().to_ascii_lowercase().as_str(), "tcp" | "udp")
+    {
+        return false;
+    }
+
+    let heartbeat = first_query(&url, &["heartbeat"], Some(""));
+    if !heartbeat.trim().is_empty() && !valid_duration(&heartbeat) {
+        return false;
+    }
+
+    true
+}
+
+fn valid_duration(value: &str) -> bool {
+    let value = value.trim();
+    let split = value
+        .char_indices()
+        .find(|(_, ch)| !ch.is_ascii_digit())
+        .map(|(index, _)| index)
+        .unwrap_or(value.len());
+    if split == 0 {
+        return false;
+    }
+    let amount = match value[..split].parse::<u64>() {
+        Ok(amount) if amount > 0 => amount,
+        _ => return false,
+    };
+    let unit = &value[split..];
+    matches!(unit, "" | "ms" | "s" | "m" | "h") && amount <= u32::MAX as u64
 }
 
 pub(crate) fn parse_config(config: &str) -> Result<Value, String> {
@@ -4065,7 +4349,9 @@ async fn validate_candidates_targets_inner(
 
     let original_target_count = targets.len();
     targets = healthy_targets(&targets, policy.min_successful_targets).await;
-    if targets.len() != original_target_count {
+    if targets.len() != original_target_count
+        && should_log_target_health_summary(targets.len(), original_target_count)
+    {
         println!(
             "[INFO] 🔎 [Targets] Health/Circuit Breaker | {}/{} Usable",
             targets.len(),
@@ -5661,6 +5947,88 @@ mod tests {
         assert!(is_locally_supported_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp"
         ));
+
+        let tuned = parse_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=mkcp&mtu=1200&tti=30&uplinkCapacity=10&downlinkCapacity=100&cwndMultiplier=2&maxSendingWindow=2097152",
+        )
+        .expect("supported mKCP tuning parameters should be preserved");
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["mtu"], 1200);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["tti"], 30);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["uplinkCapacity"], 10);
+        assert_eq!(
+            tuned["streamSettings"]["kcpSettings"]["downlinkCapacity"],
+            100
+        );
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["cwndMultiplier"], 2);
+        assert_eq!(
+            tuned["streamSettings"]["kcpSettings"]["maxSendingWindow"],
+            2097152
+        );
+        assert!(is_cheaply_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&mtu=1200&tti=30"
+        ));
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&mtu=2000"
+            ),
+            Some("invalid-kcp-parameters")
+        );
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&congestion=true"
+            ),
+            Some("invalid-kcp-parameters")
+        );
+    }
+
+    #[test]
+    fn vmess_mkcp_settings_are_preserved_and_screened() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": "mkcp",
+            "type": "none",
+            "mtu": 1200,
+            "tti": 30,
+            "uplinkCapacity": 10,
+            "downlinkCapacity": 100
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+        let parsed = parse_config(&config).expect("VMess mKCP settings should parse");
+
+        assert_eq!(parsed["streamSettings"]["kcpSettings"]["mtu"], 1200);
+        assert_eq!(parsed["streamSettings"]["kcpSettings"]["tti"], 30);
+        assert_eq!(
+            parsed["streamSettings"]["kcpSettings"]["uplinkCapacity"],
+            10
+        );
+        assert_eq!(
+            parsed["streamSettings"]["kcpSettings"]["downlinkCapacity"],
+            100
+        );
+        assert!(is_cheaply_supported_config(&config));
+        assert!(is_light_consumer_compatible(&config));
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_valid_tuic_and_rejects_invalid_tuic_options() {
+        let config = "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443?congestion_control=bbr&udp_relay_mode=quic&sni=example.com";
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        assert!(is_light_consumer_compatible(config));
+        assert!(is_locally_supported_config(config));
+
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443?congestion_control=invalid"
+            ),
+            Some("invalid-tuic-config")
+        );
+        assert_eq!(
+            cheap_compatibility_rejection_reason("tuic://not-a-uuid:secret@example.com:443"),
+            Some("invalid-tuic-config")
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 mkdir -p /tmp/proxyrift
+
 light_started_epoch="$(date +%s)"
 set +e
 ./target/release/polish_light \
@@ -36,6 +37,59 @@ if [ -s /tmp/proxyrift/light.next.txt ]; then
   if [ "$light_count" -ge "$LIGHT_MIN_PUBLISH" ]; then
     cp /tmp/proxyrift/light.next.txt subscriptions/.light.txt.next
     mv -f subscriptions/.light.txt.next subscriptions/light.txt
+
+    deferred_file="subscriptions/.deferred-transport-candidates.txt"
+    if [ -s "$deferred_file" ] && [ -s /tmp/proxyrift/light.next.txt ] && [ -f subscriptions/all.txt ]; then
+      additions="$(mktemp subscriptions/.all-deferred.XXXXXX)"
+      awk '
+        FILENAME == ARGV[1] {
+          key = $0
+          sub(/#.*/, "", key)
+          deferred[key] = 1
+          next
+        }
+        FILENAME == ARGV[2] {
+          key = $0
+          sub(/#.*/, "", key)
+          if ((key in deferred) && !(key in candidate)) {
+            candidate[key] = $0
+            order[++count] = key
+          }
+          next
+        }
+        {
+          key = $0
+          sub(/#.*/, "", key)
+          existing[key] = 1
+        }
+        END {
+          for (i = 1; i <= count; i++) {
+            key = order[i]
+            if (!(key in existing)) {
+              print candidate[key]
+            }
+          }
+        }
+      ' "$deferred_file" /tmp/proxyrift/light.next.txt subscriptions/all.txt > "$additions"
+
+      all_count_before="$(awk 'NF && $0 !~ /^#/ { count++ } END { print count + 0 }' subscriptions/all.txt)"
+      remaining_capacity="$(( 2000 - all_count_before ))"
+      if [ "$remaining_capacity" -gt 0 ]; then
+        limited_additions="$(mktemp subscriptions/.all-deferred-limited.XXXXXX)"
+        head -n "$remaining_capacity" "$additions" > "$limited_additions"
+        added_count="$(awk 'END { print NR + 0 }' "$limited_additions")"
+        if [ "$added_count" -gt 0 ]; then
+          cat subscriptions/all.txt "$limited_additions" > subscriptions/.all.txt.next
+          mv -f subscriptions/.all.txt.next subscriptions/all.txt
+          echo "[INFO] ✅ [All] Added $added_count deferred configs verified by Light consumer validation"
+        fi
+        rm -f "$limited_additions"
+      else
+        echo "[INFO] [All] Config cap reached; deferred configs remain available through Light validation"
+      fi
+      rm -f "$additions"
+    fi
+
     echo "[INFO] ✅ [Light] Published refreshed subscription"
   else
     echo "[WARN] ⚠️ [Light] Pool too small | ${light_count}/${LIGHT_MIN_PUBLISH} minimum | Preserving previous subscription"

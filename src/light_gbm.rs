@@ -247,7 +247,7 @@ impl LightGbmScores {
                 target.report.get("model_brier").and_then(Value::as_f64).map(|v| format!("{v:.5}")).unwrap_or_else(|| "n/a".to_string()),
                 target.report.get("baseline_brier").and_then(Value::as_f64).map(|v| format!("{v:.5}")).unwrap_or_else(|| "n/a".to_string()),
                 target.report.get("top_20pct_lift").and_then(Value::as_f64).map(|v| format!("{v:.3}")).unwrap_or_else(|| "n/a".to_string()),
-                target.report.get("reason").and_then(Value::as_str).unwrap_or("unknown")
+                temporal_reason_label(target.report.get("reason").and_then(Value::as_str).unwrap_or("unknown"))
             );
         }
         Ok(result)
@@ -521,6 +521,25 @@ struct TrainingData {
     examples: Vec<TrainingExample>,
     exact_history: HashMap<String, RollingStats>,
     family_history: HashMap<String, RollingStats>,
+}
+
+fn temporal_reason_label(reason: &str) -> String {
+    match reason {
+        "promoted_after_temporal_validation" => "Promoted after temporal validation".to_string(),
+        "model_did_not_beat_temporal_baseline" => {
+            "Model did not beat temporal baseline".to_string()
+        }
+        "top_20pct_below_random_selection_baseline" => {
+            "Top-20% below random selection baseline".to_string()
+        }
+        other => {
+            let mut readable = other.replace('_', " ");
+            if let Some(first) = readable.get_mut(..1) {
+                first.make_ascii_uppercase();
+            }
+            readable
+        }
+    }
 }
 
 struct TargetResult {
