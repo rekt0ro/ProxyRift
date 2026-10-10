@@ -87,6 +87,10 @@ if [[ "$(grep --count --fixed-strings '?ref=fixture-sha' "$tmp/curl.log")" -ne 8
   echo "[ERROR] Watchdog did not pin every published-output request to GITHUB_SHA." >&2
   exit 1
 fi
+if [[ "$(grep --count --fixed-strings 'https://api.github.com/repos/rekt0ro/ProxyRift/contents/subscriptions/' "$tmp/curl.log")" -ne 8 ]]; then
+  echo "[ERROR] Watchdog did not fetch outputs through the GitHub Contents API." >&2
+  exit 1
+fi
 if grep --quiet "tmp: unbound variable" "$tmp/watchdog.log"; then
   echo "[ERROR] Watchdog cleanup still references an unset temporary-directory variable." >&2
   exit 1
