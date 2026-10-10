@@ -1905,12 +1905,14 @@ mod tests {
 
         assert_ne!(hy2_obfs, hy2_obfs_other_password);
 
-        let kcp = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp";
+        let kcp =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp";
         assert!(super::is_kcp_transport_config(kcp));
         assert!(super::needs_deferred_transport_validation(kcp));
         assert!(transport_probe_key(kcp).is_none());
 
-        let tcp = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=tcp";
+        let tcp =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=tcp";
         assert!(!super::is_kcp_transport_config(tcp));
         assert!(!super::needs_deferred_transport_validation(tcp));
 
@@ -1920,7 +1922,8 @@ mod tests {
         assert!(super::needs_deferred_transport_validation(&vmess));
         assert!(transport_probe_key(&vmess).is_none());
 
-        let quic = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic";
+        let quic =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&type=quic";
         assert!(super::is_quic_transport_config(quic));
         assert!(super::needs_deferred_transport_validation(quic));
         assert!(transport_probe_key(quic).is_none());
@@ -2632,7 +2635,9 @@ fn is_kcp_transport_config(config: &str) -> bool {
         return decode_vmess_payload(payload)
             .and_then(|decoded| serde_json::from_str::<Value>(&decoded).ok())
             .and_then(|value| value.get("net").and_then(Value::as_str).map(str::to_owned))
-            .is_some_and(|network| matches!(network.trim().to_ascii_lowercase().as_str(), "kcp" | "mkcp"));
+            .is_some_and(|network| {
+                matches!(network.trim().to_ascii_lowercase().as_str(), "kcp" | "mkcp")
+            });
     }
 
     Url::parse(config.split('#').next().unwrap_or(config))
