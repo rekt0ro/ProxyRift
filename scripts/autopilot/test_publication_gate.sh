@@ -18,25 +18,51 @@ make_outputs() {
   done
   printf 'socks5://test@example.com:1080\n' >> "$dir/all.txt"
 
-  for name in light all; do
-    python3 - "$dir/$name.txt" "$dir/$name-base64.txt" <<'PY'
+  python3 - "$dir" <<'PY'
 import base64
+import json
 import pathlib
 import sys
 
-source = pathlib.Path(sys.argv[1]).read_bytes().rstrip(b"\r\n")
-encoded = base64.b64encode(source).decode("ascii")
-pathlib.Path(sys.argv[2]).write_text(encoded + "\n", encoding="ascii")
+directory = pathlib.Path(sys.argv[1])
+counts = {}
+for name in ("light", "all"):
+    source_path = directory / f"{name}.txt"
+    entries = [
+        line.strip()
+        for line in source_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#") and "://" in line
+    ]
+    source = source_path.read_bytes().rstrip(b"\r\n")
+    (directory / f"{name}-base64.txt").write_text(
+        base64.b64encode(source).decode("ascii") + "\n", encoding="ascii"
+    )
+    (directory / f"{name}-singbox.json").write_text(
+        json.dumps({
+            "outbounds": [
+                {"type": "direct", "tag": f"test-{index}"}
+                for index, _ in enumerate(entries, start=1)
+            ]
+        }) + "\n",
+        encoding="utf-8",
+    )
+    (directory / f"{name}-clash.yaml").write_text(
+        "proxies:\n" + "".join(
+            f"  - name: 'test proxy {index}'\n"
+            for index, _ in enumerate(entries, start=1)
+        ),
+        encoding="utf-8",
+    )
+    counts[name] = {
+        "source": len(entries),
+        "clash": len(entries),
+        "singbox": len(entries),
+    }
+
+(directory / ".output-counts.json").write_text(
+    json.dumps(counts) + "\n", encoding="utf-8"
+)
 PY
-    printf '{"outbounds":[{"type":"direct","tag":"direct"}]}\n' > "$dir/$name-singbox.json"
-    cat > "$dir/$name-clash.yaml" <<'YAML'
-proxies:
-  - name: "test proxy"
-    type: socks5
-    server: example.com
-    port: 1080
-YAML
-  done
 }
 
 run_gate() {
@@ -47,6 +73,27 @@ make_outputs 50
 run_gate >/dev/null
 echo "[OK] Valid generated outputs pass the publication gate."
 
+python3 - "$work/subscriptions/all-singbox.json" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text(json.dumps({
+    "outbounds": [
+        {"type": "direct", "tag": "unexpected-1"},
+        {"type": "direct", "tag": "unexpected-2"},
+    ]
+}) + "\n", encoding="utf-8")
+PY
+if run_gate >"$tmp/count-parity.log" 2>&1; then
+  echo "[ERROR] Publication gate accepted sing-box output with an unaccounted entry count." >&2
+  exit 1
+fi
+grep --quiet "sing-box entry count does not match format-count manifest" "$tmp/count-parity.log"
+echo "[OK] Unaccounted format count is rejected."
+
+make_outputs 50
 printf 'not-base64!\n' > "$work/subscriptions/light-base64.txt"
 if run_gate >"$tmp/base64.log" 2>&1; then
   echo "[ERROR] Publication gate accepted a broken Base64 output." >&2
