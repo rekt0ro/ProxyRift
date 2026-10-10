@@ -780,6 +780,104 @@ fn singbox_hysteria2_outbound(config: &str) -> Result<Value, String> {
     Ok(outbound)
 }
 
+fn tuic_query_value(url: &Url, names: &[&str]) -> Option<String> {
+    url.query_pairs().find_map(|(key, value)| {
+        names
+            .iter()
+            .any(|name| key.eq_ignore_ascii_case(name))
+            .then_some(value.into_owned())
+            .filter(|value| !value.trim().is_empty())
+    })
+}
+
+fn singbox_tuic_outbound(config: &str) -> Result<Value, String> {
+    let url = Url::parse(clean(config)).map_err(|error| error.to_string())?;
+    if !crate::validator::is_supported_tuic_config(config) {
+        return Err("unsupported TUIC options or invalid endpoint/credentials".to_string());
+    }
+    let (server, server_port) =
+        crate::validator::endpoint(config).ok_or_else(|| "invalid TUIC endpoint".to_string())?;
+    let uuid = percent_decode_str(url.username())
+        .decode_utf8()
+        .map_err(|error| error.to_string())?
+        .into_owned();
+
+    let congestion_control = tuic_query_value(&url, &["congestion_control", "congestionControl"])
+        .unwrap_or_else(|| "cubic".to_string())
+        .to_ascii_lowercase();
+    let zero_rtt_handshake = query_bool(&url, &["zero_rtt_handshake", "zeroRttHandshake"]);
+    let mut outbound = json!({
+        "type": "tuic",
+        "server": server,
+        "server_port": server_port,
+        "uuid": uuid,
+        "congestion_control": congestion_control,
+        "zero_rtt_handshake": zero_rtt_handshake,
+    });
+
+    if let Some(password) = url.password() {
+        let password = percent_decode_str(password)
+            .decode_utf8()
+            .map_err(|error| error.to_string())?
+            .into_owned();
+        if !password.is_empty() {
+            outbound["password"] = json!(password);
+        }
+    }
+
+    let udp_over_stream = query_bool(&url, &["udp_over_stream", "udpOverStream"]);
+    if udp_over_stream {
+        outbound["udp_over_stream"] = json!(true);
+    } else {
+        let relay_mode = tuic_query_value(&url, &["udp_relay_mode", "udpRelayMode"])
+            .unwrap_or_else(|| "native".to_string())
+            .to_ascii_lowercase();
+        outbound["udp_relay_mode"] = json!(relay_mode);
+    }
+
+    if let Some(network) = tuic_query_value(&url, &["network"]) {
+        outbound["network"] = json!(network.to_ascii_lowercase());
+    }
+    if let Some(heartbeat) = tuic_query_value(&url, &["heartbeat"]) {
+        let heartbeat = if heartbeat.bytes().all(|byte| byte.is_ascii_digit()) {
+            format!("{heartbeat}s")
+        } else {
+            heartbeat
+        };
+        outbound["heartbeat"] = json!(heartbeat);
+    }
+
+    let server_name =
+        tuic_query_value(&url, &["sni", "server_name", "peer"]).unwrap_or_else(|| server.clone());
+    let mut tls = json!({
+        "enabled": true,
+        "server_name": server_name,
+    });
+    if query_bool(&url, &["insecure", "allowInsecure"]) {
+        tls["insecure"] = json!(true);
+    }
+    if let Some(alpn) = tuic_query_value(&url, &["alpn"]) {
+        let protocols = alpn
+            .split(',')
+            .map(str::trim)
+            .filter(|protocol| !protocol.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        if !protocols.is_empty() {
+            tls["alpn"] = json!(protocols);
+        }
+    }
+    if let Some(fingerprint) = tuic_query_value(&url, &["fp", "fingerprint"]) {
+        tls["utls"] = json!({
+            "enabled": true,
+            "fingerprint": fingerprint,
+        });
+    }
+    outbound["tls"] = tls;
+
+    Ok(outbound)
+}
+
 fn singbox_outbound(config: &str) -> Result<Value, String> {
     let cleaned = clean(config);
     let scheme = cleaned
@@ -793,6 +891,9 @@ fn singbox_outbound(config: &str) -> Result<Value, String> {
 
     if scheme == "hysteria2" || scheme == "hy2" {
         return singbox_hysteria2_outbound(config);
+    }
+    if scheme == "tuic" {
+        return singbox_tuic_outbound(config);
     }
 
     if matches!(
@@ -2388,6 +2489,33 @@ pub async fn validate_candidates(
     .await
 }
 
+fn subscription_config_name(config: &str, fallback_index: usize) -> String {
+    let scheme = config
+        .split_once("://")
+        .map(|(scheme, _)| scheme.to_ascii_lowercase())
+        .unwrap_or_default();
+    if scheme == "vmess" {
+        if let Some(name) = parse_vmess_raw(config)
+            .ok()
+            .and_then(|value| value.get("ps").and_then(Value::as_str).map(str::trim).map(str::to_owned))
+            .filter(|name| !name.is_empty())
+        {
+            return name;
+        }
+    }
+
+    let fragment = config
+        .split_once('#')
+        .map(|(_, fragment)| fragment)
+        .unwrap_or_default();
+    let name = percent_decode_str(fragment).decode_utf8_lossy().trim().to_string();
+    if !name.is_empty() {
+        return name;
+    }
+
+    format!("ProxyRift {:03}", fallback_index + 1)
+}
+
 fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize), String> {
     let mut outbounds = Vec::with_capacity(configs.len());
     let mut rendered = 0usize;
@@ -2396,7 +2524,7 @@ fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize),
     for (index, config) in configs.iter().enumerate() {
         match singbox_outbound(config) {
             Ok(mut outbound) => {
-                outbound["tag"] = json!(format!("ProxyRift {:03}", index + 1));
+                outbound["tag"] = json!(subscription_config_name(config, index));
                 outbounds.push(outbound);
                 rendered += 1;
             }
@@ -2591,6 +2719,43 @@ mod tests {
         assert_eq!(outbound["server_port"], 8080);
         assert!(outbound.get("username").is_none());
         assert!(outbound.get("password").is_none());
+    }
+
+    #[test]
+    fn maps_tuic_outbound_options() {
+        let config = "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443?congestion_control=bbr&udp_relay_mode=quic&sni=tuic.example.com&alpn=h3&heartbeat=15";
+        let outbound = singbox_outbound(config).expect("TUIC should map to sing-box");
+
+        assert_eq!(outbound["type"], "tuic");
+        assert_eq!(outbound["uuid"], "00000000-0000-0000-0000-000000000001");
+        assert_eq!(outbound["password"], "secret");
+        assert_eq!(outbound["congestion_control"], "bbr");
+        assert_eq!(outbound["udp_relay_mode"], "quic");
+        assert_eq!(outbound["heartbeat"], "15s");
+        assert_eq!(outbound["tls"]["enabled"], true);
+        assert_eq!(outbound["tls"]["server_name"], "tuic.example.com");
+        assert_eq!(outbound["tls"]["alpn"][0], "h3");
+    }
+
+    #[test]
+    fn maps_tuic_udp_over_stream_without_relay_mode_conflict() {
+        let config = "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443?udp_over_stream=true";
+        let outbound = singbox_outbound(config).expect("TUIC UDP over stream should map");
+
+        assert_eq!(outbound["udp_over_stream"], true);
+        assert!(outbound.get("udp_relay_mode").is_none());
+    }
+
+    #[test]
+    fn preserves_proxyrift_config_names_in_singbox_tags() {
+        let configs = vec![
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443#ProxyRift%20017"
+                .to_string(),
+        ];
+        let rendered = render_subscription(&configs).unwrap();
+        let value: Value = serde_json::from_str(&rendered).unwrap();
+
+        assert_eq!(value["outbounds"][0]["tag"], "ProxyRift 017");
     }
 
     #[test]
