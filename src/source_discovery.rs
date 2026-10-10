@@ -1,4 +1,3 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures::stream::{self, StreamExt};
 use reqwest::Client;
 use serde_json::{Map, Value};
@@ -37,9 +36,9 @@ const GITHUB_REQUEST_RETRIES: usize = 2;
 const GITHUB_RETRY_BASE_MS: u64 = 500;
 const GITHUB_RETRY_AFTER_MAX_SECS: u64 = 10;
 const GITHUB_ACCEPT: &str = "application/vnd.github+json";
+const GITHUB_README_ACCEPT: &str = "application/vnd.github.raw+json";
 const USER_AGENT: &str = "ProxyRift-source-discovery/1.0";
 const README_MAX_BYTES: usize = 256 * 1024;
-const MAX_README_API_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_SOURCE_URL_LENGTH: usize = 8192;
 const MAX_SEARCH_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_README_CANDIDATES: usize = 150;
@@ -1560,12 +1559,15 @@ async fn discover_from_repos(
 }
 
 fn is_expected_tree_probe_skip(error: &str) -> bool {
-    error.contains("HTTP 409 Conflict") || error.contains("response exceeds discovery size limit")
+    error.contains("HTTP 409 Conflict")
+        || error.contains("response exceeds discovery size limit")
+        || error.contains("GitHub discovery response exceeds size limit")
 }
 
 fn is_expected_probe_skip(error: &str) -> bool {
     error.contains("HTTP 404 Not Found")
         || error.contains("response exceeds discovery size limit")
+        || error.contains("GitHub discovery response exceeds size limit")
         || error.contains("GitHub README exceeds discovery size limit")
 }
 
@@ -1586,46 +1588,29 @@ async fn discover_repo(
         percent_encode(branch)
     );
 
-    let response = github_get(client, &url, token).await?;
+    let response = github_get_with_accept(client, &url, token, GITHUB_README_ACCEPT).await?;
     if !response.status().is_success() {
-        return Err(format!("GitHub README API returned HTTP {}", response.status()).into());
+        return Err(format!("GitHub README endpoint returned HTTP {}", response.status()).into());
     }
 
     if response
         .content_length()
-        .is_some_and(|length| length > MAX_README_API_RESPONSE_BYTES as u64)
+        .is_some_and(|length| length > README_MAX_BYTES as u64)
     {
-        return Err("GitHub README API response exceeds discovery size limit".into());
-    }
-
-    let body = read_limited_body(response, MAX_README_API_RESPONSE_BYTES).await?;
-    let payload: Value = serde_json::from_slice(&body)?;
-
-    if payload.get("encoding").and_then(Value::as_str) != Some("base64") {
-        return Err("GitHub README API response did not use base64 encoding".into());
-    }
-
-    let content = payload
-        .get("content")
-        .and_then(Value::as_str)
-        .ok_or("GitHub README API response did not contain content")?;
-
-    let compact = content
-        .bytes()
-        .filter(|byte| !byte.is_ascii_whitespace())
-        .collect::<Vec<_>>();
-    let body = STANDARD.decode(compact)?;
-
-    if body.len() > README_MAX_BYTES {
         return Err("GitHub README exceeds discovery size limit".into());
     }
 
-    let text = String::from_utf8_lossy(&body);
-    let mut candidates = extract_source_urls(&text, name, repo_rank);
-    candidates.truncate(MAX_README_CANDIDATES);
-
-    Ok(candidates)
+    let body = read_limited_body(response, README_MAX_BYTES).await?;
+    Ok(readme_candidates_from_raw_body(&body, name, repo_rank))
 }
+
+fn readme_candidates_from_raw_body(body: &[u8], repo: &str, repo_rank: usize) -> Vec<Candidate> {
+    let text = String::from_utf8_lossy(body);
+    let mut candidates = extract_source_urls(&text, repo, repo_rank);
+    candidates.truncate(MAX_README_CANDIDATES);
+    candidates
+}
+
 async fn scan_repo_tree(
     client: &Client,
     repo: &Repository,
@@ -1965,10 +1950,19 @@ async fn github_get(
     url: &str,
     token: Option<&str>,
 ) -> Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>> {
+    github_get_with_accept(client, url, token, GITHUB_ACCEPT).await
+}
+
+async fn github_get_with_accept(
+    client: &Client,
+    url: &str,
+    token: Option<&str>,
+    accept: &str,
+) -> Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>> {
     let mut attempt = 0usize;
 
     loop {
-        let mut request = client.get(url).header("Accept", GITHUB_ACCEPT);
+        let mut request = client.get(url).header("Accept", accept);
 
         if let Some(token) = token {
             request = request.bearer_auth(token);
@@ -2742,6 +2736,32 @@ fn unix_now() -> u64 {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn raw_readme_body_extracts_source_urls_without_json_or_base64_wrapping() {
+        let body = b"# Public subscription\nhttps://raw.githubusercontent.com/example/feed/main/subscriptions/vless.txt\n";
+        let candidates = readme_candidates_from_raw_body(body, "example/project", 7);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].url,
+            "https://raw.githubusercontent.com/example/feed/main/subscriptions/vless.txt"
+        );
+        assert_eq!(candidates[0].repo_rank, 7);
+    }
+
+    #[test]
+    fn oversized_discovery_responses_are_expected_skips() {
+        assert!(super::is_expected_probe_skip(
+            "GitHub discovery response exceeds size limit"
+        ));
+        assert!(super::is_expected_probe_skip(
+            "GitHub README exceeds discovery size limit"
+        ));
+        assert!(super::is_expected_tree_probe_skip(
+            "GitHub discovery response exceeds size limit"
+        ));
+    }
+
+    #[test]
     fn discovery_search_alternates_sort_by_run_number() {
         assert_eq!(search_sort_for_run(Some(100), 0), "updated");
         assert_eq!(search_sort_for_run(Some(101), 0), "stars");
@@ -2783,13 +2803,14 @@ mod tests {
     use super::{
         build_search_query, deduplicate_candidates, extract_source_urls, is_self_repository,
         is_self_source, is_source_path, likely_source_url, normalize_github_source,
-        percent_encode_path, search_query_set_for_run, search_sort_for_run,
-        search_strategy_for_run, select_new_active_urls, source_path_family, unix_days_to_ymd,
-        validate_no_self_sources, Candidate, CollectionOutcome, Registry, Repository, Value,
-        MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK,
-        MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH, RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
+        percent_encode_path, readme_candidates_from_raw_body, search_query_set_for_run,
+        search_sort_for_run, search_strategy_for_run, select_new_active_urls, source_path_family,
+        unix_days_to_ymd, validate_no_self_sources, Candidate, CollectionOutcome, Registry,
+        Repository, Value, MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK,
+        MAX_FAILURE_STREAK, MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH,
+        RETIRED_SOURCE_COOLDOWN_SECS,
     };
-    use base64::Engine as _;
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     use std::collections::HashSet;
 
     #[test]

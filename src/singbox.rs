@@ -792,7 +792,10 @@ fn singbox_outbound(config: &str) -> Result<Value, String> {
         return singbox_hysteria2_outbound(config);
     }
 
-    if matches!(scheme.as_str(), "socks4" | "socks4a") {
+    if matches!(
+        scheme.as_str(),
+        "socks" | "socks4" | "socks4a" | "socks5" | "socks5h"
+    ) {
         return singbox_socks_outbound(config);
     }
 
@@ -2410,7 +2413,7 @@ fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize),
     if !skipped_by_reason.is_empty() {
         let skipped_total: usize = skipped_by_reason.values().map(Vec::len).sum();
         println!(
-            "[INFO] 🧹 [sing-box] Omitted {} configs unsupported by the standard build",
+            "[INFO] 🧹 [sing-box] Omitted {} configs that could not be converted to standard sing-box outbounds",
             skipped_total
         );
 
@@ -2697,6 +2700,20 @@ mod tests {
             singbox_outbound("socks4a://example.com:1081").expect("SOCKS4a should map natively");
         assert_eq!(socks4a["version"], "4a");
         assert_eq!(socks4a["server_port"], 1081);
+    }
+
+    #[test]
+    fn maps_socks_socks5_and_socks5h_natively() {
+        for config in [
+            "socks://user:pass@example.com:1080",
+            "socks5://user:pass@example.com:1080",
+            "socks5h://example.com:1081",
+        ] {
+            let outbound = singbox_outbound(config).expect("SOCKS5 variants should map natively");
+            assert_eq!(outbound["type"], "socks");
+            assert_eq!(outbound["version"], "5");
+            assert_eq!(outbound["server"], "example.com");
+        }
     }
 
     #[test]
