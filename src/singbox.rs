@@ -2497,7 +2497,13 @@ fn subscription_config_name(config: &str, fallback_index: usize) -> String {
     if scheme == "vmess" {
         if let Some(name) = parse_vmess_raw(config)
             .ok()
-            .and_then(|value| value.get("ps").and_then(Value::as_str).map(str::trim).map(str::to_owned))
+            .and_then(|value| {
+                value
+                    .get("ps")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .map(str::to_owned)
+            })
             .filter(|name| !name.is_empty())
         {
             return name;
@@ -2508,7 +2514,10 @@ fn subscription_config_name(config: &str, fallback_index: usize) -> String {
         .split_once('#')
         .map(|(_, fragment)| fragment)
         .unwrap_or_default();
-    let name = percent_decode_str(fragment).decode_utf8_lossy().trim().to_string();
+    let name = percent_decode_str(fragment)
+        .decode_utf8_lossy()
+        .trim()
+        .to_string();
     if !name.is_empty() {
         return name;
     }
