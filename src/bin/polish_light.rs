@@ -3997,11 +3997,7 @@ async fn main() -> Result<(), String> {
         older_selected,
         selected
             .iter()
-            .filter(|config| cohort_generations
-                .get(*config)
-                .copied()
-                .unwrap_or(0)
-                == 0)
+            .filter(|config| cohort_generations.get(*config).copied().unwrap_or(0) == 0)
             .count()
     );
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(
