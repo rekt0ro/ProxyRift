@@ -6,8 +6,8 @@ use percent_encoding::percent_decode_str;
 use proxyrift::light_gbm::LightGbmScores;
 use proxyrift::source_discovery::CollectionOutcome;
 use proxyrift::validator::{
-    config_label, endpoint, is_cheaply_supported_config, is_locally_supported_config, is_public_ip,
-    resolve_public_tcp_host,
+    cheap_compatibility_rejection_reason, config_label, endpoint, is_locally_supported_config,
+    is_public_ip, resolve_public_tcp_host,
 };
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Endpoint};
@@ -478,18 +478,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     configs.sort_unstable();
 
     let before_cheap_compatibility = configs.len();
+    let mut cheap_rejection_counts = HashMap::<&'static str, usize>::new();
     configs.retain(|config| {
-        let keep = is_cheaply_supported_config(config);
-        if !keep {
-            config_sources.remove(config);
-        }
-        keep
+        let Some(reason) = cheap_compatibility_rejection_reason(config) else {
+            return true;
+        };
+        *cheap_rejection_counts.entry(reason).or_default() += 1;
+        config_sources.remove(config);
+        false
     });
     let cheaply_rejected = before_cheap_compatibility.saturating_sub(configs.len());
     if cheaply_rejected > 0 {
+        let mut rejection_summary = cheap_rejection_counts.into_iter().collect::<Vec<_>>();
+        rejection_summary.sort_unstable_by_key(|(reason, _)| *reason);
+        let rejection_summary = rejection_summary
+            .into_iter()
+            .map(|(reason, count)| format!("{reason}={count}"))
+            .collect::<Vec<_>>()
+            .join(" | ");
         println!(
-            "[INFO] 🧹 [Compatibility] Rejected {} collected configs by cheap compatibility screening",
-            cheaply_rejected
+            "[INFO] 🧹 [Compatibility] Rejected {} collected configs by cheap compatibility screening | Reasons: {}",
+            cheaply_rejected,
+            rejection_summary
         );
     }
 
@@ -2532,10 +2542,34 @@ mod tests {
 }
 
 fn needs_deferred_transport_validation(config: &str) -> bool {
-    matches!(
-        config_scheme(config).as_str(),
-        "hysteria" | "hysteria2" | "hy2"
-    ) && quic_probe_obfuscation(config).is_err()
+    is_kcp_transport_config(config)
+        || (matches!(
+            config_scheme(config).as_str(),
+            "hysteria" | "hysteria2" | "hy2"
+        ) && quic_probe_obfuscation(config).is_err())
+}
+
+fn is_kcp_transport_config(config: &str) -> bool {
+    let scheme = config_scheme(config);
+    if scheme == "vmess" {
+        let payload = config
+            .split_once("://")
+            .map(|(_, payload)| payload.split('#').next().unwrap_or("").trim())
+            .unwrap_or_default();
+        return decode_vmess_payload(payload)
+            .and_then(|decoded| serde_json::from_str::<Value>(&decoded).ok())
+            .and_then(|value| value.get("net").and_then(Value::as_str).map(str::to_owned))
+            .is_some_and(|network| matches!(network.trim().to_ascii_lowercase().as_str(), "kcp" | "mkcp"));
+    }
+
+    Url::parse(config.split('#').next().unwrap_or(config))
+        .ok()
+        .is_some_and(|url| {
+            url.query_pairs().any(|(key, value)| {
+                (key.eq_ignore_ascii_case("type") || key.eq_ignore_ascii_case("network"))
+                    && matches!(value.trim().to_ascii_lowercase().as_str(), "kcp" | "mkcp")
+            })
+        })
 }
 
 fn quic_probe_obfuscation(config: &str) -> Result<Option<ProbeObfuscation>, ()> {
@@ -2742,10 +2776,12 @@ fn tcp_endpoint_groups(configs: &[String]) -> HashMap<(String, u16), Vec<usize>>
     let mut tcp_by_endpoint: HashMap<(String, u16), Vec<usize>> = HashMap::new();
 
     for (index, config) in configs.iter().enumerate() {
-        if matches!(
-            config_scheme(config).as_str(),
-            "hysteria" | "hysteria2" | "hy2" | "tuic" | "wg"
-        ) {
+        if is_kcp_transport_config(config)
+            || matches!(
+                config_scheme(config).as_str(),
+                "hysteria" | "hysteria2" | "hy2" | "tuic" | "wg"
+            )
+        {
             continue;
         }
 
@@ -2758,6 +2794,10 @@ fn tcp_endpoint_groups(configs: &[String]) -> HashMap<(String, u16), Vec<usize>>
 }
 
 fn transport_probe_key(config: &str) -> Option<TransportProbeKey> {
+    if is_kcp_transport_config(config) {
+        return None;
+    }
+
     match config_scheme(config).as_str() {
         "hysteria2" | "hy2" => {
             let (host, _, _) = hysteria2_parts(config)?;
@@ -3517,7 +3557,11 @@ async fn wireguard_latency(config: &str) -> Option<u64> {
         .flatten()
 }
 
-async fn transport_latency(config: &str) -> Option<u64> {
+async async fn transport_latency(config: &str) -> Option<u64> {
+    if is_kcp_transport_config(config) {
+        return None;
+    }
+
     match config_scheme(config).as_str() {
         "hysteria" | "hysteria2" | "hy2" | "tuic" => quic_latency(config).await,
 
