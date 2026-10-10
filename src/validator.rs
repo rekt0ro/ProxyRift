@@ -1807,11 +1807,12 @@ fn parse_ss(config: &str) -> Result<Value, String> {
         let remote_url =
             Url::parse(&format!("ss://{remote}")).map_err(|error| error.to_string())?;
         let (host, port) = endpoint_from_url(&remote_url, None)?;
-        if method.trim().is_empty() || password.is_empty() {
-            return Err("Shadowsocks method or password missing".to_string());
-        }
         (host, port, method, password)
     };
+
+    if method.trim().is_empty() || password.is_empty() {
+        return Err("Shadowsocks method or password missing".to_string());
+    }
 
     Ok(json!({
         "protocol": "shadowsocks",
