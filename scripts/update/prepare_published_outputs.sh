@@ -58,8 +58,7 @@ PY
     exit 1
   fi
 
-  if ! grep --quiet --extended-regexp '^proxies:[[:space:]]*
- "subscriptions/$name-clash.yaml" \
+  if ! grep --quiet --extended-regexp '^proxies:[[:space:]]*$' "subscriptions/$name-clash.yaml" \
       || ! grep --quiet --extended-regexp '^[[:space:]]+- name:' "subscriptions/$name-clash.yaml"; then
     echo "[ERROR] Clash output has no proxy entries: subscriptions/$name-clash.yaml" >&2
     exit 1
@@ -71,7 +70,7 @@ PY
   fi
 
   if ! jq --exit-status --arg name "$name" '
-    def nonnegative_integer: type == "number" and . >= 0 and floor == .;
+    def nonnegative_integer: if type == "number" then . >= 0 and floor == . else false end;
     .[$name] as $counts
     | ($counts | type == "object")
       and ($counts.source | nonnegative_integer)
