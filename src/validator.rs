@@ -5511,15 +5511,13 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_tls_for_invalid_reality_transport() {
-        let config = parse_config(
+    fn rejects_reality_on_incompatible_transport() {
+        let error = parse_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=ws&sni=example.com&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=",
         )
-        .expect("invalid REALITY transport should fall back to TLS");
+        .expect_err("invalid REALITY transport must be rejected instead of downgraded");
 
-        assert_eq!(config["streamSettings"]["security"], "tls");
-        assert!(config["streamSettings"].get("tlsSettings").is_some());
-        assert!(config["streamSettings"].get("realitySettings").is_none());
+        assert!(error.contains("Reality security is incompatible with ws transport"));
     }
 
     #[test]
