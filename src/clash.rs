@@ -608,8 +608,8 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
         &["eh", "earlyDataHeaderName", "early_data_header_name"],
     );
     let alpn = query_list(&url, "alpn");
-    let sni = query_any(&url, &["sni", "servername", "server_name"])
-        .or_else(|| Some(server.clone()));
+    let sni =
+        query_any(&url, &["sni", "servername", "server_name"]).or_else(|| Some(server.clone()));
     let client_fingerprint = query_any(&url, &["fp", "clientFingerprint", "client-fingerprint"]);
     let fingerprint = query_any(&url, &["fingerprint", "certFingerprint"]);
     let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(|value| {
@@ -755,14 +755,16 @@ fn push_shadowsocks_plugin(lines: &mut Vec<String>, url: &Url) -> Result<(), Str
                         });
                     }
                     "host" => {
-                        host = Some(value.ok_or_else(|| {
-                            "v2ray-plugin host requires a value".to_string()
-                        })?);
+                        host = Some(
+                            value
+                                .ok_or_else(|| "v2ray-plugin host requires a value".to_string())?,
+                        );
                     }
                     "path" => {
-                        path = Some(value.ok_or_else(|| {
-                            "v2ray-plugin path requires a value".to_string()
-                        })?);
+                        path = Some(
+                            value
+                                .ok_or_else(|| "v2ray-plugin path requires a value".to_string())?,
+                        );
                     }
                     "mux" => {
                         mux = Some(match value {
@@ -1182,7 +1184,8 @@ mod tests {
         assert!(tls_yaml.contains("flow: 'xtls-rprx-vision'"));
 
         let reality = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=tcp&public_key=public-key&short_id=abcd&server_name=cover.example.com";
-        let reality_yaml = super::render(&[reality.to_string()]).expect("Reality aliases should render");
+        let reality_yaml =
+            super::render(&[reality.to_string()]).expect("Reality aliases should render");
         assert!(reality_yaml.contains("public-key: 'public-key'"));
         assert!(reality_yaml.contains("short-id: 'abcd'"));
         assert!(reality_yaml.contains("servername: 'cover.example.com'"));

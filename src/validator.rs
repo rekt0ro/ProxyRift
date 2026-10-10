@@ -1340,7 +1340,11 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         }
         out["tlsSettings"] = tls;
     } else if security == "reality" {
-        let pbk = first_query(url, &["pbk", "publicKey", "public_key", "public-key"], Some(""));
+        let pbk = first_query(
+            url,
+            &["pbk", "publicKey", "public_key", "public-key"],
+            Some(""),
+        );
         if pbk.is_empty() {
             return Err("reality public key missing".to_string());
         }
@@ -1786,23 +1790,25 @@ fn supported_ss_plugin(key: &str, value: &str) -> bool {
 
         match name {
             "obfs-local" => match key.as_str() {
-                "obfs" if value.is_some_and(|value| {
-                    matches!(value.trim().to_ascii_lowercase().as_str(), "http" | "tls")
-                }) => {}
+                "obfs"
+                    if value.is_some_and(|value| {
+                        matches!(value.trim().to_ascii_lowercase().as_str(), "http" | "tls")
+                    }) => {}
                 "obfs-host" if value.is_some() => {}
                 _ => return false,
             },
             "v2ray-plugin" => match key.as_str() {
-                "mode" if value.is_some_and(|value| {
-                    value.trim().eq_ignore_ascii_case("websocket")
-                }) => {}
+                "mode"
+                    if value
+                        .is_some_and(|value| value.trim().eq_ignore_ascii_case("websocket")) => {}
                 "host" | "path" if value.is_some() => {}
-                "tls" | "mux" if value.is_none_or(|value| {
-                    matches!(
-                        value.trim().to_ascii_lowercase().as_str(),
-                        "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
-                    )
-                }) => {}
+                "tls" | "mux"
+                    if value.is_none_or(|value| {
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+                        )
+                    }) => {}
                 _ => return false,
             },
             _ => return false,
@@ -2257,15 +2263,18 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 }
             }
 
-            if security == "reality"
-                && !matches!(transport.as_str(), "raw" | "xhttp" | "grpc")
-            {
+            if security == "reality" && !matches!(transport.as_str(), "raw" | "xhttp" | "grpc") {
                 return Some("incompatible-security-transport");
             }
 
             if security == "reality"
                 && matches!(transport.as_str(), "raw" | "xhttp" | "grpc")
-                && first_query(&url, &["pbk", "publicKey", "public_key", "public-key"], Some("")).is_empty()
+                && first_query(
+                    &url,
+                    &["pbk", "publicKey", "public_key", "public-key"],
+                    Some(""),
+                )
+                .is_empty()
             {
                 return Some("missing-reality-key");
             }
@@ -2299,7 +2308,9 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("invalid-hysteria-bandwidth");
             }
 
-            let obfs = first_query(&url, &["obfs"], Some("")).trim().to_ascii_lowercase();
+            let obfs = first_query(&url, &["obfs"], Some(""))
+                .trim()
+                .to_ascii_lowercase();
             let obfs_param = first_query(&url, &["obfsparam"], Some(""));
             if !obfs.is_empty() && obfs != "xplus" {
                 return Some("unsupported-hysteria-obfuscation");
@@ -2493,7 +2504,10 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
             let valid_security = if scheme == "trojan" {
                 matches!(security.as_str(), "" | "tls" | "t" | "tl" | "reality")
             } else {
-                matches!(security.as_str(), "" | "none" | "tls" | "t" | "tl" | "reality")
+                matches!(
+                    security.as_str(),
+                    "" | "none" | "tls" | "t" | "tl" | "reality"
+                )
             };
             if !valid_security {
                 return false;
@@ -2592,7 +2606,11 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
             }
 
             if security == "reality" {
-                let pbk = first_query(&url, &["pbk", "publicKey", "public_key", "public-key"], Some(""));
+                let pbk = first_query(
+                    &url,
+                    &["pbk", "publicKey", "public_key", "public-key"],
+                    Some(""),
+                );
                 let sni = first_query(&url, &["sni", "serverName"], Some(""));
                 if pbk.trim().is_empty() || sni.trim().is_empty() {
                     return false;
@@ -2790,7 +2808,9 @@ pub fn is_locally_supported_config(config: &str) -> bool {
             return false;
         }
 
-        let obfs = first_query(&url, &["obfs"], Some("")).trim().to_ascii_lowercase();
+        let obfs = first_query(&url, &["obfs"], Some(""))
+            .trim()
+            .to_ascii_lowercase();
         let obfs_param = first_query(&url, &["obfsparam"], Some(""))
             .trim()
             .to_string();
@@ -5635,13 +5655,22 @@ mod tests {
     #[test]
     fn supports_shadowsocks_sip003_plugins() {
         assert!(supported_ss_plugin("plugin", "obfs-local;obfs=http"));
-        assert!(supported_ss_plugin("plugin", "obfs-local;obfs=tls;obfs-host=example.com"));
+        assert!(supported_ss_plugin(
+            "plugin",
+            "obfs-local;obfs=tls;obfs-host=example.com"
+        ));
         assert!(supported_ss_plugin("plugin", "v2ray-plugin;tls"));
-        assert!(supported_ss_plugin("plugin", "v2ray-plugin;mode=websocket;tls=true;host=example.com;path=/ws;mux=false"));
+        assert!(supported_ss_plugin(
+            "plugin",
+            "v2ray-plugin;mode=websocket;tls=true;host=example.com;path=/ws;mux=false"
+        ));
         assert!(!supported_ss_plugin("plugin", "unsupported-plugin"));
         assert!(!supported_ss_plugin("plugin", "v2ray-plugin;mode=quic"));
         assert!(!supported_ss_plugin("plugin", "obfs-local;obfs=unknown"));
-        assert!(!supported_ss_plugin("plugin", "v2ray-plugin;tls=true;tls=false"));
+        assert!(!supported_ss_plugin(
+            "plugin",
+            "v2ray-plugin;tls=true;tls=false"
+        ));
     }
 
     #[test]
@@ -5985,14 +6014,15 @@ mod tests {
 
     #[test]
     fn cheap_compatibility_accepts_common_transport_aliases() {
-        for (transport, expected) in [
-            ("websocket", "ws"),
-            ("http-upgrade", "httpupgrade"),
-        ] {
+        for (transport, expected) in [("websocket", "ws"), ("http-upgrade", "httpupgrade")] {
             let config = format!(
                 "vless://00000000-0000-0000-0000-000000000001@example.com:443?type={transport}"
             );
-            assert_eq!(cheap_compatibility_rejection_reason(&config), None, "{transport}");
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{transport}"
+            );
             let parsed = parse_config(&config).expect("recognized transport alias should parse");
             assert_eq!(parsed["streamSettings"]["network"], expected);
         }
@@ -6258,7 +6288,8 @@ mod tests {
 
     #[test]
     fn cheap_compatibility_normalizes_vless_flow_and_ignores_trojan_flow() {
-        let vless = "vless://00000000-0000-0000-0000-000000000001@example.com:443?flow=XTLS-RPRX-VISION";
+        let vless =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?flow=XTLS-RPRX-VISION";
         assert_eq!(cheap_compatibility_rejection_reason(vless), None);
         let parsed = parse_config(vless).expect("case-insensitive VLESS flow should parse");
         assert_eq!(
@@ -6295,18 +6326,27 @@ mod tests {
             let config = format!(
                 "hysteria://password@example.com:443?protocol={protocol}&upmbps=100&downmbps=100"
             );
-            assert_eq!(cheap_compatibility_rejection_reason(&config), None, "{protocol}");
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{protocol}"
+            );
         }
 
-        let alias = "hysteria://password@example.com:443?obfs-protocol=faketcp&upmbps=100&downmbps=100";
+        let alias =
+            "hysteria://password@example.com:443?obfs-protocol=faketcp&upmbps=100&downmbps=100";
         assert_eq!(cheap_compatibility_rejection_reason(alias), None);
         assert!(!is_locally_supported_config(alias));
 
         let conflicting_aliases = "hysteria://password@example.com:443?protocol=udp&obfs-protocol=faketcp&upmbps=100&downmbps=100";
-        assert_eq!(cheap_compatibility_rejection_reason(conflicting_aliases), None);
+        assert_eq!(
+            cheap_compatibility_rejection_reason(conflicting_aliases),
+            None
+        );
         assert!(!is_locally_supported_config(conflicting_aliases));
 
-        let unsupported = "hysteria://password@example.com:443?protocol=tcp&upmbps=100&downmbps=100";
+        let unsupported =
+            "hysteria://password@example.com:443?protocol=tcp&upmbps=100&downmbps=100";
         assert_eq!(
             cheap_compatibility_rejection_reason(unsupported),
             Some("unsupported-hysteria-transport")
