@@ -3557,7 +3557,7 @@ async fn wireguard_latency(config: &str) -> Option<u64> {
         .flatten()
 }
 
-async async fn transport_latency(config: &str) -> Option<u64> {
+async fn transport_latency(config: &str) -> Option<u64> {
     if is_kcp_transport_config(config) {
         return None;
     }
