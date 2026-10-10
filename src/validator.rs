@@ -1307,7 +1307,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         ));
     }
 
-    let sni = first_query(url, &["sni", "server_name", "peer"], Some(host));
+    let sni = first_query(url, &["sni", "servername", "server_name", "peer"], Some(host));
     let alpn = csv(&first_query(url, &["alpn"], Some("")));
     let mut out = json!({
         "network": network,
@@ -1351,7 +1351,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
             "publicKey": pbk,
         });
         let fp = first_query(url, &["fp", "fingerprint"], Some(""));
-        let sid = first_query(url, &["sid", "shortId"], Some(""));
+        let sid = first_query(url, &["sid", "shortId", "short_id", "short-id"], Some(""));
         let spx = first_query(url, &["spx", "spiderX"], Some(""));
         if !fp.is_empty() {
             reality["fingerprint"] = json!(fp);
@@ -2607,7 +2607,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                     &["pbk", "publicKey", "public_key", "public-key"],
                     Some(""),
                 );
-                let sni = first_query(&url, &["sni", "serverName"], Some(""));
+                let sni = first_query(&url, &["sni", "servername", "server_name", "peer"], url.host_str().unwrap_or(""));
                 if pbk.trim().is_empty() || sni.trim().is_empty() {
                     return false;
                 }
@@ -6181,6 +6181,24 @@ mod tests {
         );
         assert!(parse_config(config).is_err());
         assert!(!is_light_consumer_compatible(config));
+    }
+
+    #[test]
+    fn reality_aliases_are_preserved_for_local_and_light_consumers() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=tcp&public_key=public-key&short_id=abcd&server_name=cover.example.com";
+
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        assert!(is_light_consumer_compatible(config));
+
+        let parsed = parse_config(config).expect("Reality aliases should parse");
+        assert_eq!(
+            parsed["streamSettings"]["realitySettings"]["serverName"],
+            "cover.example.com"
+        );
+        assert_eq!(
+            parsed["streamSettings"]["realitySettings"]["shortId"],
+            "abcd"
+        );
     }
 
     #[test]
