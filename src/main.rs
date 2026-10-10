@@ -726,7 +726,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     write_atomic(&source_map_path, format!("{source_map}\n")).await?;
 
     println!(
-        "[INFO] 🧠 [Light intelligence] Prioritizing {} transport-tested candidates | Added {} core-only Hysteria/Hysteria2 candidates | Source provenance entries: {}",
+        "[INFO] 🧠 [Light candidate selection] Prioritizing {} transport-tested candidates | Added {} core-only Hysteria/Hysteria2 candidates | Source provenance entries: {}",
         sampled_transport_count,
         special_hysteria_added_count,
         light_candidates.len()
