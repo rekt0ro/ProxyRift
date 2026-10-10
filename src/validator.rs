@@ -645,6 +645,18 @@ fn vmess_tls_security(value: Option<&Value>) -> String {
     }
 }
 
+fn normalize_vless_flow(value: &str) -> Option<String> {
+    let flow = value.trim().to_ascii_lowercase();
+    if matches!(
+        flow.as_str(),
+        "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
+    ) {
+        Some(flow)
+    } else {
+        None
+    }
+}
+
 fn json_u64(value: Option<&Value>) -> u64 {
     match value {
         Some(Value::Number(value)) => value.as_u64().unwrap_or(0),
@@ -664,16 +676,20 @@ fn csv(value: &str) -> Vec<String> {
 
 fn normalize_transport(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        // VMess links commonly omit the network value to mean the default TCP transport.
+        return "raw".to_string();
+    }
 
     normalized
         .split([',', ';', '|'])
         .map(str::trim)
         .find_map(|candidate| match candidate {
             "raw" | "tcp" => Some("raw".to_string()),
-            "ws" => Some("ws".to_string()),
+            "ws" | "websocket" => Some("ws".to_string()),
             "http" | "h2" => Some("http".to_string()),
             "grpc" => Some("grpc".to_string()),
-            "httpupgrade" => Some("httpupgrade".to_string()),
+            "httpupgrade" | "http-upgrade" => Some("httpupgrade".to_string()),
             "kcp" | "mkcp" => Some("kcp".to_string()),
             "quic" => Some("quic".to_string()),
             "xhttp" | "splithttp" => Some("xhttp".to_string()),
@@ -923,6 +939,22 @@ fn ss_legacy_decode(payload: &str) -> Option<String> {
     String::from_utf8(b64decode(&decode_component(encoded))?).ok()
 }
 
+fn decode_ss_credentials(credentials: &str) -> Option<(String, String)> {
+    let decoded_component = decode_component(credentials);
+
+    // SIP002 also permits method:password userinfo with URI-reserved bytes percent-encoded.
+    // Base64 credentials contain no literal colon, so try the decoded plain form first.
+    if let Some((method, password)) = decoded_component.split_once(':') {
+        return (!method.trim().is_empty() && !password.is_empty())
+            .then(|| (method.to_string(), password.to_string()));
+    }
+
+    let decoded = b64decode(&decoded_component).and_then(|bytes| String::from_utf8(bytes).ok())?;
+    let (method, password) = decoded.split_once(':')?;
+    (!method.trim().is_empty() && !password.is_empty())
+        .then(|| (method.to_string(), password.to_string()))
+}
+
 fn ss_has_nonempty_password(config: &str) -> bool {
     let config = clean(config);
     let Ok(url) = Url::parse(config) else {
@@ -939,15 +971,7 @@ fn ss_has_nonempty_password(config: &str) -> bool {
         .unwrap_or_default();
 
     if let Some((credentials, _remote)) = payload.rsplit_once('@') {
-        let decoded = b64decode(&decode_component(credentials))
-            .and_then(|bytes| String::from_utf8(bytes).ok());
-        let Some(credentials) = decoded else {
-            return false;
-        };
-
-        return credentials
-            .split_once(':')
-            .is_some_and(|(_, password)| !password.is_empty());
+        return decode_ss_credentials(credentials).is_some();
     }
 
     let Some(decoded) = ss_legacy_decode(payload) else {
@@ -957,9 +981,7 @@ fn ss_has_nonempty_password(config: &str) -> bool {
         return false;
     };
 
-    credentials
-        .split_once(':')
-        .is_some_and(|(_, password)| !password.is_empty())
+    decode_ss_credentials(credentials).is_some()
 }
 
 pub fn endpoint(config: &str) -> Option<(String, u16)> {
@@ -1312,7 +1334,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
         }
         out["tlsSettings"] = tls;
     } else if security == "reality" {
-        let pbk = first_query(url, &["pbk", "publicKey"], Some(""));
+        let pbk = first_query(url, &["pbk", "publicKey", "public_key", "public-key"], Some(""));
         if pbk.is_empty() {
             return Err("reality public key missing".to_string());
         }
@@ -1527,13 +1549,9 @@ fn parse_vless(config: &str) -> Result<Value, String> {
         "id": uuid,
         "encryption": first_query(&url, &["encryption"], Some("none")),
     });
-    let flow = first_query(&url, &["flow"], Some(""));
-    if !matches!(
-        flow.as_str(),
-        "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
-    ) {
-        return Err(format!("unsupported VLESS flow: {flow}"));
-    }
+    let flow_raw = first_query(&url, &["flow"], Some(""));
+    let flow = normalize_vless_flow(&flow_raw)
+        .ok_or_else(|| format!("unsupported VLESS flow: {flow_raw}"))?;
     if !flow.is_empty() {
         user["flow"] = json!(flow);
     }
@@ -1772,32 +1790,26 @@ fn parse_ss(config: &str) -> Result<Value, String> {
 
         let (method, password, remote) =
             if let Some((credentials, remote)) = payload.rsplit_once('@') {
-                let decoded = String::from_utf8(
-                    b64decode(&decode_component(credentials))
-                        .ok_or_else(|| "invalid Shadowsocks base64".to_string())?,
-                )
-                .map_err(|error| error.to_string())?;
-                let (method, password) = decoded
-                    .split_once(':')
+                let (method, password) = decode_ss_credentials(credentials)
                     .ok_or_else(|| "invalid Shadowsocks credentials".to_string())?;
-
-                (method.to_string(), password.to_string(), remote.to_string())
+                (method, password, remote.to_string())
             } else {
                 let decoded = ss_legacy_decode(payload)
                     .ok_or_else(|| "invalid Shadowsocks base64".to_string())?;
                 let (credentials, remote) = decoded
                     .rsplit_once('@')
                     .ok_or_else(|| "invalid Shadowsocks payload".to_string())?;
-                let (method, password) = credentials
-                    .split_once(':')
+                let (method, password) = decode_ss_credentials(credentials)
                     .ok_or_else(|| "invalid Shadowsocks credentials".to_string())?;
-
-                (method.to_string(), password.to_string(), remote.to_string())
+                (method, password, remote.to_string())
             };
 
         let remote_url =
             Url::parse(&format!("ss://{remote}")).map_err(|error| error.to_string())?;
         let (host, port) = endpoint_from_url(&remote_url, None)?;
+        if method.trim().is_empty() || password.is_empty() {
+            return Err("Shadowsocks method or password missing".to_string());
+        }
         (host, port, method, password)
     };
 
@@ -2135,11 +2147,10 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 }
             }
 
-            let flow = first_query(&url, &["flow"], Some(""));
-            if !matches!(
-                flow.as_str(),
-                "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
-            ) {
+            // Trojan ignores the VLESS-specific flow parameter.
+            if scheme == "vless"
+                && normalize_vless_flow(&first_query(&url, &["flow"], Some(""))).is_none()
+            {
                 return Some("unsupported-flow");
             }
 
@@ -2201,7 +2212,7 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
 
             if security == "reality"
                 && matches!(transport.as_str(), "raw" | "xhttp" | "grpc")
-                && first_query(&url, &["pbk", "publicKey"], Some("")).is_empty()
+                && first_query(&url, &["pbk", "publicKey", "public_key", "public-key"], Some("")).is_empty()
             {
                 return Some("missing-reality-key");
             }
@@ -2217,12 +2228,13 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
             }
 
             let protocol = first_query(&url, &["protocol"], Some("udp"));
-            if !protocol.eq_ignore_ascii_case("udp") {
+            if !protocol.trim().eq_ignore_ascii_case("udp") {
                 return Some("unsupported-hysteria-transport");
             }
 
             let parse_positive = |name: &str| {
                 first_query(&url, &[name], Some(""))
+                    .trim()
                     .parse::<u32>()
                     .ok()
                     .is_some_and(|value| value > 0)
@@ -2231,7 +2243,7 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("invalid-hysteria-bandwidth");
             }
 
-            let obfs = first_query(&url, &["obfs"], Some("")).to_ascii_lowercase();
+            let obfs = first_query(&url, &["obfs"], Some("")).trim().to_ascii_lowercase();
             let obfs_param = first_query(&url, &["obfsparam"], Some(""));
             if !obfs.is_empty() && obfs != "xplus" {
                 return Some("unsupported-hysteria-obfuscation");
@@ -2434,12 +2446,8 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 return false;
             }
 
-            let flow = first_query(&url, &["flow"], Some(""));
             if scheme == "vless"
-                && !matches!(
-                    flow.as_str(),
-                    "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
-                )
+                && normalize_vless_flow(&first_query(&url, &["flow"], Some(""))).is_none()
             {
                 return false;
             }
@@ -2524,7 +2532,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
             }
 
             if security == "reality" {
-                let pbk = first_query(&url, &["pbk", "publicKey"], Some(""));
+                let pbk = first_query(&url, &["pbk", "publicKey", "public_key", "public-key"], Some(""));
                 let sni = first_query(&url, &["sni", "serverName"], Some(""));
                 if pbk.trim().is_empty() || sni.trim().is_empty() {
                     return false;
@@ -2706,12 +2714,13 @@ pub fn is_locally_supported_config(config: &str) -> bool {
         }
 
         let protocol = first_query(&url, &["protocol"], Some("udp"));
-        if !protocol.eq_ignore_ascii_case("udp") {
+        if !protocol.trim().eq_ignore_ascii_case("udp") {
             return false;
         }
 
         let parse_positive = |name: &str| {
             first_query(&url, &[name], Some(""))
+                .trim()
                 .parse::<u32>()
                 .ok()
                 .is_some_and(|value| value > 0)
@@ -2721,7 +2730,7 @@ pub fn is_locally_supported_config(config: &str) -> bool {
             return false;
         }
 
-        let obfs = first_query(&url, &["obfs"], Some("")).to_ascii_lowercase();
+        let obfs = first_query(&url, &["obfs"], Some("")).trim().to_ascii_lowercase();
         let obfs_param = first_query(&url, &["obfsparam"], Some(""))
             .trim()
             .to_string();
@@ -5910,6 +5919,21 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_accepts_common_transport_aliases() {
+        for (transport, expected) in [
+            ("websocket", "ws"),
+            ("http-upgrade", "httpupgrade"),
+        ] {
+            let config = format!(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?type={transport}"
+            );
+            assert_eq!(cheap_compatibility_rejection_reason(&config), None, "{transport}");
+            let parsed = parse_config(&config).expect("recognized transport alias should parse");
+            assert_eq!(parsed["streamSettings"]["network"], expected);
+        }
+    }
+
+    #[test]
     fn cheap_compatibility_accepts_supported_mkcp_and_rejects_legacy_obfuscation() {
         for config in [
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp",
@@ -6049,6 +6073,17 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_accepts_alternate_reality_public_key_names() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=reality&type=tcp&public_key=public-key&sni=example.com";
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        let parsed = parse_config(config).expect("alternate Reality public key name should parse");
+        assert_eq!(
+            parsed["streamSettings"]["realitySettings"]["publicKey"],
+            "public-key"
+        );
+    }
+
+    #[test]
     fn cheap_compatibility_accepts_vmess_tls_none_alias() {
         let payload = serde_json::json!({
             "v": "2",
@@ -6116,6 +6151,23 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_treats_empty_vmess_network_as_tcp_default() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": ""
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert_eq!(cheap_compatibility_rejection_reason(&config), None);
+        let parsed = parse_config(&config).expect("empty VMess network should use TCP");
+        assert_eq!(parsed["streamSettings"]["network"], "raw");
+        assert!(is_locally_supported_config(&config));
+    }
+
+    #[test]
     fn cheap_compatibility_accepts_vmess_tcp_transport() {
         let config = "vmess://eyJ2IjoiMiIsInBzIjoiIiwiYWRkIjoiZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJhaWQiOiIwIiwibmV0IjoidGNwIn0";
         assert!(is_cheaply_supported_config(config));
@@ -6126,6 +6178,21 @@ mod tests {
         assert!(!is_cheaply_supported_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=madeup"
         ));
+    }
+
+    #[test]
+    fn cheap_compatibility_normalizes_vless_flow_and_ignores_trojan_flow() {
+        let vless = "vless://00000000-0000-0000-0000-000000000001@example.com:443?flow=XTLS-RPRX-VISION";
+        assert_eq!(cheap_compatibility_rejection_reason(vless), None);
+        let parsed = parse_config(vless).expect("case-insensitive VLESS flow should parse");
+        assert_eq!(
+            parsed["settings"]["vnext"][0]["users"][0]["flow"],
+            "xtls-rprx-vision"
+        );
+
+        let trojan = "trojan://secret@example.com:443?security=tls&flow=legacy-flow";
+        assert_eq!(cheap_compatibility_rejection_reason(trojan), None);
+        assert!(parse_config(trojan).is_ok());
     }
 
     #[test]
@@ -6158,6 +6225,25 @@ mod tests {
         assert!(is_cheaply_supported_config(
             "socks5://user@example.com:1080"
         ));
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_percent_encoded_plain_sip002_credentials() {
+        let config = "ss://aes-256-gcm%3Apass%40word@example.com:8388";
+
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        let parsed = parse_config(config).expect("percent-encoded SIP002 credentials should parse");
+        assert_eq!(parsed["settings"]["servers"][0]["method"], "aes-256-gcm");
+        assert_eq!(parsed["settings"]["servers"][0]["password"], "pass@word");
+    }
+
+    #[test]
+    fn cheap_compatibility_rejects_percent_encoded_empty_sip002_password() {
+        let config = "ss://aes-256-gcm%3A@example.com:8388";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(config),
+            Some("missing-shadowsocks-password")
+        );
     }
 
     #[test]
