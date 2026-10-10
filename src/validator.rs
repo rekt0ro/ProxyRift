@@ -5899,6 +5899,77 @@ mod tests {
         assert!(is_locally_supported_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp"
         ));
+
+        let tuned = parse_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=mkcp&mtu=1200&tti=30&uplinkCapacity=10&downlinkCapacity=100&congestion=true&readBufferSize=3&writeBufferSize=4&cwndMultiplier=2&maxSendingWindow=2097152",
+        )
+        .expect("supported mKCP tuning parameters should be preserved");
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["mtu"], 1200);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["tti"], 30);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["uplinkCapacity"], 10);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["downlinkCapacity"], 100);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["congestion"], true);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["readBufferSize"], 3);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["writeBufferSize"], 4);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["cwndMultiplier"], 2);
+        assert_eq!(tuned["streamSettings"]["kcpSettings"]["maxSendingWindow"], 2097152);
+        assert!(is_cheaply_supported_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&mtu=1200&tti=30"
+        ));
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=kcp&mtu=2000"
+            ),
+            Some("invalid-kcp-parameters")
+        );
+    }
+
+    #[test]
+    fn vmess_mkcp_settings_are_preserved_and_screened() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": "mkcp",
+            "type": "none",
+            "mtu": 1200,
+            "tti": 30,
+            "uplinkCapacity": 10,
+            "downlinkCapacity": 100,
+            "congestion": false
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+        let parsed = parse_config(&config).expect("VMess mKCP settings should parse");
+
+        assert_eq!(parsed["streamSettings"]["kcpSettings"]["mtu"], 1200);
+        assert_eq!(parsed["streamSettings"]["kcpSettings"]["tti"], 30);
+        assert_eq!(parsed["streamSettings"]["kcpSettings"]["uplinkCapacity"], 10);
+        assert_eq!(parsed["streamSettings"]["kcpSettings"]["downlinkCapacity"], 100);
+        assert_eq!(parsed["streamSettings"]["kcpSettings"]["congestion"], false);
+        assert!(is_cheaply_supported_config(&config));
+        assert!(is_light_consumer_compatible(&config));
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_valid_tuic_and_rejects_invalid_tuic_options() {
+        let config = "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443?congestion_control=bbr&udp_relay_mode=quic&sni=example.com";
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        assert!(is_light_consumer_compatible(config));
+        assert!(is_locally_supported_config(config));
+
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443?congestion_control=invalid"
+            ),
+            Some("invalid-tuic-config")
+        );
+        assert_eq!(
+            cheap_compatibility_rejection_reason(
+                "tuic://not-a-uuid:secret@example.com:443"
+            ),
+            Some("invalid-tuic-config")
+        );
     }
 
     #[test]
