@@ -3402,11 +3402,17 @@ async fn main() -> Result<(), String> {
     let light_gbm_scores =
         LightGbmScores::from_file("/tmp/proxyrift/lightgbm-scores.json").unwrap_or_default();
 
+    let ranking_strategy = light_gbm_scores
+        .model_report()
+        .get("ranking_strategy")
+        .and_then(Value::as_str)
+        .unwrap_or("legacy_stage_blend");
     println!(
-        "[INFO] 🧠 [LightGBM] Loaded collection scores | Trained: {} | Training rows: {} | Scored: {}",
+        "[INFO] 🧠 [LightGBM] Loaded collection scores | Trained: {} | Training rows: {} | Scored: {} | Ranking strategy: {}",
         light_gbm_scores.trained(),
         light_gbm_scores.training_rows(),
-        light_gbm_scores.len()
+        light_gbm_scores.len(),
+        ranking_strategy
     );
 
     if candidates.is_empty() {

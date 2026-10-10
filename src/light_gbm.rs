@@ -133,6 +133,18 @@ impl LightGbmScores {
                 TargetResult::unavailable(ModelTarget::Stream, error)
             }
         };
+        let end_to_end = match train_target_model(
+            &data.examples,
+            candidates,
+            &candidate_features,
+            ModelTarget::EndToEnd,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("[WARN] [LightGBM] End-to-end model unavailable: {error}");
+                TargetResult::unavailable(ModelTarget::EndToEnd, error)
+            }
+        };
 
         let mut models = Vec::new();
         if strict.accepted {
@@ -145,9 +157,22 @@ impl LightGbmScores {
             models.push((&stream, 0.20_f64));
         }
         let weight_sum = models.iter().map(|(_, weight)| *weight).sum::<f64>();
+        let ranking_strategy = if end_to_end.accepted {
+            "end_to_end"
+        } else if weight_sum > 0.0 {
+            "stage_blend_fallback"
+        } else {
+            "neutral_default"
+        };
         let mut scores = HashMap::with_capacity(candidates.len());
         for candidate in candidates {
-            let score = if weight_sum > 0.0 {
+            let score = if end_to_end.accepted {
+                end_to_end
+                    .predictions
+                    .get(candidate)
+                    .copied()
+                    .unwrap_or(DEFAULT_SCORE)
+            } else if weight_sum > 0.0 {
                 models
                     .iter()
                     .map(|(model, weight)| {
@@ -173,10 +198,11 @@ impl LightGbmScores {
             );
         }
 
-        let trained = weight_sum > 0.0;
+        let trained = end_to_end.accepted || weight_sum > 0.0;
         let model_report = serde_json::json!({
             "validation": "walk_forward_time_split",
             "baseline": "training_prevalence_brier",
+            "ranking_strategy": ranking_strategy,
             "composite_weights": {"strict": 0.50, "transfer": 0.30, "stream": 0.20},
             "promotion_minimum_relative_brier_improvement": MIN_RELATIVE_BRIER_IMPROVEMENT,
             "promotion_top_20pct_lift_minimum": 1.0,
@@ -186,6 +212,7 @@ impl LightGbmScores {
                 "strict": strict.report,
                 "transfer": transfer.report,
                 "stream": stream.report,
+                "end_to_end": end_to_end.report,
             }
         });
         let result = Self {
@@ -196,30 +223,33 @@ impl LightGbmScores {
         };
         result.save(DEFAULT_SCORE_PATH)?;
 
+        let promoted_models = models.len() + if end_to_end.accepted { 1 } else { 0 };
         println!(
-            "[INFO] 🧠 [LightGBM] Temporal multi-target training | Rows: {} | Features: {} | Candidates: {} | Promoted models: {}",
+            "[INFO] 🧠 [LightGBM] Temporal multi-target training | Rows: {} | Features: {} | Candidates: {} | Promoted models: {} | Ranking: {}",
             data.examples.len(),
             MODEL_FEATURE_COUNT,
             candidates.len(),
-            models.len()
+            promoted_models,
+            ranking_strategy
         );
         for (name, target) in [
             ("strict", &strict),
             ("transfer", &transfer),
             ("stream", &stream),
+            ("end_to_end", &end_to_end),
         ] {
             println!(
-                "[INFO] 🧠 [LightGBM] Temporal validation | Target: {} | Accepted: {} | Train: {} | Holdout: {} | Brier: {} | Baseline: {} | Reason: {}",
+                "[INFO] 🧠 [LightGBM] Temporal validation | Target: {} | Accepted: {} | Train: {} | Holdout: {} | Brier: {} | Baseline: {} | Top-20% lift: {} | Reason: {}",
                 name,
                 target.accepted,
                 target.report.get("train_rows").and_then(Value::as_u64).unwrap_or(0),
                 target.report.get("holdout_rows").and_then(Value::as_u64).unwrap_or(0),
                 target.report.get("model_brier").and_then(Value::as_f64).map(|v| format!("{v:.5}")).unwrap_or_else(|| "n/a".to_string()),
                 target.report.get("baseline_brier").and_then(Value::as_f64).map(|v| format!("{v:.5}")).unwrap_or_else(|| "n/a".to_string()),
+                target.report.get("top_20pct_lift").and_then(Value::as_f64).map(|v| format!("{v:.3}")).unwrap_or_else(|| "n/a".to_string()),
                 target.report.get("reason").and_then(Value::as_str).unwrap_or("unknown")
             );
         }
-
         Ok(result)
     }
 
@@ -230,7 +260,7 @@ impl LightGbmScores {
         }
 
         let payload = serde_json::json!({
-            "version": 3,
+            "version": 4,
             "trained": self.trained,
             "training_rows": self.training_rows,
             "feature_count": MODEL_FEATURE_COUNT,
@@ -316,6 +346,7 @@ enum ModelTarget {
     Strict,
     Transfer,
     Stream,
+    EndToEnd,
 }
 
 impl ModelTarget {
@@ -324,6 +355,7 @@ impl ModelTarget {
             Self::Strict => "strict",
             Self::Transfer => "transfer",
             Self::Stream => "stream",
+            Self::EndToEnd => "end_to_end",
         }
     }
 
@@ -332,12 +364,23 @@ impl ModelTarget {
             Self::Strict => Some(row.strict_pass),
             Self::Transfer => row.transfer_pass,
             Self::Stream => row.stream_pass,
+            Self::EndToEnd => {
+                if !row.strict_pass {
+                    Some(false)
+                } else {
+                    match row.transfer_pass {
+                        Some(false) => Some(false),
+                        Some(true) => row.stream_pass,
+                        None => None,
+                    }
+                }
+            }
         }
     }
 
     fn minimum_rows(self) -> usize {
         match self {
-            Self::Strict => MIN_TRAINING_ROWS,
+            Self::Strict | Self::EndToEnd => MIN_TRAINING_ROWS,
             Self::Transfer => 1_000,
             Self::Stream => 500,
         }
@@ -345,7 +388,7 @@ impl ModelTarget {
 
     fn minimum_training_class_rows(self) -> usize {
         match self {
-            Self::Strict => MIN_POSITIVE_ROWS.max(MIN_NEGATIVE_ROWS),
+            Self::Strict | Self::EndToEnd => MIN_POSITIVE_ROWS.max(MIN_NEGATIVE_ROWS),
             Self::Transfer => 100,
             Self::Stream => 50,
         }
@@ -353,14 +396,14 @@ impl ModelTarget {
 
     fn minimum_timestamps(self) -> usize {
         match self {
-            Self::Strict => 20,
+            Self::Strict | Self::EndToEnd => 20,
             Self::Transfer | Self::Stream => 10,
         }
     }
 
     fn minimum_holdout_class_rows(self) -> usize {
         match self {
-            Self::Strict => 100,
+            Self::Strict | Self::EndToEnd => 100,
             Self::Transfer => 50,
             Self::Stream => 25,
         }
@@ -368,7 +411,7 @@ impl ModelTarget {
 
     fn minimum_unique_candidates(self) -> usize {
         match self {
-            Self::Strict => 1_000,
+            Self::Strict | Self::EndToEnd => 1_000,
             Self::Transfer => 100,
             Self::Stream => 50,
         }
@@ -379,6 +422,7 @@ impl ModelTarget {
             Self::Strict => 42,
             Self::Transfer => 43,
             Self::Stream => 44,
+            Self::EndToEnd => 45,
         }
     }
 }
@@ -1461,8 +1505,8 @@ fn structural_vector(
 mod tests {
     use super::{
         candidate_fingerprint, config_feature_vector, history_feature_vector, load_training,
-        parse_config_features, port_bucket, top_quintile_pass_rate, HISTORY_FEATURE_COUNT,
-        MODEL_FEATURE_COUNT,
+        parse_config_features, port_bucket, top_quintile_pass_rate, ModelTarget, TrainingExample,
+        HISTORY_FEATURE_COUNT, MODEL_FEATURE_COUNT,
     };
     use serde_json::{json, Map, Value};
     use std::fs;
@@ -1515,6 +1559,49 @@ mod tests {
                 "stream_pass": null
             }
         })
+    }
+
+    fn training_example(
+        strict_pass: bool,
+        transfer_pass: Option<bool>,
+        stream_pass: Option<bool>,
+    ) -> TrainingExample {
+        TrainingExample {
+            observed_at: 1,
+            candidate_fingerprint: "candidate".to_string(),
+            features: Vec::new(),
+            strict_pass,
+            transfer_pass,
+            stream_pass,
+        }
+    }
+
+    #[test]
+    fn end_to_end_labels_respect_censored_pipeline_stages() {
+        assert_eq!(
+            ModelTarget::EndToEnd.label(&training_example(false, None, None)),
+            Some(false)
+        );
+        assert_eq!(
+            ModelTarget::EndToEnd.label(&training_example(true, Some(false), None)),
+            Some(false)
+        );
+        assert_eq!(
+            ModelTarget::EndToEnd.label(&training_example(true, Some(true), Some(false))),
+            Some(false)
+        );
+        assert_eq!(
+            ModelTarget::EndToEnd.label(&training_example(true, Some(true), Some(true))),
+            Some(true)
+        );
+        assert_eq!(
+            ModelTarget::EndToEnd.label(&training_example(true, None, None)),
+            None
+        );
+        assert_eq!(
+            ModelTarget::EndToEnd.label(&training_example(true, Some(true), None)),
+            None
+        );
     }
 
     #[test]
