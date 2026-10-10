@@ -1589,8 +1589,7 @@ async fn discover_repo(
         percent_encode(branch)
     );
 
-    let response =
-        github_get_with_accept(client, &url, token, GITHUB_README_ACCEPT).await?;
+    let response = github_get_with_accept(client, &url, token, GITHUB_README_ACCEPT).await?;
     if !response.status().is_success() {
         return Err(format!("GitHub README endpoint returned HTTP {}", response.status()).into());
     }
@@ -2805,11 +2804,12 @@ mod tests {
     use super::{
         build_search_query, deduplicate_candidates, extract_source_urls, is_self_repository,
         is_self_source, is_source_path, likely_source_url, normalize_github_source,
-        percent_encode_path, readme_candidates_from_raw_body, search_query_set_for_run, search_sort_for_run,
-        search_strategy_for_run, select_new_active_urls, source_path_family, unix_days_to_ymd,
-        validate_no_self_sources, Candidate, CollectionOutcome, Registry, Repository, Value,
-        MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK,
-        MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH, RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
+        percent_encode_path, readme_candidates_from_raw_body, search_query_set_for_run,
+        search_sort_for_run, search_strategy_for_run, select_new_active_urls, source_path_family,
+        unix_days_to_ymd, validate_no_self_sources, Candidate, CollectionOutcome, Registry,
+        Repository, Value, MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK,
+        MAX_FAILURE_STREAK, MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH,
+        RETIRED_SOURCE_COOLDOWN_SECS, STANDARD,
     };
     use base64::Engine as _;
     use std::collections::HashSet;

@@ -2709,8 +2709,7 @@ mod tests {
             "socks5://user:pass@example.com:1080",
             "socks5h://example.com:1081",
         ] {
-            let outbound =
-                singbox_outbound(config).expect("SOCKS5 variants should map natively");
+            let outbound = singbox_outbound(config).expect("SOCKS5 variants should map natively");
             assert_eq!(outbound["type"], "socks");
             assert_eq!(outbound["version"], "5");
             assert_eq!(outbound["server"], "example.com");
