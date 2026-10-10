@@ -26,7 +26,6 @@ dispatch_update() {
 
 validate_published_outputs() {
   local base="https://raw.githubusercontent.com/$repo/main/subscriptions"
-  local tmp
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
 
