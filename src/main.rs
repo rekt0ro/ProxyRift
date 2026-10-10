@@ -3086,9 +3086,9 @@ fn obfuscation_mask(obfuscation: &ProbeObfuscation, salt: &[u8]) -> Vec<u8> {
 
     match obfuscation {
         ProbeObfuscation::Salamander(_) => Blake2b::<U32>::digest(input).to_vec(),
-        ProbeObfuscation::XPlus(_) => {
-            ring::digest::digest(&ring::digest::SHA256, &input).as_ref().to_vec()
-        }
+        ProbeObfuscation::XPlus(_) => ring::digest::digest(&ring::digest::SHA256, &input)
+            .as_ref()
+            .to_vec(),
     }
 }
 
@@ -3269,9 +3269,7 @@ async fn quic_latency_for_targets(
             let client_config = client_config.clone();
             let obfuscation = obfuscation.clone();
 
-            async move {
-                quic_probe_target(address, &sni, client_config, obfuscation).await
-            }
+            async move { quic_probe_target(address, &sni, client_config, obfuscation).await }
         })
         .buffer_unordered(MAX_QUIC_TARGET_CONCURRENCY)
         .filter_map(|result| async move { result });
