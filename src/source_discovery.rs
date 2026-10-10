@@ -1333,7 +1333,7 @@ pub async fn record_collection_results(
     }
 
     println!(
-        "[INFO] 🔭 [Discovery] Source health updated | Checked {} | Failed {} | Permanent {} | Quarantined {}",
+        "[INFO] 🔭 [Discovery] Source health updated | Checked {} | Failed {} | Permanent {} | Registry quarantined {}",
         results.len(),
         results
             .iter()
