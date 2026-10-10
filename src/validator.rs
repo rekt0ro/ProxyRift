@@ -638,7 +638,7 @@ fn vmess_tls_security(value: Option<&Value>) -> String {
         },
         Some(Value::String(value)) => match value.trim().to_ascii_lowercase().as_str() {
             "tls" | "t" | "tl" | "1" | "true" | "yes" | "on" => "tls".to_string(),
-            "" | "0" | "false" | "no" | "off" => String::new(),
+            "" | "0" | "false" | "no" | "off" | "none" => String::new(),
             _ => value.clone(),
         },
         Some(value) => json_text(Some(value)).unwrap_or_default(),
@@ -6046,6 +6046,23 @@ mod tests {
         assert!(is_cheaply_supported_config(&config));
         let parsed = parse_config(&config).expect("VMess TLS alias should parse");
         assert_eq!(parsed["streamSettings"]["security"], "tls");
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_vmess_tls_none_alias() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": "tcp",
+            "tls": "none"
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert!(is_cheaply_supported_config(&config));
+        let parsed = parse_config(&config).expect("VMess no-TLS alias should parse");
+        assert_eq!(parsed["streamSettings"]["security"], "none");
     }
 
     #[test]
