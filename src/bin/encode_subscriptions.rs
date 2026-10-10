@@ -167,7 +167,10 @@ fn main() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::output_path;
+    use super::{decode_vmess_payload, output_path, rename_subscription_configs};
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    use serde_json::Value;
     use std::path::Path;
 
     #[test]
@@ -177,7 +180,7 @@ mod tests {
             "socks5://proxy.example.com:1080#old".to_string(),
         ];
 
-        let renamed = super::rename_subscription_configs(&configs).unwrap();
+        let renamed = rename_subscription_configs(&configs).unwrap();
         assert!(renamed[0].ends_with("#ProxyRift%20001"));
         assert!(renamed[1].ends_with("#ProxyRift%20002"));
     }
@@ -193,8 +196,8 @@ mod tests {
             "net": "tcp"
         });
         let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
-        let renamed = super::rename_subscription_configs(&[config]).unwrap();
-        let decoded = super::decode_vmess_payload(&renamed[0]).unwrap();
+        let renamed = rename_subscription_configs(&[config]).unwrap();
+        let decoded = decode_vmess_payload(&renamed[0]).unwrap();
         let value: Value = serde_json::from_slice(&decoded).unwrap();
 
         assert_eq!(value["ps"], "ProxyRift 001");
