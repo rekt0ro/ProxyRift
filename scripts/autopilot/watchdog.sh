@@ -59,8 +59,14 @@ validate_published_outputs() {
   if (( light_count < 50 )); then
     fail "Published Light subscription has $light_count entries; expected at least 50. The publication gate should prevent this."
   fi
+  if (( light_count > 200 )); then
+    fail "Published Light subscription has $light_count entries; maximum is 200. The publication gate should prevent this."
+  fi
   if (( all_count < 1000 )); then
-    fail "Published All subscription has no entries."
+    fail "Published All subscription has $all_count entries; expected at least 1000."
+  fi
+  if (( all_count > 2000 )); then
+    fail "Published All subscription has $all_count entries; maximum is 2000. The publication gate should prevent this."
   fi
 
   for name in light all; do

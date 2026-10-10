@@ -96,4 +96,23 @@ if grep --quiet "tmp: unbound variable" "$tmp/watchdog.log"; then
   exit 1
 fi
 
-echo "[OK] Watchdog validates healthy outputs and exits cleanly."
+for ((i = 1; i <= 201; i++)); do
+  printf 'vless://light-%s@example.net:443\n' "$i"
+done > "$fixtures/light.txt"
+
+if WATCHDOG_FIXTURES="$fixtures" \
+  PATH="$bin:$PATH" \
+  GH_REPOSITORY="rekt0ro/ProxyRift" \
+  EVENT_NAME="workflow_run" \
+  EVENT_PATH="$tmp/event.json" \
+  GITHUB_STEP_SUMMARY="$tmp/summary-max.md" \
+  GH_TOKEN="test-token" \
+  GITHUB_SHA="fixture-sha" \
+  WATCHDOG_CURL_LOG="$tmp/curl-max.log" \
+  bash "$repo_root/scripts/autopilot/watchdog.sh" >"$tmp/watchdog-max.log" 2>&1; then
+  echo "[ERROR] Watchdog accepted a published Light subscription above 200." >&2
+  exit 1
+fi
+grep -Fq "maximum is 200" "$tmp/watchdog-max.log"
+
+echo "[OK] Watchdog validates healthy outputs and rejects Light above its hard maximum."

@@ -44,6 +44,9 @@ const DEFAULT_MAX_PER_ENDPOINT: usize = 1;
 const DEFAULT_MAX_PER_FAMILY: usize = 3;
 const STRICT_VALIDATION_RESERVE_PERCENT: usize = 20;
 const STRICT_VALIDATION_RESERVE_MAX: usize = 64;
+const STRICT_ADAPTIVE_MIN_TRANSFER_SAMPLES: usize = 32;
+const STRICT_ADAPTIVE_MIN_STREAM_SAMPLES: usize = 16;
+const STRICT_ADAPTIVE_TARGET_GROWTH_MAX: usize = 64;
 const RECHECK_FAMILY_DIVERSITY: usize = 3;
 const RECHECK_MAX_PER_ENDPOINT: usize = 2;
 const RECHECK_EXPLORATION_PERCENT: usize = 15;
@@ -119,6 +122,16 @@ fn strict_validation_target(selection_limit: usize) -> usize {
     selection_limit.saturating_add(reserve)
 }
 
+fn strict_validation_batch_limit(
+    desired_target: usize,
+    strict_verified: usize,
+    adaptive_attempt_limit: usize,
+) -> usize {
+    desired_target
+        .saturating_sub(strict_verified)
+        .min(adaptive_attempt_limit)
+}
+
 fn adaptive_recheck_limit(
     remaining: usize,
     configured_limit: usize,
@@ -158,27 +171,32 @@ fn adaptive_strict_validation_target(
         return 0;
     }
 
-    let transfer_rate = if transfer_tested < 16 {
-        0.80
-    } else {
-        ((transfer_passed as f64 + 2.0) / (transfer_tested as f64 + 4.0)).clamp(0.35, 0.95)
-    };
-    let stream_rate = if stream_tested < 16 {
-        0.90
-    } else {
-        ((stream_passed as f64 + 2.0) / (stream_tested as f64 + 4.0)).clamp(0.50, 0.98)
-    };
+    let minimum_target = strict_validation_target(selection_limit);
+    let reachable_target = strict_verified
+        .saturating_add(available_candidates)
+        .max(strict_verified);
+
+    // Until both downstream stages have usable samples, use the bounded reserve.
+    // Default pass-rate assumptions projected a 200-config target to 320 strict
+    // successes before the first real transfer or stream outcomes were available.
+    if transfer_tested < STRICT_ADAPTIVE_MIN_TRANSFER_SAMPLES
+        || stream_tested < STRICT_ADAPTIVE_MIN_STREAM_SAMPLES
+    {
+        return minimum_target.max(strict_verified).min(reachable_target);
+    }
+
+    let transfer_rate =
+        ((transfer_passed as f64 + 2.0) / (transfer_tested as f64 + 4.0)).clamp(0.35, 0.95);
+    let stream_rate =
+        ((stream_passed as f64 + 2.0) / (stream_tested as f64 + 4.0)).clamp(0.50, 0.98);
 
     let downstream_rate = (transfer_rate * stream_rate).clamp(0.25, 0.95);
     let projected_target =
         ((selection_limit as f64 / downstream_rate) * DISCOVERY_SAFETY_FACTOR).ceil() as usize;
-    let desired_target = projected_target.max(strict_validation_target(selection_limit));
+    let desired_target = projected_target.max(minimum_target);
+    let growth_ceiling = strict_verified.saturating_add(STRICT_ADAPTIVE_TARGET_GROWTH_MAX);
 
-    desired_target.min(
-        strict_verified
-            .saturating_add(available_candidates)
-            .max(strict_verified),
-    )
+    desired_target.min(growth_ceiling).min(reachable_target)
 }
 
 fn recheck_exploration_limit(total_limit: usize) -> usize {
@@ -464,6 +482,7 @@ fn write_light_stats(
     security_rejected: usize,
     consumer_rejected: usize,
     strict_verified: usize,
+    strict_attempts: usize,
     transfer_stability_tested: usize,
     transfer_stability_passed: usize,
     transfer_tested: usize,
@@ -486,6 +505,7 @@ fn write_light_stats(
         "security_rejected": security_rejected,
         "consumer_rejected": consumer_rejected,
         "strict_verified": strict_verified,
+        "strict_attempts": strict_attempts,
         "transfer_stability_tested": transfer_stability_tested,
         "transfer_stability_passed": transfer_stability_passed,
         "transfer_tested": transfer_tested,
@@ -3607,11 +3627,16 @@ async fn main() -> Result<(), String> {
             available_for_strict,
         );
         let remaining = desired_strict.saturating_sub(final_verified.len());
-        let dynamic_limit = adaptive_recheck_limit(
+        let adaptive_attempt_limit = adaptive_recheck_limit(
             remaining,
             final_recheck_limit,
             final_attempts.len(),
             final_metadata.len(),
+        );
+        let strict_batch_limit = strict_validation_batch_limit(
+            desired_strict,
+            final_verified.len(),
+            adaptive_attempt_limit,
         );
 
         let untested = global_verified
@@ -3639,11 +3664,11 @@ async fn main() -> Result<(), String> {
                 .then_with(|| a.cmp(b))
         });
 
-        let exploration_limit = recheck_exploration_limit(dynamic_limit);
+        let exploration_limit = recheck_exploration_limit(strict_batch_limit);
         let (final_candidates, exploration_selected) = select_recheck_candidates(
             &ai_ranked,
             &untested,
-            dynamic_limit,
+            strict_batch_limit,
             RECHECK_FAMILY_DIVERSITY,
             exploration_limit,
             recheck_exploration_seed(wave),
@@ -4093,6 +4118,7 @@ async fn main() -> Result<(), String> {
         security_rejected,
         consumer_rejected,
         final_metadata.len(),
+        final_attempts.values().copied().sum::<usize>(),
         stability_tested.len(),
         stability_verified.len(),
         transfer_tested.len(),
@@ -4156,10 +4182,11 @@ async fn main() -> Result<(), String> {
         &stream_verified,
     )?;
     println!(
-        "[INFO] ✅ [Light] Published {} configs | Discovery: {} | Strict checks: {} | Transfer tested: {} | Transfer passes: {}",
+        "[INFO] ✅ [Light] Published {} configs | Discovery: {} | Strict attempts: {} | Strictly verified: {} | Transfer tested: {} | Transfer passes: {}",
         selected.len(),
         candidates.len(),
         final_attempts.values().copied().sum::<usize>(),
+        final_metadata.len(),
         transfer_tested.len(),
         transfer_verified.len()
     );
@@ -4178,10 +4205,11 @@ mod tests {
         select_stability_test_batch, select_transfer_target, select_verified_configs,
         select_verified_configs_with_cohort_floor, selection_additional_potential_count,
         selection_eligible_count, selection_potential_count, selection_rejection_counts,
-        should_quarantine_transfer_target, stream_selection_count, strict_validation_target,
-        transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
-        LightBackend, LightGbmScores, ProxyMetrics, TransferConcurrencyState, TransferTargetState,
-        FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, MAX_DISCOVERY_CANDIDATES,
+        should_quarantine_transfer_target, stream_selection_count, strict_validation_batch_limit,
+        strict_validation_target, transfer_target_batch_limit, transfer_validation_target,
+        update_transfer_target_state, LightBackend, LightGbmScores, ProxyMetrics,
+        TransferConcurrencyState, TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS,
+        FINAL_TRANSFER_WORKERS, MAX_DISCOVERY_CANDIDATES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -4430,10 +4458,28 @@ mod tests {
     }
 
     #[test]
-    fn adaptive_strict_reserve_grows_when_downstream_yield_is_low() {
-        let target = adaptive_strict_validation_target(200, 260, 181, 181, 0, 0, 1000);
-        assert!(target > 260);
-        assert!(target <= 1000);
+    fn adaptive_strict_target_uses_bounded_warmup_reserve() {
+        assert_eq!(
+            adaptive_strict_validation_target(200, 0, 0, 0, 0, 0, 1000),
+            240
+        );
+        assert_eq!(
+            adaptive_strict_validation_target(200, 200, 15, 12, 0, 0, 1000),
+            240
+        );
+    }
+
+    #[test]
+    fn adaptive_strict_reserve_grows_in_bounded_steps_when_yield_is_low() {
+        let target = adaptive_strict_validation_target(200, 240, 32, 8, 16, 4, 1000);
+        assert_eq!(target, 304);
+    }
+
+    #[test]
+    fn strict_validation_batch_never_exceeds_remaining_success_budget() {
+        assert_eq!(strict_validation_batch_limit(240, 200, 350), 40);
+        assert_eq!(strict_validation_batch_limit(240, 240, 350), 0);
+        assert_eq!(strict_validation_batch_limit(304, 240, 350), 64);
     }
 
     #[test]

@@ -15,18 +15,19 @@ cat > "$work/proxyrift/light-stats.json" <<'JSON'
 {
   "input_candidates": 15000,
   "security_rejected": 0,
-  "strict_verified": 140,
-  "selection_target": 130,
-  "strict_selectable": 130,
-  "stability_selectable": 130,
-  "transfer_selectable": 130,
-  "stream_selectable": 143,
+  "strict_verified": 300,
+  "strict_attempts": 317,
+  "selection_target": 200,
+  "strict_selectable": 200,
+  "stability_selectable": 200,
+  "transfer_selectable": 200,
+  "stream_selectable": 200,
   "selection_shortfall": 0,
-  "transfer_tested": 156,
-  "transfer_passed": 143,
-  "stream_continuity_tested": 143,
-  "stream_continuity_passed": 143,
-  "published": 143
+  "transfer_tested": 232,
+  "transfer_passed": 211,
+  "stream_continuity_tested": 211,
+  "stream_continuity_passed": 209,
+  "published": 200
 }
 JSON
 
@@ -78,6 +79,7 @@ chmod +x "$tmp/bin/gh"
 
 grep -Fq '| All | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
 grep -Fq '| Light | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
+grep -Fq '| 15000 | 317 | 300 | 200 | 200 |' "$tmp/summary.md"
 grep -Fq '| Strict validation | Promoted after temporal validation |' "$tmp/summary.md"
 grep -Fq '| Transfer (10 MiB) | Did not beat temporal baseline |' "$tmp/summary.md"
 grep -Fq '| Stream stability | Top-20% pass rate below random baseline |' "$tmp/summary.md"
