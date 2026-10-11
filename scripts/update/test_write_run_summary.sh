@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-set -x
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 tmp="$(mktemp -d)"
@@ -148,7 +147,7 @@ grep -Fq '| All | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$
 grep -Fq '| Light | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
 grep -Fq '| 15000 | 317 | 300 | 200 | 200 |' "$tmp/summary.md"
 grep -Fq '| Model-based ranking active | Stage-model blend fallback | 50000 | 66 | 1 | 1 / 4 |' "$tmp/summary.md"
-grep -Fq '| Strict validation | Promoted after temporal validation | 0.10 | 0.15 | 0.8 | 0.6 | 500 |' "$tmp/summary.md"
+grep -Fq '| Strict validation | Promoted after temporal validation | 0.1 | 0.15 | 0.8 | 0.6 | 500 |' "$tmp/summary.md"
 grep -Fq '| Transfer (10 MiB total) | Did not beat unseen-candidate baseline |' "$tmp/summary.md"
 grep -Fq '| Stream stability | Top-20% pass rate below unseen-candidate baseline |' "$tmp/summary.md"
 grep -Fq '| End-to-end | Not promoted: insufficient labelled data |' "$tmp/summary.md"
