@@ -5488,6 +5488,7 @@ mod tests {
     fn transfer_pools_balance_named_and_international_hosts() {
         assert_eq!(STRICT_THROUGHPUT_TARGETS.len(), 4);
         assert_eq!(LIGHT_TRANSFER_STABILITY_TARGETS.len(), 4);
+        assert_eq!(LIGHT_TRANSFER_MINIMUM_TARGETS, 1);
 
         for target in [
             ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
