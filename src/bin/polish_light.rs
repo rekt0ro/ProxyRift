@@ -887,8 +887,29 @@ fn rank_discovery_candidates(
     candidates: &[String],
     light_gbm_scores: &LightGbmScores,
     seed: u64,
+    preferred_candidates: &HashSet<String>,
 ) -> Vec<String> {
-    let mut ranked = candidates.to_vec();
+    // Revalidate the currently published cohort first, but never trust stale results:
+    // every candidate still passes the normal strict, transfer, and stream gates.
+    let mut preferred = candidates
+        .iter()
+        .filter(|config| preferred_candidates.contains(*config))
+        .cloned()
+        .collect::<Vec<_>>();
+    preferred.sort_unstable_by(|a, b| {
+        light_gbm_scores
+            .score(b)
+            .total_cmp(&light_gbm_scores.score(a))
+            .then_with(|| a.cmp(b))
+    });
+
+    // Keep exploration focused on candidates outside the current published cohort.
+    let remaining_candidates = candidates
+        .iter()
+        .filter(|config| !preferred_candidates.contains(*config))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut ranked = remaining_candidates.clone();
     ranked.sort_unstable_by(|a, b| {
         light_gbm_scores
             .score(b)
@@ -896,29 +917,30 @@ fn rank_discovery_candidates(
             .then_with(|| a.cmp(b))
     });
 
-    let mut exploration = candidates.to_vec();
+    let mut exploration = remaining_candidates;
     exploration.sort_unstable_by_key(|config| exploration_sort_key(config, seed));
 
-    let exploration_target = candidates
+    let exploration_target = ranked
         .len()
         .saturating_mul(RECHECK_EXPLORATION_PERCENT)
         .div_ceil(100)
         .clamp(1, MAX_RECHECK_EXPLORATION)
-        .min(candidates.len());
+        .min(ranked.len());
 
+    let mut ordered = preferred;
     if exploration_target == 0 {
-        return ranked;
+        ordered.extend(ranked);
+        return ordered;
     }
 
-    let mut ordered = Vec::with_capacity(candidates.len());
-    let mut selected = HashSet::with_capacity(candidates.len());
+    let mut selected = HashSet::with_capacity(ranked.len());
     let mut ranked_index = 0usize;
     let mut exploration_index = 0usize;
     let mut exploration_selected = 0usize;
 
-    for position in 0..candidates.len() {
-        let exploration_due = ((position + 1) * exploration_target) / candidates.len()
-            > (position * exploration_target) / candidates.len();
+    for position in 0..ranked.len() {
+        let exploration_due = ((position + 1) * exploration_target) / ranked.len()
+            > (position * exploration_target) / ranked.len();
 
         if exploration_due && exploration_selected < exploration_target {
             while exploration_index < exploration.len()
@@ -948,6 +970,34 @@ fn rank_discovery_candidates(
     }
 
     ordered
+}
+
+fn rank_strict_recheck_candidates(
+    candidates: &[String],
+    light_gbm_scores: &LightGbmScores,
+    preferred_candidates: &HashSet<String>,
+    positions: &HashMap<String, usize>,
+) -> Vec<String> {
+    let mut ranked = candidates.to_vec();
+    ranked.sort_unstable_by(|a, b| {
+        preferred_candidates
+            .contains(b)
+            .cmp(&preferred_candidates.contains(a))
+            .then_with(|| {
+                light_gbm_scores
+                    .score(b)
+                    .total_cmp(&light_gbm_scores.score(a))
+            })
+            .then_with(|| {
+                positions
+                    .get(a)
+                    .copied()
+                    .unwrap_or(usize::MAX)
+                    .cmp(&positions.get(b).copied().unwrap_or(usize::MAX))
+            })
+            .then_with(|| a.cmp(b))
+    });
+    ranked
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3346,8 +3396,23 @@ async fn main() -> Result<(), String> {
     let mut stream_task: Option<StreamTask> = None;
 
     let discovery_seed = recheck_exploration_seed(0);
-    let discovery_candidates =
-        rank_discovery_candidates(&candidates, &light_gbm_scores, discovery_seed);
+    let current_cohort = light_cohorts.first().cloned().unwrap_or_default();
+    let current_cohort_set = current_cohort.into_iter().collect::<HashSet<_>>();
+    let preferred_candidates = candidates
+        .iter()
+        .filter(|config| current_cohort_set.contains(*config))
+        .cloned()
+        .collect::<HashSet<_>>();
+    println!(
+        "[INFO] 🧭 [Light discovery] Prioritizing {} previously published configs for fresh validation",
+        preferred_candidates.len()
+    );
+    let discovery_candidates = rank_discovery_candidates(
+        &candidates,
+        &light_gbm_scores,
+        discovery_seed,
+        &preferred_candidates,
+    );
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
     let mut stagnant_waves = 0usize;
@@ -3550,20 +3615,12 @@ async fn main() -> Result<(), String> {
             .cloned()
             .collect::<Vec<_>>();
 
-        let mut ai_ranked = untested.clone();
-        ai_ranked.sort_unstable_by(|a, b| {
-            light_gbm_scores
-                .score(b)
-                .total_cmp(&light_gbm_scores.score(a))
-                .then_with(|| {
-                    global_positions
-                        .get(a)
-                        .copied()
-                        .unwrap_or(usize::MAX)
-                        .cmp(&global_positions.get(b).copied().unwrap_or(usize::MAX))
-                })
-                .then_with(|| a.cmp(b))
-        });
+        let ai_ranked = rank_strict_recheck_candidates(
+            &untested,
+            &light_gbm_scores,
+            &preferred_candidates,
+            &global_positions,
+        );
 
         let exploration_limit = recheck_exploration_limit(strict_batch_limit);
         let (final_candidates, exploration_selected) = select_recheck_candidates(
@@ -4548,7 +4605,7 @@ mod tests {
             .map(|index| format!("vless://{index}@example.com:443"))
             .collect::<Vec<_>>();
         let light_gbm = LightGbmScores::default();
-        let ranked = rank_discovery_candidates(&configs, &light_gbm, 123);
+        let ranked = rank_discovery_candidates(&configs, &light_gbm, 123, &HashSet::new());
 
         assert_eq!(ranked.len(), configs.len());
         assert_eq!(
@@ -4556,6 +4613,52 @@ mod tests {
             configs.iter().collect::<HashSet<_>>()
         );
         assert_ne!(ranked, configs);
+    }
+
+    #[test]
+    fn discovery_prioritizes_current_cohort_before_new_candidates() {
+        let configs = (0..128)
+            .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
+            .collect::<Vec<_>>();
+        let preferred =
+            HashSet::from([configs[18].clone(), configs[77].clone(), configs[2].clone()]);
+
+        let ranked =
+            super::rank_discovery_candidates(&configs, &LightGbmScores::default(), 123, &preferred);
+
+        assert_eq!(ranked.len(), configs.len());
+        assert_eq!(
+            ranked.iter().collect::<HashSet<_>>(),
+            configs.iter().collect::<HashSet<_>>()
+        );
+        assert!(ranked[..preferred.len()]
+            .iter()
+            .all(|config| preferred.contains(config)));
+    }
+
+    #[test]
+    fn strict_recheck_prioritizes_current_cohort_before_new_candidates() {
+        let configs = (0..128)
+            .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
+            .collect::<Vec<_>>();
+        let preferred =
+            HashSet::from([configs[18].clone(), configs[77].clone(), configs[2].clone()]);
+
+        let ranked = super::rank_strict_recheck_candidates(
+            &configs,
+            &LightGbmScores::default(),
+            &preferred,
+            &HashMap::new(),
+        );
+
+        assert_eq!(ranked.len(), configs.len());
+        assert_eq!(
+            ranked.iter().collect::<HashSet<_>>(),
+            configs.iter().collect::<HashSet<_>>()
+        );
+        assert!(ranked[..preferred.len()]
+            .iter()
+            .all(|config| preferred.contains(config)));
     }
 
     #[test]
