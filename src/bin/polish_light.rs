@@ -1515,9 +1515,12 @@ fn select_transfer_target(
     let healthy_primary = (0..primary_count)
         .filter(|&index| !states[index].quarantined)
         .collect::<Vec<_>>();
+    let has_healthy_primary = !healthy_primary.is_empty();
     let both_primaries_healthy = primary_count == PRIMARY_TRANSFER_TARGET_COUNT
         && healthy_primary.len() == PRIMARY_TRANSFER_TARGET_COUNT;
-    let healthy = if both_primaries_healthy {
+    // Keep using a remaining Iranian mirror while it is healthy. Only try
+    // international fallbacks after both Iranian primaries are unavailable.
+    let healthy = if has_healthy_primary {
         healthy_primary
     } else {
         states
@@ -4460,20 +4463,22 @@ mod tests {
     }
 
     #[test]
-    fn transfer_target_selector_shares_load_with_backups_when_one_primary_is_unavailable() {
+    fn transfer_target_selector_uses_remaining_iranian_mirror_before_foreign_fallbacks() {
         let mut states = vec![TransferTargetState::default(); 4];
         states[0].quarantined = true;
         states[1].tested = 48;
         states[1].passed = 40;
         states[1].batches = 2;
 
-        assert_eq!(select_transfer_target(&states, 1), Some(2));
+        // A usable Iranian mirror must be tried before either foreign fallback.
+        assert_eq!(select_transfer_target(&states, 1), Some(1));
 
         states[2].tested = 16;
         states[2].passed = 14;
         states[2].batches = 1;
-        assert_eq!(select_transfer_target(&states, 1), Some(3));
+        assert_eq!(select_transfer_target(&states, 1), Some(1));
 
+        // Fallbacks become eligible only when both Iranian mirrors are unavailable.
         states[1].quarantined = true;
         states[2].tested = 16;
         states[3].tested = 32;
