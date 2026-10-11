@@ -1961,7 +1961,7 @@ async fn run_transfer_gate_consumer(
         let Some(target_index) = select_transfer_target(&target_states, next_preferred_primary)
         else {
             println!(
-                "[WARN] ⛔ [10 MiB] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
+                "[WARN] ⛔ [9 MiB sustained] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
                 transfer_tested.len(),
                 transfer_verified.len()
             );
@@ -2004,7 +2004,7 @@ async fn run_transfer_gate_consumer(
         target_tested_candidates[target_index].extend(batch.iter().cloned());
 
         proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 100, transfer_tested.len() >= dynamic_test_limit);
-            "[INFO] 📥 [10 MiB] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {} | Pipeline: 1 MiB producer active",
+            "[INFO] 📥 [9 MiB sustained] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {} | Pipeline: 1 MiB producer active",
             remaining,
             batch.len(),
             dynamic_test_limit,
@@ -2054,7 +2054,7 @@ async fn run_transfer_gate_consumer(
                 .any(|(index, state)| index != target_index && !state.quarantined);
 
             println!(
-                "[WARN] ⚠️ [10 MiB] Quarantining target for this run | Target: {} | Tested: {} | Passed: {} | Pass rate: {:.1}% | Rate limits: {}",
+                "[WARN] ⚠️ [9 MiB sustained] Quarantining target for this run | Target: {} | Tested: {} | Passed: {} | Pass rate: {:.1}% | Rate limits: {}",
                 target,
                 target_states[target_index].tested,
                 target_states[target_index].passed,
@@ -2075,13 +2075,13 @@ async fn run_transfer_gate_consumer(
 
                 if requeued > 0 {
                     println!(
-                        "[INFO] ↪️ [10 MiB] Requeued {} failed candidates after target quarantine | Target: {}",
+                        "[INFO] ↪️ [9 MiB sustained] Requeued {} failed candidates after target quarantine | Target: {}",
                         requeued, target
                     );
                 }
             } else {
                 println!(
-                    "[WARN] ⚠️ [10 MiB] All transfer targets are quarantined | Keeping failed candidates closed to avoid retry loop"
+                    "[WARN] ⚠️ [9 MiB sustained] All transfer targets are quarantined | Keeping failed candidates closed to avoid retry loop"
                 );
             }
         }
@@ -2121,7 +2121,7 @@ async fn run_transfer_gate_consumer(
         }
 
         proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 100, transfer_verified.len() >= transfer_target || (receiver_closed && pending.is_empty()));
-            "[INFO] ✅ [10 MiB] {}/{} Passed in {}s | Total passed: {} | Validation slots remaining: {}",
+            "[INFO] ✅ [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Validation slots remaining: {}",
             batch_passed,
             batch.len(),
             batch_elapsed,
@@ -3661,14 +3661,14 @@ async fn main() -> Result<(), String> {
 
     if selected.is_empty() {
         println!(
-            "[WARN] ⚠️ [Light] No configs passed stream continuity | Output 0 | Workflow will preserve previous subscription | Transfer qualified: {} | Stream tested: {} | Stream passes: {}",
+            "[WARN] ⚠️ [Light] No configs passed 10 MiB sustained validation | Output 0 | Workflow will preserve previous subscription | Transfer qualified: {} | Stream tested: {} | Stream passes: {}",
             transfer_selected,
             stream_tested.len(),
             stream_selected
         );
     } else if selected.len() < selection_limit {
         println!(
-            "[WARN] ⚠️ [Light] Stream target not reached | Publishing {} continuity-qualified configs | Target/max: {} | Transfer target/max: {} | Stream tested: {} | Stream passes: {} | Endpoint cap exclusions: {} | Family cap exclusions: {}",
+            "[WARN] ⚠️ [Light] Stream target not reached | Publishing {} configs that passed 10 MiB validation | Target/max: {} | Transfer target/max: {} | Stream tested: {} | Stream passes: {} | Endpoint cap exclusions: {} | Family cap exclusions: {}",
             selected.len(),
             selection_limit,
             transfer_selected,
@@ -3712,7 +3712,7 @@ async fn main() -> Result<(), String> {
         max_per_family,
     );
     println!(
-        "[INFO] 📊 [Light feasibility] Target: {} | Strict selectable: {} | 1 MiB selectable: {} | 10 MiB selectable: {} | Stream selectable: {} | Selected: {} | Shortfall: {}",
+        "[INFO] 📊 [Light feasibility] Target: {} | Strict selectable: {} | 1 MiB selectable: {} | 10 MiB selectable: {} | 9 MiB sustained selectable: {} | Selected: {} | Shortfall: {}",
         selection_limit,
         strict_selectable,
         stability_selectable,
