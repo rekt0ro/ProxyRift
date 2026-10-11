@@ -3435,8 +3435,8 @@ async fn probe_request_with_minimum_mode(
     }
 
     let started = Instant::now();
-    let minimum_body_bytes =
-        minimum_body_bytes.map(|minimum| minimum_probe_body_bytes_for_target(url.as_str(), minimum));
+    let minimum_body_bytes = minimum_body_bytes
+        .map(|minimum| minimum_probe_body_bytes_for_target(url.as_str(), minimum));
     let response_limit =
         minimum_body_bytes.unwrap_or_else(|| response_limit_for_target(url.as_str()));
     let mut request = client.get(url.as_str());
