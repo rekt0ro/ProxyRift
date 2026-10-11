@@ -2612,47 +2612,41 @@ pub fn cheap_compatibility_rejection_context(
 ) -> CheapCompatibilityRejectionContext {
     let cleaned = clean(config);
     let scheme = scheme_of(cleaned);
-    let mut transport = "not-applicable";
-    let mut security = "not-applicable";
     let parsed_url = Url::parse(cleaned).ok();
-
-    match scheme.as_str() {
-        "vless" | "trojan" => {
-            if let Some(url) = parsed_url.as_ref() {
-                transport = compatibility_transport_bucket(&first_query(
+    let (transport, security) = match scheme.as_str() {
+        "vless" | "trojan" => match parsed_url.as_ref() {
+            Some(url) => (
+                compatibility_transport_bucket(&first_query(
                     url,
                     &["type", "network"],
                     Some("tcp"),
-                ));
-                security = compatibility_security_bucket(&first_query(
+                )),
+                compatibility_security_bucket(&first_query(
                     url,
                     &["security"],
                     Some("none"),
-                ));
-            } else {
-                transport = "unavailable";
-                security = "unavailable";
-            }
-        }
+                )),
+            ),
+            None => ("unavailable", "unavailable"),
+        },
         "vmess" => {
             let parsed_value = cleaned
                 .split_once("://")
                 .and_then(|(_, payload)| b64decode(payload))
                 .and_then(|decoded| serde_json::from_slice::<Value>(&decoded).ok());
-            if let Some(value) = parsed_value.as_ref() {
-                transport = compatibility_transport_bucket(
-                    &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
-                );
-                security =
-                    compatibility_security_bucket(&vmess_tls_security(value.get("tls")));
-            } else {
-                transport = "unavailable";
-                security = "unavailable";
+            match parsed_value.as_ref() {
+                Some(value) => (
+                    compatibility_transport_bucket(
+                        &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
+                    ),
+                    compatibility_security_bucket(&vmess_tls_security(value.get("tls"))),
+                ),
+                None => ("unavailable", "unavailable"),
             }
         }
         "hysteria" => {
-            if let Some(url) = parsed_url.as_ref() {
-                transport = match hysteria_v1_protocol(url)
+            let transport = match parsed_url.as_ref() {
+                Some(url) => match hysteria_v1_protocol(url)
                     .trim()
                     .to_ascii_lowercase()
                     .as_str()
@@ -2661,26 +2655,17 @@ pub fn cheap_compatibility_rejection_context(
                     "wechat-video" => "hysteria-wechat-video",
                     "faketcp" => "hysteria-faketcp",
                     _ => "hysteria-other",
-                };
-            } else {
-                transport = "unavailable";
-            }
-            security = "tls-required";
+                },
+                None => "unavailable",
+            };
+            (transport, "tls-required")
         }
-        "hysteria2" | "hy2" => {
-            transport = "quic";
-            security = "tls-required";
-        }
-        "tuic" => {
-            transport = "quic";
-            security = "tls-required";
-        }
+        "hysteria2" | "hy2" | "tuic" => ("quic", "tls-required"),
         "wg" | "ss" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" | "http" => {
-            transport = "native";
-            security = "native";
+            ("native", "native")
         }
-        _ => {}
-    }
+        _ => ("not-applicable", "not-applicable"),
+    };
 
     let detail = match reason {
         "incompatible-security-transport" => "reality-transport=incompatible",
