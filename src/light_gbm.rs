@@ -1204,24 +1204,29 @@ fn train_target_model(
     } else {
         "none"
     };
-    let (model_brier, relative_improvement, model_top_20pct_pass_rate, brier_accepted, ranking_accepted) =
-        if use_weighted {
-            (
-                weighted_brier,
-                weighted_relative_improvement,
-                weighted_top_20pct_pass_rate,
-                weighted_brier_accepted,
-                weighted_ranking_accepted,
-            )
-        } else {
-            (
-                unweighted_brier,
-                unweighted_relative_improvement,
-                unweighted_top_20pct_pass_rate,
-                unweighted_brier_accepted,
-                unweighted_ranking_accepted,
-            )
-        };
+    let (
+        model_brier,
+        relative_improvement,
+        model_top_20pct_pass_rate,
+        brier_accepted,
+        ranking_accepted,
+    ) = if use_weighted {
+        (
+            weighted_brier,
+            weighted_relative_improvement,
+            weighted_top_20pct_pass_rate,
+            weighted_brier_accepted,
+            weighted_ranking_accepted,
+        )
+    } else {
+        (
+            unweighted_brier,
+            unweighted_relative_improvement,
+            unweighted_top_20pct_pass_rate,
+            unweighted_brier_accepted,
+            unweighted_ranking_accepted,
+        )
+    };
     let top_20pct_lift = if holdout_pass_rate > 0.0 {
         model_top_20pct_pass_rate / holdout_pass_rate
     } else {
