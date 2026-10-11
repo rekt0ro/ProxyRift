@@ -1903,6 +1903,9 @@ mod tests {
             ("vless://id@example.com:443?flow=custom-flow", "xray"),
             (vmess.as_str(), "xray"),
             ("hysteria2://password@example.com:443?pinSHA256=abc", "xray"),
+            ("hysteria2://password@example.com:443?pinSHA256=", "xray"),
+            ("vless://id@example.com:443?type=grpc&host=", "xray"),
+            ("vless://id@example.com:443?finalmask=", "xray"),
             ("vless://id@example.com:443?security=reality", "fallback"),
             ("vless://id@example.com:443?type=ws", "sing-box"),
         ];
