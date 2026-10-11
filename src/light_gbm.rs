@@ -1218,6 +1218,149 @@ struct ConfigFeatures {
     reality_enabled: bool,
 }
 
+/// Classify a proxy using the same rules as the validator backend selector.
+pub fn backend_for_config(config: &str) -> &'static str {
+    let Ok(url) = url::Url::parse(config.split('#').next().unwrap_or(config)) else {
+        return "sing-box";
+    };
+
+    let query_value = |names: &[&str]| {
+        url.query_pairs()
+            .find(|(key, value)| {
+                names.iter().any(|name| key.eq_ignore_ascii_case(name)) && !value.is_empty()
+            })
+            .map(|(_, value)| value.into_owned())
+            .unwrap_or_default()
+    };
+    let has_query_key = |names: &[&str]| {
+        url.query_pairs().any(|(key, value)| {
+            names.iter().any(|name| key.eq_ignore_ascii_case(name)) && !value.is_empty()
+        })
+    };
+
+    let transport = query_value(&["type", "network"]).to_ascii_lowercase();
+    let security = query_value(&["security"]).to_ascii_lowercase();
+    let scheme = url.scheme().to_ascii_lowercase();
+
+    if matches!(scheme.as_str(), "socks4" | "socks4a") {
+        return "sing-box";
+    }
+    if matches!(scheme.as_str(), "http" | "socks" | "socks5" | "socks5h") {
+        return "xray";
+    }
+    if scheme == "tuic" {
+        return "sing-box";
+    }
+
+    if scheme == "vmess" {
+        if let Some(value) = decode_vmess(config) {
+            let network = value
+                .get("net")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_ascii_lowercase();
+
+            if matches!(network.as_str(), "xhttp" | "splithttp" | "kcp" | "mkcp") {
+                return "xray";
+            }
+            if network == "quic" {
+                return "sing-box";
+            }
+
+            if network == "grpc" {
+                let mode = value
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let has_authority = ["authority", "host"].iter().any(|key| {
+                    value
+                        .get(*key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|item| !item.is_empty())
+                });
+
+                if mode == "multi" || has_authority {
+                    return "xray";
+                }
+            }
+
+            let has_certificate_extension = ["pcs", "vcn"].iter().any(|key| {
+                value
+                    .get(*key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|item| !item.is_empty())
+            });
+            let ech = value
+                .get("ech")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .replace(' ', "+");
+            if has_certificate_extension || ech.contains("://") {
+                return "xray";
+            }
+        }
+    }
+
+    let legacy_raw_http = (transport.is_empty() || transport == "tcp" || transport == "raw")
+        && query_value(&["headerType"]).eq_ignore_ascii_case("http");
+    if legacy_raw_http && !xray_only_tls_extensions() {
+        return "sing-box";
+    }
+
+    if matches!(transport.as_str(), "xhttp" | "splithttp" | "kcp" | "mkcp") {
+        return "xray";
+    }
+    if transport == "quic" {
+        return "sing-box";
+    }
+    if transport == "grpc"
+        && (has_query_key(&["authority", "host"])
+            || query_value(&["mode"]).eq_ignore_ascii_case("multi"))
+    {
+        return "xray";
+    }
+
+    if xray_only_tls_extensions() {
+        return "xray";
+    }
+
+    if matches!(scheme.as_str(), "hysteria2" | "hy2") && has_query_key(&["pinSHA256"]) {
+        return "xray";
+    }
+
+    if scheme == "vless" {
+        let flow = query_value(&["flow"]).to_ascii_lowercase();
+        if !flow.is_empty() && flow != "xtls-rprx-vision" {
+            return "xray";
+        }
+
+        if has_query_key(&["fm", "finalmask"]) {
+            return "xray";
+        }
+        let encryption = query_value(&["encryption"]);
+        if !encryption.is_empty() && !encryption.eq_ignore_ascii_case("none") {
+            return "xray";
+        }
+        if !query_value(&["extra"]).is_empty() {
+            return "xray";
+        }
+    }
+
+    if security == "reality" {
+        return "fallback";
+    }
+
+    "sing-box"
+}
+
+fn xray_only_tls_extensions() -> bool {
+    let pcs = query_value(&["pcs", "pinnedPeerCertSha256"]);
+    let vcn = query_value(&["vcn", "verifyPeerCertByName"]);
+    let ech = query_value(&["ech"]);
+    !pcs.is_empty() || !vcn.is_empty() || ech.contains("://")
+}
+
 fn parse_config_features(config: &str) -> ConfigFeatures {
     let cleaned = config.split('#').next().unwrap_or(config);
     let parsed = url::Url::parse(cleaned).ok();
@@ -1262,6 +1405,7 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
                 .is_some_and(|value| !value.trim().is_empty());
 
             return finish_features(
+                config,
                 "vmess".to_string(),
                 transport,
                 security,
@@ -1309,6 +1453,7 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
         || has_query_key(&query, &["path"]);
 
     finish_features(
+        config,
         protocol,
         transport,
         security,
@@ -1322,6 +1467,7 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
 
 #[allow(clippy::too_many_arguments)]
 fn finish_features(
+    config: &str,
     protocol: String,
     transport: String,
     security: String,
@@ -1335,18 +1481,7 @@ fn finish_features(
     let transport = normalize_transport(&transport);
     let security = normalize_security(&security);
 
-    let backend = if matches!(
-        protocol.as_str(),
-        "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h"
-    ) {
-        "xray"
-    } else if security == "reality" {
-        "fallback"
-    } else if matches!(transport.as_str(), "xhttp" | "splithttp") {
-        "xray"
-    } else {
-        "sing-box"
-    };
+    let backend = backend_for_config(config).to_string();
 
     ConfigFeatures {
         protocol,
@@ -1516,9 +1651,9 @@ fn structural_vector(
 #[cfg(test)]
 mod tests {
     use super::{
-        candidate_fingerprint, config_feature_vector, history_feature_vector, load_training,
-        parse_config_features, port_bucket, top_quintile_pass_rate, ModelTarget, TrainingExample,
-        HISTORY_FEATURE_COUNT, MODEL_FEATURE_COUNT,
+        backend_for_config, candidate_fingerprint, config_feature_vector, history_feature_vector,
+        load_training, parse_config_features, port_bucket, top_quintile_pass_rate, ModelTarget,
+        TrainingExample, HISTORY_FEATURE_COUNT, MODEL_FEATURE_COUNT,
     };
     use serde_json::{json, Map, Value};
     use std::fs;
@@ -1666,6 +1801,35 @@ mod tests {
         assert!(features.has_host);
         assert!(features.has_path);
         assert!(features.tls_enabled);
+    }
+
+    #[test]
+    fn ranking_backend_features_match_validator_backend_selection() {
+        let vmess_payload = super::general_purpose::STANDARD.encode(
+            json!({
+                "add": "node.example.com",
+                "port": "443",
+                "id": "00000000-0000-0000-0000-000000000001",
+                "net": "grpc",
+                "type": "multi",
+                "host": "front.example.com",
+                "tls": "tls"
+            })
+            .to_string(),
+        );
+        let vmess = format!("vmess://{vmess_payload}");
+        let cases = [
+            ("vless://id@example.com:443?flow=custom-flow", "xray"),
+            (vmess.as_str(), "xray"),
+            ("hysteria2://password@example.com:443?pinSHA256=abc", "xray"),
+            ("vless://id@example.com:443?security=reality", "fallback"),
+            ("vless://id@example.com:443?type=ws", "sing-box"),
+        ];
+
+        for (config, expected) in cases {
+            assert_eq!(backend_for_config(config), expected, "{config}");
+            assert_eq!(parse_config_features(config).backend, expected, "{config}");
+        }
     }
 
     #[test]
