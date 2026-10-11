@@ -1753,6 +1753,7 @@ mod tests {
     fn stored_row(timestamp: u64, fingerprint: &str, passed: bool) -> Value {
         json!({
             "schema_version": 2,
+            "feature_extraction_version": super::FEATURE_EXTRACTION_VERSION,
             "observed_at": timestamp,
             "candidate_fingerprint": fingerprint,
             "observation_id": format!("{timestamp}:{fingerprint}:{passed}"),
