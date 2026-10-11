@@ -297,12 +297,32 @@ fn target_performance_diagnostics(target: &str) -> String {
 }
 
 fn sort_targets_by_performance(targets: &mut [Url]) {
+    let has_iranian_primary = targets.iter().any(|target| {
+        matches!(
+            target.as_str(),
+            ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET | MOBINHOST_SPEEDTEST_100MB_TARGET
+        )
+    });
+    let priority = |target: &Url| {
+        if !has_iranian_primary {
+            return 2;
+        }
+        match target.as_str() {
+            ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET => 0,
+            MOBINHOST_SPEEDTEST_100MB_TARGET => 1,
+            _ => 2,
+        }
+    };
     let mut ranked = targets
         .iter()
         .cloned()
         .map(|target| (target_performance_score(target.as_str()), target))
         .collect::<Vec<_>>();
-    ranked.sort_by(|(left_score, _), (right_score, _)| right_score.total_cmp(left_score));
+    ranked.sort_by(|(left_score, left_target), (right_score, right_target)| {
+        priority(left_target)
+            .cmp(&priority(right_target))
+            .then_with(|| right_score.total_cmp(left_score))
+    });
 
     for (slot, (_, target)) in targets.iter_mut().zip(ranked) {
         *slot = target;
@@ -5058,6 +5078,41 @@ mod tests {
     use reqwest::header::{HeaderMap, HeaderValue};
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
+
+    #[test]
+    fn transfer_targets_prioritize_arvan_and_mobin_before_foreign_fallbacks() {
+        let mut targets = vec![
+            Url::parse("https://fsn1-speed.hetzner.com/100MB.bin").unwrap(),
+            Url::parse(STRICT_THROUGHPUT_TARGET).unwrap(),
+            Url::parse(MOBINHOST_SPEEDTEST_100MB_TARGET).unwrap(),
+            Url::parse(ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET).unwrap(),
+        ];
+
+        sort_targets_by_performance(&mut targets);
+
+        assert_eq!(
+            targets[0].as_str(),
+            ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
+        );
+        assert_eq!(targets[1].as_str(), MOBINHOST_SPEEDTEST_100MB_TARGET);
+        assert!(targets[2..].iter().all(|target| {
+            target.as_str() != ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
+                && target.as_str() != MOBINHOST_SPEEDTEST_100MB_TARGET
+        }));
+    }
+
+    #[test]
+    fn remaining_iranian_target_precedes_foreign_fallbacks_after_a_cooldown() {
+        let mut targets = vec![
+            Url::parse("https://fsn1-speed.hetzner.com/100MB.bin").unwrap(),
+            Url::parse(MOBINHOST_SPEEDTEST_100MB_TARGET).unwrap(),
+            Url::parse(STRICT_THROUGHPUT_TARGET).unwrap(),
+        ];
+
+        sort_targets_by_performance(&mut targets);
+
+        assert_eq!(targets[0].as_str(), MOBINHOST_SPEEDTEST_100MB_TARGET);
+    }
 
     #[test]
     fn target_scheduler_prefers_fast_reliable_hosts_and_explores_unknowns() {

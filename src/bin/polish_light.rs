@@ -12,7 +12,7 @@ use proxyrift::singbox::{
 };
 use proxyrift::validator::{
     endpoint, is_light_consumer_compatible, read_lines, target_is_rate_limited,
-    target_performance_score, target_rate_limit_events, validate_candidates_with_consumer_targets,
+    target_rate_limit_events, validate_candidates_with_consumer_targets,
     validate_candidates_with_target_once,
     validate_candidates_with_target_pool_once_with_minimum_body,
     validate_candidates_with_target_pool_once_with_sustained_stream, write_lines, ProxyMetrics,
@@ -158,27 +158,46 @@ fn adaptive_recheck_limit(
     estimated.max(exploration_floor).min(configured_limit)
 }
 
-fn adaptive_strict_validation_target(
+#[derive(Clone, Copy, Debug, Default)]
+struct AdaptiveStrictValidationInputs {
     selection_limit: usize,
     strict_verified: usize,
+    strict_selectable: usize,
     transfer_tested: usize,
     transfer_passed: usize,
     stream_tested: usize,
     stream_passed: usize,
-    available_candidates: usize,
-) -> usize {
+    reachable_candidates: usize,
+}
+
+fn adaptive_strict_validation_target(inputs: AdaptiveStrictValidationInputs) -> usize {
+    let AdaptiveStrictValidationInputs {
+        selection_limit,
+        strict_verified,
+        strict_selectable,
+        transfer_tested,
+        transfer_passed,
+        stream_tested,
+        stream_passed,
+        reachable_candidates,
+    } = inputs;
+
     if selection_limit == 0 {
         return 0;
     }
 
-    let minimum_target = strict_validation_target(selection_limit);
+    let selection_rate = if strict_verified < 32 {
+        1.0
+    } else {
+        (strict_selectable as f64 / strict_verified as f64).clamp(0.25, 1.0)
+    };
+    let minimum_target =
+        ((strict_validation_target(selection_limit) as f64 / selection_rate).ceil() as usize)
+            .max(strict_validation_target(selection_limit));
     let reachable_target = strict_verified
-        .saturating_add(available_candidates)
+        .saturating_add(reachable_candidates)
         .max(strict_verified);
 
-    // Until both downstream stages have usable samples, use the bounded reserve.
-    // Default pass-rate assumptions projected a 200-config target to 320 strict
-    // successes before the first real transfer or stream outcomes were available.
     if transfer_tested < STRICT_ADAPTIVE_MIN_TRANSFER_SAMPLES
         || stream_tested < STRICT_ADAPTIVE_MIN_STREAM_SAMPLES
     {
@@ -191,12 +210,13 @@ fn adaptive_strict_validation_target(
         ((stream_passed as f64 + 2.0) / (stream_tested as f64 + 4.0)).clamp(0.50, 0.98);
 
     let downstream_rate = (transfer_rate * stream_rate).clamp(0.25, 0.95);
-    let projected_target =
+    let projected_selectable =
         ((selection_limit as f64 / downstream_rate) * DISCOVERY_SAFETY_FACTOR).ceil() as usize;
-    let desired_target = projected_target.max(minimum_target);
+    let projected_target =
+        ((projected_selectable as f64 / selection_rate).ceil() as usize).max(minimum_target);
     let growth_ceiling = strict_verified.saturating_add(STRICT_ADAPTIVE_TARGET_GROWTH_MAX);
 
-    desired_target.min(growth_ceiling).min(reachable_target)
+    projected_target.min(growth_ceiling).min(reachable_target)
 }
 
 fn recheck_exploration_limit(total_limit: usize) -> usize {
@@ -1462,6 +1482,7 @@ async fn validate_light_stream_continuity_batch(
 
 const FINAL_TRANSFER_RATE_LIMIT_TOLERANCE_PERCENT: u64 = 25;
 const FINAL_TRANSFER_RATE_LIMIT_SEVERE_PERCENT: u64 = 50;
+const PRIMARY_TRANSFER_TARGET_COUNT: usize = 2;
 const FINAL_TRANSFER_TARGET_MIN_TESTS: usize = 8;
 const FINAL_TRANSFER_TARGET_RATE_LIMIT_PENALTY_PERCENT: u64 = 75;
 
@@ -1522,45 +1543,50 @@ fn should_quarantine_transfer_target(state: &TransferTargetState) -> bool {
     rate_limit_percent >= FINAL_TRANSFER_TARGET_RATE_LIMIT_PENALTY_PERCENT && pass_rate < 0.25
 }
 
-fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
+fn select_transfer_target(
+    states: &[TransferTargetState],
+    next_preferred_primary: usize,
+) -> Option<usize> {
     if states.is_empty() {
         return None;
     }
 
-    let mut best_untested: Option<(usize, f64)> = None;
-    for (index, state) in states.iter().enumerate() {
-        if state.quarantined || state.batches != 0 {
-            continue;
-        }
-        let score =
-            target_performance_score(proxyrift::validator::STRICT_THROUGHPUT_TARGETS[index]);
-        if best_untested
-            .as_ref()
-            .map(|(_, best_score)| score > *best_score)
-            .unwrap_or(true)
-        {
-            best_untested = Some((index, score));
-        }
-    }
-    if let Some((index, _)) = best_untested {
-        return Some(index);
-    }
+    let primary_count = states.len().min(PRIMARY_TRANSFER_TARGET_COUNT);
+    let healthy_primary = (0..primary_count)
+        .filter(|&index| !states[index].quarantined)
+        .collect::<Vec<_>>();
+    let both_primaries_healthy = primary_count == PRIMARY_TRANSFER_TARGET_COUNT
+        && healthy_primary.len() == PRIMARY_TRANSFER_TARGET_COUNT;
+    let healthy = if both_primaries_healthy {
+        healthy_primary
+    } else {
+        states
+            .iter()
+            .enumerate()
+            .filter(|(_, state)| !state.quarantined)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>()
+    };
 
-    let healthy = states
-        .iter()
-        .enumerate()
-        .filter(|(_, state)| !state.quarantined)
-        .max_by(|(_, left), (_, right)| {
-            transfer_target_score(left)
-                .partial_cmp(&transfer_target_score(right))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+    let minimum_tested = healthy.iter().map(|&index| states[index].tested).min()?;
+    let mut least_tested = healthy
+        .into_iter()
+        .filter(|&index| states[index].tested == minimum_tested)
+        .collect::<Vec<_>>();
 
-    if let Some((index, _)) = healthy {
-        return Some(index);
+    if least_tested.len() == 1 {
+        return least_tested.pop();
     }
 
-    None
+    if both_primaries_healthy && least_tested.contains(&next_preferred_primary) {
+        return Some(next_preferred_primary);
+    }
+
+    least_tested.into_iter().min_by(|left, right| {
+        transfer_target_score(&states[*right])
+            .total_cmp(&transfer_target_score(&states[*left]))
+            .then_with(|| left.cmp(right))
+    })
 }
 
 fn update_transfer_target_state(
@@ -1960,6 +1986,7 @@ async fn run_transfer_gate_consumer(
         vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     let mut pending = VecDeque::<String>::new();
     let mut receiver_closed = false;
+    let mut next_preferred_primary = 0usize;
     loop {
         if transfer_done.load(Ordering::Relaxed) {
             break;
@@ -2066,20 +2093,7 @@ async fn run_transfer_gate_consumer(
                 state.quarantined = true;
             }
         }
-        let preferred_named_target_index = [
-            proxyrift::validator::ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
-            proxyrift::validator::MOBINHOST_SPEEDTEST_100MB_TARGET,
-        ]
-        .iter()
-        .find_map(|&preferred_target| {
-            let index = proxyrift::validator::STRICT_THROUGHPUT_TARGETS
-                .iter()
-                .position(|target| *target == preferred_target)?;
-            (target_tested_candidates[index].is_empty() && !target_states[index].quarantined)
-                .then_some(index)
-        });
-        let Some(target_index) =
-            preferred_named_target_index.or_else(|| select_transfer_target(&target_states))
+        let Some(target_index) = select_transfer_target(&target_states, next_preferred_primary)
         else {
             println!(
                 "[WARN] ⛔ [10 MiB] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
@@ -2162,6 +2176,9 @@ async fn run_transfer_gate_consumer(
             rate_limits,
             batch_elapsed,
         );
+        if target_index < PRIMARY_TRANSFER_TARGET_COUNT {
+            next_preferred_primary = (target_index + 1) % PRIMARY_TRANSFER_TARGET_COUNT;
+        }
         if target_is_rate_limited(target) {
             target_states[target_index].quarantined = true;
         }
@@ -3490,15 +3507,26 @@ async fn main() -> Result<(), String> {
         );
 
         let available_for_strict = discovery_candidates.len().saturating_sub(discovery_cursor);
-        let desired_strict = adaptive_strict_validation_target(
+        let remaining_strict_candidates = global_verified
+            .iter()
+            .filter(|config| {
+                !final_metadata.contains_key(*config)
+                    && final_attempts.get(*config).copied().unwrap_or(0)
+                        < MAX_FINAL_RECHECK_ATTEMPTS
+            })
+            .count();
+        let reachable_strict_candidates =
+            available_for_strict.saturating_add(remaining_strict_candidates);
+        let desired_strict = adaptive_strict_validation_target(AdaptiveStrictValidationInputs {
             selection_limit,
-            final_verified.len(),
-            transfer_tested.len(),
-            transfer_verified.len(),
-            stream_tested.len(),
-            stream_verified.len(),
-            available_for_strict,
-        );
+            strict_verified: final_verified.len(),
+            strict_selectable: strict_selectable_before,
+            transfer_tested: transfer_tested.len(),
+            transfer_passed: transfer_verified.len(),
+            stream_tested: stream_tested.len(),
+            stream_passed: stream_verified.len(),
+            reachable_candidates: reachable_strict_candidates,
+        });
         let remaining = desired_strict.saturating_sub(final_verified.len());
         let adaptive_attempt_limit = adaptive_recheck_limit(
             remaining,
@@ -4080,9 +4108,9 @@ mod tests {
         selection_eligible_count, selection_potential_count, selection_rejection_counts,
         should_quarantine_transfer_target, stream_selection_count, strict_validation_batch_limit,
         strict_validation_target, transfer_target_batch_limit, transfer_validation_target,
-        update_transfer_target_state, LightBackend, LightGbmScores, ProxyMetrics,
-        TransferConcurrencyState, TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS,
-        FINAL_TRANSFER_WORKERS, MAX_DISCOVERY_CANDIDATES,
+        update_transfer_target_state, AdaptiveStrictValidationInputs, LightBackend, LightGbmScores,
+        ProxyMetrics, TransferConcurrencyState, TransferTargetState,
+        FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, MAX_DISCOVERY_CANDIDATES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -4333,19 +4361,80 @@ mod tests {
     #[test]
     fn adaptive_strict_target_uses_bounded_warmup_reserve() {
         assert_eq!(
-            adaptive_strict_validation_target(200, 0, 0, 0, 0, 0, 1000),
+            adaptive_strict_validation_target(AdaptiveStrictValidationInputs {
+                selection_limit: 200,
+                strict_verified: 0,
+                strict_selectable: 0,
+                transfer_tested: 0,
+                transfer_passed: 0,
+                stream_tested: 0,
+                stream_passed: 0,
+                reachable_candidates: 1000,
+            }),
             240
         );
         assert_eq!(
-            adaptive_strict_validation_target(200, 200, 15, 12, 0, 0, 1000),
+            adaptive_strict_validation_target(AdaptiveStrictValidationInputs {
+                selection_limit: 200,
+                strict_verified: 200,
+                strict_selectable: 200,
+                transfer_tested: 15,
+                transfer_passed: 12,
+                stream_tested: 0,
+                stream_passed: 0,
+                reachable_candidates: 1000,
+            }),
             240
         );
     }
 
     #[test]
     fn adaptive_strict_reserve_grows_in_bounded_steps_when_yield_is_low() {
-        let target = adaptive_strict_validation_target(200, 240, 32, 8, 16, 4, 1000);
+        let target = adaptive_strict_validation_target(AdaptiveStrictValidationInputs {
+            selection_limit: 200,
+            strict_verified: 240,
+            strict_selectable: 240,
+            transfer_tested: 32,
+            transfer_passed: 8,
+            stream_tested: 16,
+            stream_passed: 4,
+            reachable_candidates: 1000,
+        });
         assert_eq!(target, 304);
+    }
+
+    #[test]
+    fn adaptive_strict_reserve_expands_for_non_selectable_strict_passes() {
+        assert_eq!(
+            adaptive_strict_validation_target(AdaptiveStrictValidationInputs {
+                selection_limit: 200,
+                strict_verified: 240,
+                strict_selectable: 177,
+                transfer_tested: 0,
+                transfer_passed: 0,
+                stream_tested: 0,
+                stream_passed: 0,
+                reachable_candidates: 1000,
+            }),
+            326
+        );
+    }
+
+    #[test]
+    fn adaptive_strict_reserve_counts_already_verified_candidates_as_reachable() {
+        assert_eq!(
+            adaptive_strict_validation_target(AdaptiveStrictValidationInputs {
+                selection_limit: 200,
+                strict_verified: 240,
+                strict_selectable: 177,
+                transfer_tested: 0,
+                transfer_passed: 0,
+                stream_tested: 0,
+                stream_passed: 0,
+                reachable_candidates: 86,
+            }),
+            326
+        );
     }
 
     #[test]
@@ -4538,19 +4627,21 @@ mod tests {
     }
 
     #[test]
-    fn transfer_target_selector_probes_then_exploits_best_target() {
+    fn transfer_target_selector_balances_iranian_hosts_before_backups() {
         let mut states = vec![TransferTargetState::default(); 4];
-        assert_eq!(select_transfer_target(&states), Some(0));
+        assert_eq!(select_transfer_target(&states, 0), Some(0));
 
         states[0].tested = 12;
         states[0].passed = 11;
         states[0].batches = 1;
-        assert_eq!(select_transfer_target(&states), Some(1));
+        assert_eq!(select_transfer_target(&states, 1), Some(1));
+
+        states[1].tested = 12;
+        states[1].passed = 10;
+        states[1].batches = 1;
+        assert_eq!(select_transfer_target(&states, 0), Some(0));
 
         states[0].passed = 4;
-        states[1].tested = 12;
-        states[1].passed = 0;
-        states[1].batches = 1;
         states[1].quarantined = true;
         states[2].tested = 12;
         states[2].passed = 12;
@@ -4558,7 +4649,28 @@ mod tests {
         states[3].tested = 12;
         states[3].passed = 3;
         states[3].batches = 1;
-        assert_eq!(select_transfer_target(&states), Some(2));
+        assert_eq!(select_transfer_target(&states, 1), Some(2));
+    }
+
+    #[test]
+    fn transfer_target_selector_shares_load_with_backups_when_one_primary_is_unavailable() {
+        let mut states = vec![TransferTargetState::default(); 4];
+        states[0].quarantined = true;
+        states[1].tested = 48;
+        states[1].passed = 40;
+        states[1].batches = 2;
+
+        assert_eq!(select_transfer_target(&states, 1), Some(2));
+
+        states[2].tested = 16;
+        states[2].passed = 14;
+        states[2].batches = 1;
+        assert_eq!(select_transfer_target(&states, 1), Some(3));
+
+        states[1].quarantined = true;
+        states[2].tested = 16;
+        states[3].tested = 32;
+        assert_eq!(select_transfer_target(&states, 0), Some(2));
     }
 
     #[test]
@@ -4570,7 +4682,7 @@ mod tests {
             };
             4
         ];
-        assert_eq!(select_transfer_target(&states), None);
+        assert_eq!(select_transfer_target(&states, 0), None);
     }
 
     #[test]

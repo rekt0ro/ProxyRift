@@ -7,7 +7,6 @@ use lgbm::{
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::BufRead;
 use std::sync::Arc;
 
 const DEFAULT_SCORE: f64 = 0.5;
@@ -585,20 +584,10 @@ fn finite_feature(fields: &serde_json::Map<String, Value>, name: &str) -> f64 {
 }
 
 fn load_training(path: &str) -> Result<TrainingData, String> {
-    let file = fs::File::open(path)
-        .map_err(|error| format!("failed to open LightGBM training data {path}: {error}"))?;
-    let reader = std::io::BufReader::new(file);
+    let stored_rows = crate::light_training::load_compatible_rows_for_training(path)?;
     let mut raw_rows = Vec::new();
 
-    for line in reader.lines() {
-        let line =
-            line.map_err(|error| format!("failed to read LightGBM training row: {error}"))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
+    for value in stored_rows {
         if value
             .get("feature_extraction_version")
             .and_then(Value::as_u64)
@@ -1478,7 +1467,6 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
                 .is_some_and(|value| !value.trim().is_empty());
 
             return finish_features(
-                config,
                 "vmess".to_string(),
                 transport,
                 security,
@@ -1526,7 +1514,6 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
         || has_query_key(&query, &["path"]);
 
     finish_features(
-        config,
         protocol,
         transport,
         security,
@@ -1540,7 +1527,6 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
 
 #[allow(clippy::too_many_arguments)]
 fn finish_features(
-    config: &str,
     protocol: String,
     transport: String,
     security: String,
@@ -1554,7 +1540,18 @@ fn finish_features(
     let transport = normalize_transport(&transport);
     let security = normalize_security(&security);
 
-    let backend = backend_for_config(config).to_string();
+    let backend = if matches!(
+        protocol.as_str(),
+        "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h"
+    ) {
+        "xray"
+    } else if security == "reality" {
+        "fallback"
+    } else if matches!(transport.as_str(), "xhttp" | "splithttp") {
+        "xray"
+    } else {
+        "sing-box"
+    };
 
     ConfigFeatures {
         protocol,
@@ -1880,7 +1877,7 @@ mod tests {
     }
 
     #[test]
-    fn ranking_backend_features_match_validator_backend_selection() {
+    fn runtime_backend_selection_preserves_legacy_model_feature_semantics() {
         let vmess_payload = super::general_purpose::STANDARD.encode(
             json!({
                 "add": "node.example.com",
@@ -1895,19 +1892,43 @@ mod tests {
         );
         let vmess = format!("vmess://{vmess_payload}");
         let cases = [
-            ("vless://id@example.com:443?flow=custom-flow", "xray"),
-            (vmess.as_str(), "xray"),
-            ("hysteria2://password@example.com:443?pinSHA256=abc", "xray"),
-            ("hysteria2://password@example.com:443?pinSHA256=", "xray"),
-            ("vless://id@example.com:443?type=grpc&host=", "xray"),
-            ("vless://id@example.com:443?finalmask=", "xray"),
-            ("vless://id@example.com:443?security=reality", "fallback"),
-            ("vless://id@example.com:443?type=ws", "sing-box"),
+            (
+                "vless://id@example.com:443?flow=custom-flow",
+                "xray",
+                "sing-box",
+            ),
+            (vmess.as_str(), "xray", "sing-box"),
+            (
+                "hysteria2://password@example.com:443?pinSHA256=abc",
+                "xray",
+                "sing-box",
+            ),
+            (
+                "hysteria2://password@example.com:443?pinSHA256=",
+                "xray",
+                "sing-box",
+            ),
+            (
+                "vless://id@example.com:443?type=grpc&host=",
+                "xray",
+                "sing-box",
+            ),
+            ("vless://id@example.com:443?finalmask=", "xray", "sing-box"),
+            (
+                "vless://id@example.com:443?security=reality",
+                "fallback",
+                "fallback",
+            ),
+            ("vless://id@example.com:443?type=ws", "sing-box", "sing-box"),
         ];
 
-        for (config, expected) in cases {
-            assert_eq!(backend_for_config(config), expected, "{config}");
-            assert_eq!(parse_config_features(config).backend, expected, "{config}");
+        for (config, runtime_backend, feature_backend) in cases {
+            assert_eq!(backend_for_config(config), runtime_backend, "{config}");
+            assert_eq!(
+                parse_config_features(config).backend,
+                feature_backend,
+                "{config}"
+            );
         }
     }
 
@@ -1939,7 +1960,9 @@ mod tests {
         let path = temp_path();
         let mut rows = Vec::new();
         for index in 0..3 {
-            rows.push(serde_json::to_string(&stored_row(100, "same-candidate", true)).unwrap());
+            let mut repeated = stored_row(100, "same-candidate", true);
+            repeated["observation_id"] = Value::from(format!("100:same-candidate:{index}"));
+            rows.push(serde_json::to_string(&repeated).unwrap());
             if index == 0 {
                 rows.push(
                     serde_json::to_string(&stored_row(100, "other-candidate", false)).unwrap(),
@@ -1953,13 +1976,21 @@ mod tests {
             .expect("legacy row object")
             .remove("feature_extraction_version");
         rows.push(serde_json::to_string(&legacy).unwrap());
+        let mut stale = stored_row(300, "stale-features", true);
+        stale["feature_extraction_version"] =
+            Value::from(super::FEATURE_EXTRACTION_VERSION.saturating_sub(1));
+        rows.push(serde_json::to_string(&stale).unwrap());
         fs::write(&path, rows.join("\n") + "\n").expect("write training data");
 
         let data = load_training(&path).expect("load training data");
         assert!(data
             .examples
             .iter()
-            .all(|row| row.candidate_fingerprint != candidate_fingerprint("legacy-features")));
+            .any(|row| row.candidate_fingerprint == "legacy-features"));
+        assert!(data
+            .examples
+            .iter()
+            .all(|row| row.candidate_fingerprint != "stale-features"));
         assert!(data
             .examples
             .iter()
@@ -2021,6 +2052,13 @@ mod tests {
             ),
             vec![1, 3]
         );
+    }
+
+    #[test]
+    fn backend_feature_extraction_preserves_legacy_training_semantics() {
+        let config = "socks4://127.0.0.1:1080";
+        assert_eq!(parse_config_features(config).backend, "xray");
+        assert_eq!(backend_for_config(config), "sing-box");
     }
 
     #[test]

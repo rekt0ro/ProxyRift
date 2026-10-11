@@ -2,13 +2,15 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DATASET_VERSION: u64 = 2;
-pub const FEATURE_EXTRACTION_VERSION: u64 = 2;
+pub const FEATURE_EXTRACTION_VERSION: u64 = 3;
 pub const FEATURE_COUNT: usize = 19;
 
 const MAX_ROWS: usize = 50_000;
+const HISTORICAL_DATASET_REVISION_SCAN_LIMIT: usize = 32;
 const RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
 const MIN_ROWS_FOR_STRICT_MODEL: usize = 5_000;
 const MIN_UNIQUE_RUNS_FOR_STRICT_MODEL: usize = 20;
@@ -82,53 +84,90 @@ pub fn persist(path: &str, rows: &[TrainingRow]) -> Result<DatasetStats, String>
     persist_at(path, rows, now)
 }
 
-fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats, String> {
+fn parse_compatible_stored_row(
+    line: &str,
+    now: u64,
+    enforce_retention: bool,
+) -> Option<(String, Value)> {
+    let mut value = serde_json::from_str::<Value>(line).ok()?;
+    upgrade_stored_row(&mut value);
+    if !valid_stored_row(&value) {
+        return None;
+    }
+
+    let observed_at = value.get("observed_at").and_then(Value::as_u64)?;
+    if enforce_retention && observed_at.saturating_add(RETENTION_SECS) < now {
+        return None;
+    }
+
+    let observation_id = value.get("observation_id").and_then(Value::as_str)?;
+    Some((observation_id.to_string(), value))
+}
+
+fn load_existing_rows(
+    path: &str,
+    now: u64,
+    enforce_current_retention: bool,
+) -> Result<BTreeMap<String, Value>, String> {
     let mut by_id = BTreeMap::<String, Value>::new();
 
     if let Ok(file) = File::open(path) {
         for line in BufReader::new(file).lines() {
             let line = line.map_err(|error| error.to_string())?;
-            if line.trim().is_empty() {
-                continue;
+            if let Some((observation_id, value)) =
+                parse_compatible_stored_row(&line, now, enforce_current_retention)
+            {
+                by_id.insert(observation_id, value);
             }
-
-            let Ok(mut value) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-
-            upgrade_stored_row(&mut value);
-            if !valid_stored_row(&value) {
-                continue;
-            }
-
-            let observed_at = value
-                .get("observed_at")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            if observed_at.saturating_add(RETENTION_SECS) < now {
-                continue;
-            }
-
-            let Some(observation_id) = value.get("observation_id").and_then(Value::as_str) else {
-                continue;
-            };
-
-            by_id.insert(observation_id.to_string(), value);
         }
     }
 
-    let mut new_rows = 0usize;
-    for row in rows {
-        if row.observed_at.saturating_add(RETENTION_SECS) < now {
-            continue;
-        }
+    if by_id.len() < MIN_ROWS_FOR_STRICT_MODEL
+        && Command::new("git")
+            .args(["ls-files", "--error-unmatch", path])
+            .output()
+            .is_ok_and(|output| output.status.success())
+    {
+        if let Ok(history) = Command::new("git")
+            .args(["log", "--format=%H", "--", path])
+            .output()
+        {
+            if history.status.success() {
+                for commit in String::from_utf8_lossy(&history.stdout)
+                    .lines()
+                    .take(HISTORICAL_DATASET_REVISION_SCAN_LIMIT)
+                {
+                    let revision_path = format!("{commit}:{path}");
+                    let Ok(snapshot) = Command::new("git").args(["show", &revision_path]).output()
+                    else {
+                        continue;
+                    };
+                    if !snapshot.status.success() {
+                        continue;
+                    }
 
-        let value = row.to_value();
-        if by_id.insert(row.observation_id.clone(), value).is_none() {
-            new_rows += 1;
+                    for line in String::from_utf8_lossy(&snapshot.stdout).lines() {
+                        if let Some((observation_id, value)) =
+                            parse_compatible_stored_row(line, now, true)
+                        {
+                            by_id.entry(observation_id).or_insert(value);
+                        }
+                        if by_id.len() >= MAX_ROWS {
+                            break;
+                        }
+                    }
+                    if by_id.len() >= MAX_ROWS {
+                        break;
+                    }
+                }
+            }
         }
     }
 
+    Ok(by_id)
+}
+
+fn ordered_stored_values(by_id: BTreeMap<String, Value>) -> Vec<Value> {
     let mut values = by_id.into_values().collect::<Vec<_>>();
     values.sort_unstable_by(|a, b| {
         b.get("observed_at")
@@ -147,6 +186,35 @@ fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats
             })
     });
     values.truncate(MAX_ROWS);
+    values
+}
+
+pub(crate) fn load_compatible_rows_for_training(path: &str) -> Result<Vec<Value>, String> {
+    File::open(path)
+        .map_err(|error| format!("failed to open LightGBM training data {path}: {error}"))?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_secs();
+    Ok(ordered_stored_values(load_existing_rows(path, now, false)?))
+}
+
+fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats, String> {
+    let mut by_id = load_existing_rows(path, now, true)?;
+
+    let mut new_rows = 0usize;
+    for row in rows {
+        if row.observed_at.saturating_add(RETENTION_SECS) < now {
+            continue;
+        }
+
+        let value = row.to_value();
+        if by_id.insert(row.observation_id.clone(), value).is_none() {
+            new_rows += 1;
+        }
+    }
+
+    let values = ordered_stored_values(by_id);
 
     let mut strict_passes = 0usize;
     let mut transfer_tests = 0usize;
@@ -283,22 +351,40 @@ pub fn write_readiness_report(path: &str, stats: &DatasetStats) -> Result<(), St
     Ok(())
 }
 
-fn upgrade_stored_row(value: &mut Value) {
-    if value.get("schema_version").and_then(Value::as_u64) != Some(1) {
+pub(crate) fn upgrade_stored_row(value: &mut Value) {
+    let schema_version = value.get("schema_version").and_then(Value::as_u64);
+    if schema_version == Some(1) {
+        if let Some(label) = value.get_mut("label").and_then(Value::as_object_mut) {
+            label
+                .entry("stream_tested".to_string())
+                .or_insert(Value::Bool(false));
+            label
+                .entry("stream_pass".to_string())
+                .or_insert(Value::Null);
+        }
+
+        if let Some(object) = value.as_object_mut() {
+            object.insert("schema_version".to_string(), Value::from(DATASET_VERSION));
+        }
         return;
     }
 
-    if let Some(label) = value.get_mut("label").and_then(Value::as_object_mut) {
-        label
-            .entry("stream_tested".to_string())
-            .or_insert(Value::Bool(false));
-        label
-            .entry("stream_pass".to_string())
-            .or_insert(Value::Null);
+    if schema_version != Some(DATASET_VERSION) || value.get("feature_extraction_version").is_some()
+    {
+        return;
     }
 
     if let Some(object) = value.as_object_mut() {
-        object.insert("schema_version".to_string(), Value::from(DATASET_VERSION));
+        object.insert(
+            "feature_extraction_version".to_string(),
+            Value::from(FEATURE_EXTRACTION_VERSION),
+        );
+    }
+
+    if !valid_stored_row(value) {
+        if let Some(object) = value.as_object_mut() {
+            object.remove("feature_extraction_version");
+        }
     }
 }
 
@@ -715,6 +801,62 @@ mod tests {
         assert!(body.contains("\"fresh\""));
         assert!(!body.contains("\"stale\""));
 
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn migrates_compatible_v2_rows_without_feature_version() {
+        let path = temp_path();
+        let mut legacy = row("legacy-v2", 1_000, true, None).to_value();
+        legacy
+            .as_object_mut()
+            .expect("legacy row")
+            .remove("feature_extraction_version");
+        let legacy_line = serde_json::to_string(&legacy).expect("serialize legacy row");
+        fs::write(&path, legacy_line + "\n").expect("write legacy row");
+
+        let stats = persist_at(&path, &[row("fresh", 1_001, false, None)], 1_001)
+            .expect("migrate compatible legacy row");
+        assert_eq!(stats.rows, 2);
+
+        let body = fs::read_to_string(&path).expect("read migrated dataset");
+        let migrated = body
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).expect("parse migrated row"))
+            .find(|value| value.get("observation_id").and_then(Value::as_str) == Some("legacy-v2"))
+            .expect("legacy row retained");
+        assert_eq!(
+            migrated
+                .get("feature_extraction_version")
+                .and_then(Value::as_u64),
+            Some(FEATURE_EXTRACTION_VERSION)
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn does_not_migrate_v2_rows_with_incompatible_features() {
+        let path = temp_path();
+        let mut incompatible = row("incompatible-v2", 1_000, true, None).to_value();
+        incompatible
+            .as_object_mut()
+            .expect("incompatible row")
+            .remove("feature_extraction_version");
+        incompatible["features"]
+            .as_object_mut()
+            .expect("features")
+            .remove("history_pass_rate");
+        let incompatible_line =
+            serde_json::to_string(&incompatible).expect("serialize incompatible row");
+        fs::write(&path, incompatible_line + "\n").expect("write incompatible row");
+
+        let stats = persist_at(&path, &[row("fresh", 1_001, false, None)], 1_001)
+            .expect("persist fresh row");
+        assert_eq!(stats.rows, 1);
+
+        let body = fs::read_to_string(&path).expect("read dataset");
+        assert!(!body.contains("incompatible-v2"));
         let _ = fs::remove_file(path);
     }
 
