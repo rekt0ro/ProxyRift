@@ -24,6 +24,11 @@ cat > "$score_file" <<'JSON'
     "targets": {
       "strict": {
         "accepted": true,
+        "reason": "promoted_after_temporal_validation",
+        "model_brier": 0.14,
+        "baseline_brier": 0.15,
+        "model_top_20pct_pass_rate": 0.9,
+        "holdout_pass_rate": 0.8,
         "recency_weighting_experiment": {
           "half_life_days": 3,
           "minimum_sample_weight": 0.1,
@@ -36,9 +41,14 @@ cat > "$score_file" <<'JSON'
           "selected_strategy": "recency_weighted"
         }
       },
-      "transfer": {"accepted": false},
+      "transfer": {"accepted": false, "reason": "model_did_not_beat_unseen_candidate_baseline", "model_brier": 0.22, "baseline_brier": 0.20, "model_top_20pct_pass_rate": 0.7, "holdout_pass_rate": 0.75},
       "stream": {
         "accepted": false,
+        "reason": "top_20pct_below_unseen_candidate_baseline",
+        "model_brier": 0.3,
+        "baseline_brier": 0.31,
+        "model_top_20pct_pass_rate": 0.5,
+        "holdout_pass_rate": 0.5,
         "recency_weighting_experiment": {
           "half_life_days": 3,
           "minimum_sample_weight": 0.1,
@@ -51,18 +61,21 @@ cat > "$score_file" <<'JSON'
           "selected_strategy": "none"
         }
       },
-      "end_to_end": {"accepted": false}
+      "end_to_end": {"accepted": false, "reason": "insufficient labelled data (rows=100, pass=0, fail=100)", "model_brier": null, "baseline_brier": null, "model_top_20pct_pass_rate": null, "holdout_pass_rate": null}
     }
   }
 }
 JSON
 
 cat > "$summary_file" <<'MD'
-| Model-based ranking active | Stage-model blend fallback | 5000 | 66 | 1 | 1 / 4 |
-| Strict validation | Recency-weighted | Yes | Yes | 0.14 | 0.13 | 0.9 | 0.91 | 3 | 0.1 |
-| Transfer | Not evaluated | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
-| Stream stability | Neither variant passed promotion gates | No | No | 0.3 | 0.31 | 0.5 | 0.5 | 3 | 0.1 |
-| End-to-end | Not evaluated | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+**Ranking:** Model-based ranking active — Stage-model blend (1 of 4 targets accepted).
+**Training:** 5,000 rows · 66 features · Candidates scored: 1.
+**Evaluation:** Walk-forward temporal split · Baseline: Training-prevalence Brier score.
+| Strict validation | Promoted after temporal validation | 0.14000 / 0.15000 | 90.0% / 80.0% |
+| Transfer (10 MiB) | Did not beat unseen-candidate baseline | 0.22000 / 0.20000 | 70.0% / 75.0% |
+| Stream stability | Top-20% pass rate below unseen-candidate baseline | 0.30000 / 0.31000 | 50.0% / 50.0% |
+| End-to-end | Not promoted: insufficient labelled data | n/a / n/a | n/a / n/a |
+**Recency weighting:** Strict validation — Recency-weighted · Brier 0.14000 → 0.13000 · Top-20% pass rate 90.0% → 91.0% · 3-day half-life, minimum weight 0.1.
 MD
 
 bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$summary_file" "$score_file"
@@ -73,7 +86,7 @@ if grep -Fq 'private-candidate' "$artifact_file"; then
   exit 1
 fi
 
-sed 's/| Strict validation | Recency-weighted | Yes | Yes | 0.14 |/| Strict validation | Recency-weighted | Yes | Yes | 9.99 |/' "$summary_file" > "$tmp/mismatch.md"
+sed 's/| Strict validation | Promoted after temporal validation | 0.14000 \/ 0.15000 |/| Strict validation | Promoted after temporal validation | 9.99000 \/ 0.15000 |/' "$summary_file" > "$tmp/mismatch.md"
 if bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/mismatch.md" "$score_file" >/dev/null 2>&1; then
   printf '[ERROR] Summary validator accepted a mismatched metric.\n' >&2
   exit 1
