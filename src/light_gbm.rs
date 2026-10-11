@@ -2125,13 +2125,14 @@ mod tests {
     #[test]
     fn legacy_three_mib_stream_labels_are_not_mixed_with_sustained_nine_mib_labels() {
         let path = temp_path();
-        let mut legacy = stored_row(100, "legacy-stream", true);
+        let base_timestamp = super::current_epoch_seconds().saturating_sub(10_000);
+        let mut legacy = stored_row(base_timestamp + 100, "legacy-stream", true);
         legacy["label"]["transfer_tested"] = Value::from(true);
         legacy["label"]["transfer_pass"] = Value::from(true);
         legacy["label"]["stream_tested"] = Value::from(true);
         legacy["label"]["stream_pass"] = Value::from(true);
 
-        let mut sustained = stored_row(101, "sustained-stream", true);
+        let mut sustained = stored_row(base_timestamp + 101, "sustained-stream", true);
         sustained["label"]["transfer_tested"] = Value::from(true);
         sustained["label"]["transfer_pass"] = Value::from(true);
         sustained["label"]["stream_tested"] = Value::from(true);
@@ -2171,25 +2172,30 @@ mod tests {
     #[test]
     fn temporal_history_features_do_not_leak_same_run_labels() {
         let path = temp_path();
+        let base_timestamp = super::current_epoch_seconds().saturating_sub(10_000);
         let mut rows = Vec::new();
         for index in 0..3 {
-            let mut repeated = stored_row(100, "same-candidate", true);
-            repeated["observation_id"] = Value::from(format!("100:same-candidate:{index}"));
+            let mut repeated = stored_row(base_timestamp + 100, "same-candidate", true);
+            repeated["observation_id"] =
+                Value::from(format!("{}:same-candidate:{index}", base_timestamp + 100));
             rows.push(serde_json::to_string(&repeated).unwrap());
             if index == 0 {
                 rows.push(
-                    serde_json::to_string(&stored_row(100, "other-candidate", false)).unwrap(),
+                    serde_json::to_string(&stored_row(base_timestamp + 100, "other-candidate", false)).unwrap(),
                 );
             }
         }
-        rows.push(serde_json::to_string(&stored_row(200, "same-candidate", true)).unwrap());
-        let mut legacy = stored_row(250, "legacy-features", true);
+        rows.push(
+            serde_json::to_string(&stored_row(base_timestamp + 200, "same-candidate", true))
+                .unwrap(),
+        );
+        let mut legacy = stored_row(base_timestamp + 250, "legacy-features", true);
         legacy
             .as_object_mut()
             .expect("legacy row object")
             .remove("feature_extraction_version");
         rows.push(serde_json::to_string(&legacy).unwrap());
-        let mut stale = stored_row(300, "stale-features", true);
+        let mut stale = stored_row(base_timestamp + 300, "stale-features", true);
         stale["feature_extraction_version"] =
             Value::from(super::FEATURE_EXTRACTION_VERSION.saturating_sub(1));
         rows.push(serde_json::to_string(&stale).unwrap());
@@ -2211,13 +2217,13 @@ mod tests {
         let same_time = data
             .examples
             .iter()
-            .filter(|row| row.observed_at == 100)
+            .filter(|row| row.observed_at == base_timestamp + 100)
             .collect::<Vec<_>>();
         assert!(same_time.iter().all(|row| row.features[53] == 0.0));
         let later = data
             .examples
             .iter()
-            .find(|row| row.observed_at == 200)
+            .find(|row| row.observed_at == base_timestamp + 200)
             .expect("later row");
         assert!((later.features[54] - (5.0 / 7.0)).abs() < 1e-9);
         assert_eq!(later.features.len(), MODEL_FEATURE_COUNT);
