@@ -1311,9 +1311,9 @@ pub fn backend_for_config(config: &str) -> &'static str {
             .unwrap_or_default()
     };
     let has_query_key = |names: &[&str]| {
-        url.query_pairs().any(|(key, value)| {
-            names.iter().any(|name| key.eq_ignore_ascii_case(name)) && !value.is_empty()
-        })
+        // Match the validator: parameter presence matters even when its value is empty.
+        url.query_pairs()
+            .any(|(key, _)| names.iter().any(|name| key.eq_ignore_ascii_case(name)))
     };
 
     let xray_only_tls_extensions = || {
