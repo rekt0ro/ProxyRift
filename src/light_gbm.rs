@@ -928,6 +928,7 @@ fn first_unseen_holdout_indices(
     rows: &[(&TrainingExample, bool)],
     cutoff: u64,
     previously_seen_candidates: &HashSet<String>,
+    first_observed_at: &HashMap<String, u64>,
 ) -> Vec<usize> {
     let mut selected_candidates = HashSet::new();
 
@@ -936,6 +937,7 @@ fn first_unseen_holdout_indices(
         .filter_map(|(index, (row, _))| {
             if row.observed_at < cutoff
                 || previously_seen_candidates.contains(&row.candidate_fingerprint)
+                || first_observed_at.get(&row.candidate_fingerprint) != Some(&row.observed_at)
             {
                 return None;
             }
@@ -1011,6 +1013,13 @@ fn train_target_model(
         .filter(|row| row.observed_at < cutoff)
         .map(|row| row.candidate_fingerprint.clone())
         .collect::<HashSet<_>>();
+    let mut first_observed_at = HashMap::<String, u64>::new();
+    for row in examples {
+        first_observed_at
+            .entry(row.candidate_fingerprint.clone())
+            .and_modify(|timestamp| *timestamp = (*timestamp).min(row.observed_at))
+            .or_insert(row.observed_at);
+    }
     let eligible_unseen_holdout_rows = rows
         .iter()
         .filter(|(row, _)| {
@@ -1018,8 +1027,12 @@ fn train_target_model(
                 && !previously_seen_candidates.contains(&row.candidate_fingerprint)
         })
         .count();
-    let holdout_indices =
-        first_unseen_holdout_indices(&rows, cutoff, &previously_seen_candidates);
+    let holdout_indices = first_unseen_holdout_indices(
+        &rows,
+        cutoff,
+        &previously_seen_candidates,
+        &first_observed_at,
+    );
     let holdout = holdout_indices
         .iter()
         .map(|index| &rows[*index])
@@ -1972,13 +1985,22 @@ mod tests {
             (&known_after_cutoff, false),
             (&seen_by_an_unlabelled_stage, false),
         ];
-        let previously_seen_candidates = std::collections::HashSet::from([
-            "known".to_string(),
-            "seen-other-stage".to_string(),
+        let previously_seen_candidates =
+            std::collections::HashSet::from(["known".to_string()]);
+        let first_observed_at = std::collections::HashMap::from([
+            ("known".to_string(), 1),
+            ("new-a".to_string(), 10),
+            ("new-b".to_string(), 12),
+            ("seen-other-stage".to_string(), 10),
         ]);
 
         assert_eq!(
-            first_unseen_holdout_indices(&rows, 10, &previously_seen_candidates),
+            first_unseen_holdout_indices(
+                &rows,
+                10,
+                &previously_seen_candidates,
+                &first_observed_at,
+            ),
             vec![1, 3]
         );
     }
