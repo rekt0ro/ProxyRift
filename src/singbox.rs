@@ -1293,6 +1293,9 @@ async fn request_url(
     minimum_body_bytes: Option<usize>,
 ) -> Result<crate::validator::ProbeSample, String> {
     let started = std::time::Instant::now();
+    let minimum_body_bytes = minimum_body_bytes.map(|minimum| {
+        crate::validator::minimum_probe_body_bytes_for_target(url, minimum)
+    });
     let response_limit = minimum_body_bytes.unwrap_or_else(|| response_limit_for_target(url));
     let mut request = client.get(url);
     if is_throughput_target(url) || minimum_body_bytes.is_some() {
@@ -1360,7 +1363,10 @@ async fn request_url_sustained(
     max_idle_gap: Duration,
 ) -> Result<crate::validator::ProbeSample, String> {
     let started = std::time::Instant::now();
-    let required_bytes = segments.max(1).saturating_mul(minimum_body_bytes);
+    let required_bytes = crate::validator::minimum_probe_body_bytes_for_target(
+        url,
+        segments.max(1).saturating_mul(minimum_body_bytes),
+    );
 
     let mut request = client.get(url);
     request = request.timeout(SUSTAINED_THROUGHPUT_TIMEOUT);
