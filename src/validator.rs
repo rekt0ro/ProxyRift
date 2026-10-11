@@ -2621,11 +2621,7 @@ pub fn cheap_compatibility_rejection_context(
                     &["type", "network"],
                     Some("tcp"),
                 )),
-                compatibility_security_bucket(&first_query(
-                    url,
-                    &["security"],
-                    Some("none"),
-                )),
+                compatibility_security_bucket(&first_query(url, &["security"], Some("none"))),
             ),
             None => ("unavailable", "unavailable"),
         },
@@ -6375,10 +6371,7 @@ mod tests {
             cheap_compatibility_rejection_reason(config),
             Some("unsupported-transport")
         );
-        let context = cheap_compatibility_rejection_context(
-            config,
-            "unsupported-transport",
-        );
+        let context = cheap_compatibility_rejection_context(config, "unsupported-transport");
 
         assert_eq!(context.scheme, "vless");
         assert_eq!(context.transport, "hysteria");
@@ -6405,8 +6398,7 @@ mod tests {
             Some("unsupported-vmess-tls")
         );
 
-        let context =
-            cheap_compatibility_rejection_context(&config, "unsupported-vmess-tls");
+        let context = cheap_compatibility_rejection_context(&config, "unsupported-vmess-tls");
         assert_eq!(context.scheme, "vmess");
         assert_eq!(context.transport, "raw");
         assert_eq!(context.security, "reality");
@@ -6418,19 +6410,23 @@ mod tests {
 
     #[test]
     fn rejection_context_reports_shadowsocks_plugin_family_not_plugin_values() {
-        let config = "ss://method:secret-password@example.com:443/?plugin=custom-plugin;secret-option=value";
+        let config =
+            "ss://method:secret-password@example.com:443/?plugin=custom-plugin;secret-option=value";
         assert_eq!(
             cheap_compatibility_rejection_reason(config),
             Some("unsupported-shadowsocks-plugin")
         );
-        let context = cheap_compatibility_rejection_context(
-            config,
-            "unsupported-shadowsocks-plugin",
-        );
+        let context =
+            cheap_compatibility_rejection_context(config, "unsupported-shadowsocks-plugin");
         assert_eq!(context.scheme, "shadowsocks");
         assert_eq!(context.detail, "plugin=other");
         let serialized = format!("{context:?}");
-        for secret in ["secret-password", "example.com", "custom-plugin", "secret-option"] {
+        for secret in [
+            "secret-password",
+            "example.com",
+            "custom-plugin",
+            "secret-option",
+        ] {
             assert!(!serialized.contains(secret));
         }
     }
