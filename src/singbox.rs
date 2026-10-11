@@ -2664,12 +2664,12 @@ mod tests {
             &vec![0_u8; STRICT_THROUGHPUT_BYTES + 1]
         ));
         assert!(valid_probe_body(
-            crate::validator::ARVANCLOUD_ARCH_MIRROR_TARGET,
-            &vec![0_u8; crate::validator::LIGHT_TRANSFER_STABILITY_BYTES]
+            crate::validator::ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
+            &vec![0_u8; STRICT_THROUGHPUT_BYTES]
         ));
         assert!(!valid_probe_body(
-            crate::validator::ARVANCLOUD_ARCH_MIRROR_TARGET,
-            &vec![0_u8; crate::validator::LIGHT_TRANSFER_STABILITY_BYTES - 1]
+            crate::validator::ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
+            &vec![0_u8; STRICT_THROUGHPUT_BYTES - 1]
         ));
         for target in crate::validator::STRICT_THROUGHPUT_TARGETS {
             assert!(valid_probe_body(
