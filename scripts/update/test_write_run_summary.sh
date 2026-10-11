@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-set -x
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 tmp="$(mktemp -d)"
@@ -144,7 +143,6 @@ chmod +x "$tmp/bin/gh"
   bash "$repo_root/scripts/update/write_run_summary.sh"
 )
 
-cat "$tmp/summary.md"
 
 grep -Fq '| All | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
 grep -Fq '| Light | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
