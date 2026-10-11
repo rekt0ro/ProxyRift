@@ -436,6 +436,10 @@ impl TrainingRow {
             "stream_pass".to_string(),
             self.stream_pass.map(Value::from).unwrap_or(Value::Null),
         );
+        // Version 2 labels the sustained 9 MiB continuation, not the old 3 MiB
+        // standalone stream probe. Older records are preserved but excluded
+        // from the current stream model target.
+        label.insert("stream_validation_version".to_string(), Value::from(2));
         root.insert("label".to_string(), Value::Object(label));
 
         Value::Object(root)
@@ -690,6 +694,10 @@ mod tests {
         );
         assert_eq!(value["label"]["stream_tested"].as_bool(), Some(false));
         assert!(value["label"]["stream_pass"].is_null());
+        assert_eq!(
+            value["label"]["stream_validation_version"].as_u64(),
+            Some(2)
+        );
 
         let _ = fs::remove_file(path);
     }
