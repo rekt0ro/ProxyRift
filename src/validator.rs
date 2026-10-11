@@ -1837,7 +1837,7 @@ fn supported_ss_plugin(key: &str, value: &str) -> bool {
                         )
                     }) => {}
                 "host" | "path" if value.is_some() => {}
-                "cert" | "certRaw" if value.is_some_and(|value| !value.trim().is_empty()) => {}
+                "cert" | "certraw" if value.is_some_and(|value| !value.trim().is_empty()) => {}
                 "tls"
                     if value.is_none_or(|value| {
                         matches!(
