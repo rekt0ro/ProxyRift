@@ -500,7 +500,7 @@ fn valid_stored_row(value: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{persist_at, TrainingRow, DATASET_VERSION, FEATURE_COUNT};
+    use super::{persist_at, TrainingRow, DATASET_VERSION, FEATURE_COUNT, FEATURE_EXTRACTION_VERSION};
     use serde_json::Value;
     use std::collections::BTreeMap;
     use std::fs;
@@ -589,6 +589,10 @@ mod tests {
         assert_eq!(
             value.get("schema_version").and_then(Value::as_u64),
             Some(DATASET_VERSION)
+        );
+        assert_eq!(
+            value.get("feature_extraction_version").and_then(Value::as_u64),
+            Some(FEATURE_EXTRACTION_VERSION)
         );
         assert_eq!(value["label"]["stream_tested"].as_bool(), Some(false));
         assert!(value["label"]["stream_pass"].is_null());
