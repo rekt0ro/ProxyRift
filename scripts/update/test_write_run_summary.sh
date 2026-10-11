@@ -92,7 +92,8 @@ cat > "$work/proxyrift/lightgbm-scores.json" <<'JSON'
       },
       "end_to_end": {
         "accepted": false,
-        "reason": "insufficient labelled data (rows=6708, pass=0, fail=6708, unique_candidates=2281)"
+        "reason": "insufficient labelled data (rows=6708, pass=0, fail=6708, unique_candidates=2281)",
+        "labelled_rows": 6708, "pass_rows": 0, "fail_rows": 6708, "unique_candidates": 2281
       }
     }
   }
@@ -156,6 +157,7 @@ grep -Fq '| New rows persisted this run | 278 |' "$tmp/summary.md"
 grep -Fq '| Strict pass / fail labels | 47051 / 2949 |' "$tmp/summary.md"
 grep -Fq '| Stream tests / passes / failures | 18782 / 18058 / 724 |' "$tmp/summary.md"
 grep -Fq '| End-to-end model data readiness | false |' "$tmp/summary.md"
+grep -Fq '| End-to-end | 6708 (0/6708) | n/a (n/a/n/a) | n/a (n/a/n/a) |' "$tmp/summary.md"
 
 if grep -Eq 'model_did_not_beat_temporal_baseline|top_20pct_below_random_selection_baseline|Transfer \(10 MiB\) \|' "$tmp/summary.md"; then
   echo "[ERROR] Summary contains an obsolete target label or legacy LightGBM reason." >&2
