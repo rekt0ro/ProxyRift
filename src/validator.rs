@@ -17,20 +17,21 @@ use url::{Host, Url};
 
 pub const PRIMARY_TARGET: &str = "https://www.google.com/generate_204";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speed.cloudflare.com/__down?bytes=10485760";
+pub const ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET: &str =
+    "https://mirror.arvancloud.ir/ubuntu/dists/noble-security/Contents-amd64.gz";
 pub const STRICT_THROUGHPUT_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
     "https://fsn1-speed.hetzner.com/100MB.bin",
     "https://cdn.truefilesize.com/test/test-10mb.bin",
     "http://speedtest.tele2.net/10MB.zip",
+    ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
 ];
-pub const ARVANCLOUD_ARCH_MIRROR_TARGET: &str =
-    "https://mirror.arvancloud.ir/archlinux/extra/os/x86_64/extra.db";
 pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
     "https://fsn1-speed.hetzner.com/100MB.bin",
     "https://cdn.truefilesize.com/test/test-10mb.bin",
     "http://speedtest.tele2.net/10MB.zip",
-    ARVANCLOUD_ARCH_MIRROR_TARGET,
+    ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
 ];
 pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 2;
 pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
@@ -5354,23 +5355,25 @@ mod tests {
     }
 
     #[test]
-    fn arvancloud_mirror_uses_the_light_transfer_threshold() {
-        assert!(!STRICT_THROUGHPUT_TARGETS.contains(&ARVANCLOUD_ARCH_MIRROR_TARGET));
-        assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(&ARVANCLOUD_ARCH_MIRROR_TARGET));
+    fn arvancloud_ubuntu_security_index_uses_the_strict_transfer_threshold() {
+        assert!(STRICT_THROUGHPUT_TARGETS
+            .contains(&ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET));
+        assert!(LIGHT_TRANSFER_STABILITY_TARGETS
+            .contains(&ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET));
         assert_eq!(
-            throughput_bytes_for_target(ARVANCLOUD_ARCH_MIRROR_TARGET),
-            Some(LIGHT_TRANSFER_STABILITY_BYTES)
+            throughput_bytes_for_target(ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET),
+            Some(STRICT_THROUGHPUT_BYTES)
         );
 
-        let target =
-            Url::parse(ARVANCLOUD_ARCH_MIRROR_TARGET).expect("ArvanCloud target should parse");
+        let target = Url::parse(ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET)
+            .expect("ArvanCloud Ubuntu target should parse");
         assert!(!valid_probe_body(
             &target,
-            &vec![0_u8; LIGHT_TRANSFER_STABILITY_BYTES - 1]
+            &vec![0_u8; STRICT_THROUGHPUT_BYTES - 1]
         ));
         assert!(valid_probe_body(
             &target,
-            &vec![0_u8; LIGHT_TRANSFER_STABILITY_BYTES]
+            &vec![0_u8; STRICT_THROUGHPUT_BYTES]
         ));
     }
 
