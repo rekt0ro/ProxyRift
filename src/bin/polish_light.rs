@@ -3828,7 +3828,7 @@ mod tests {
         update_transfer_target_state, AdaptiveStrictValidationInputs, LightBackend, LightGbmScores,
         ProxyMetrics, TransferConcurrencyState, TransferTargetState,
         FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES,
-        MAX_DISCOVERY_CANDIDATES, STREAM_CONTINUITY_SEGMENT_BYTES, STREAM_CONTINUITY_SEGMENTS,
+        MAX_DISCOVERY_CANDIDATES, STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
