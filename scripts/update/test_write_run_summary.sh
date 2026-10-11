@@ -151,7 +151,7 @@ grep -Fq '| Strict validation | Promoted after temporal validation | 0.1 | 0.15 
 grep -Fq '| Transfer (10 MiB total) | Did not beat unseen-candidate baseline |' "$tmp/summary.md"
 grep -Fq '| Stream stability | Top-20% pass rate below unseen-candidate baseline |' "$tmp/summary.md"
 grep -Fq '| End-to-end | Not promoted: insufficient labelled data |' "$tmp/summary.md"
-grep -Fq '| Strict validation | Recency-weighted | Yes | Yes | 0.13 | 0.10 | 0.7 | 0.8 | 3.0 | 0.1 |' "$tmp/summary.md"
+grep -Fq '| Strict validation | Recency-weighted | Yes | Yes | 0.13 | 0.1 | 0.7 | 0.8 | 3.0 | 0.1 |' "$tmp/summary.md"
 grep -Fq '| Dataset rows (14-day retention) | 50000 |' "$tmp/summary.md"
 grep -Fq '| New rows persisted this run | 278 |' "$tmp/summary.md"
 grep -Fq '| Strict pass / fail labels | 47051 / 2949 |' "$tmp/summary.md"
