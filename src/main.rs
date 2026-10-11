@@ -509,7 +509,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             rejection_summary
         );
 
-        let mut context_summary = cheap_rejection_context_counts.into_iter().collect::<Vec<_>>();
+        let mut context_summary = cheap_rejection_context_counts
+            .into_iter()
+            .collect::<Vec<_>>();
         context_summary.sort_unstable_by(
             |((left_reason, left_context), _), ((right_reason, right_context), _)| {
                 left_reason
