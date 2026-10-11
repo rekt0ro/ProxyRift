@@ -1,9 +1,9 @@
+use crate::light_training::FEATURE_EXTRACTION_VERSION;
 use base64::{engine::general_purpose, Engine as _};
 use lgbm::{
     parameters::{Boosting, Objective, Verbosity},
     Booster, Dataset, Field, MatBuf, Parameters, PredictType,
 };
-use crate::light_training::FEATURE_EXTRACTION_VERSION;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
