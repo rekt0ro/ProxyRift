@@ -927,19 +927,15 @@ fn predict_booster(booster: &Booster, features: &[Vec<f64>]) -> Result<Vec<f64>,
 fn first_unseen_holdout_indices(
     rows: &[(&TrainingExample, bool)],
     cutoff: u64,
+    previously_seen_candidates: &HashSet<String>,
 ) -> Vec<usize> {
-    let training_candidates = rows
-        .iter()
-        .filter(|(row, _)| row.observed_at < cutoff)
-        .map(|(row, _)| row.candidate_fingerprint.clone())
-        .collect::<HashSet<_>>();
     let mut selected_candidates = HashSet::new();
 
     rows.iter()
         .enumerate()
         .filter_map(|(index, (row, _))| {
             if row.observed_at < cutoff
-                || training_candidates.contains(&row.candidate_fingerprint)
+                || previously_seen_candidates.contains(&row.candidate_fingerprint)
             {
                 return None;
             }
@@ -1010,18 +1006,20 @@ fn train_target_model(
         .iter()
         .filter(|(row, _)| row.observed_at < cutoff)
         .collect::<Vec<_>>();
-    let training_fingerprints = training
+    let previously_seen_candidates = examples
         .iter()
-        .map(|(row, _)| row.candidate_fingerprint.clone())
+        .filter(|row| row.observed_at < cutoff)
+        .map(|row| row.candidate_fingerprint.clone())
         .collect::<HashSet<_>>();
     let eligible_unseen_holdout_rows = rows
         .iter()
         .filter(|(row, _)| {
             row.observed_at >= cutoff
-                && !training_fingerprints.contains(&row.candidate_fingerprint)
+                && !previously_seen_candidates.contains(&row.candidate_fingerprint)
         })
         .count();
-    let holdout_indices = first_unseen_holdout_indices(&rows, cutoff);
+    let holdout_indices =
+        first_unseen_holdout_indices(&rows, cutoff, &previously_seen_candidates);
     let holdout = holdout_indices
         .iter()
         .map(|index| &rows[*index])
@@ -1127,7 +1125,8 @@ fn train_target_model(
         "holdout_rows": holdout.len(),
         "holdout_unique_candidates": holdout.len(),
         "holdout_eligible_unseen_rows": eligible_unseen_holdout_rows,
-        "holdout_repeated_observations_excluded": eligible_unseen_holdout_rows.saturating_sub(holdout.len()),
+        "holdout_repeated_observations_excluded": eligible_unseen_holdout_rows
+            .saturating_sub(holdout.len()),
         "holdout_pass_rows": holdout_positive,
         "holdout_fail_rows": holdout_negative,
         "cutoff_timestamp": cutoff,
@@ -1712,6 +1711,7 @@ mod tests {
         port_bucket, top_quintile_pass_rate, ModelTarget, TrainingExample, HISTORY_FEATURE_COUNT,
         MODEL_FEATURE_COUNT,
     };
+    use base64::Engine as _;
     use serde_json::{json, Map, Value};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1963,15 +1963,24 @@ mod tests {
         let new_repeat = example(11, "new-a");
         let new_other = example(12, "new-b");
         let known_after_cutoff = example(13, "known");
+        let seen_by_an_unlabelled_stage = example(14, "seen-other-stage");
         let rows = vec![
             (&known_before_cutoff, true),
             (&new_first, true),
             (&new_repeat, false),
             (&new_other, false),
             (&known_after_cutoff, false),
+            (&seen_by_an_unlabelled_stage, false),
         ];
+        let previously_seen_candidates = std::collections::HashSet::from([
+            "known".to_string(),
+            "seen-other-stage".to_string(),
+        ]);
 
-        assert_eq!(first_unseen_holdout_indices(&rows, 10), vec![1, 3]);
+        assert_eq!(
+            first_unseen_holdout_indices(&rows, 10, &previously_seen_candidates),
+            vec![1, 3]
+        );
     }
 
     #[test]
