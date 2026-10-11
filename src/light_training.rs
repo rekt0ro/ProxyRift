@@ -695,6 +695,27 @@ mod tests {
     }
 
     #[test]
+    fn persistence_prunes_rows_with_stale_feature_extraction_version() {
+        let path = temp_path();
+        let mut stale = row("stale", 1_000, true, None).to_value();
+        stale["feature_extraction_version"] =
+            Value::from(FEATURE_EXTRACTION_VERSION - 1);
+        let stale_line = serde_json::to_string(&stale).expect("serialize stale row");
+        fs::write(&path, stale_line + "\n").expect("write stale row");
+
+        let stats = persist_at(&path, &[row("fresh", 1_001, true, None)], 1_001)
+            .expect("persist fresh row");
+
+        assert_eq!(stats.rows, 1);
+        assert_eq!(stats.new_rows, 1);
+        let body = fs::read_to_string(&path).expect("read persisted data");
+        assert!(body.contains("\"fresh\""));
+        assert!(!body.contains("\"stale\""));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn rejects_rows_with_wrong_feature_schema() {
         let path = temp_path();
         let mut value = row("invalid", 1_000, true, None).to_value();
