@@ -232,7 +232,7 @@ jobs:
         if: always() && steps.build_light.outcome == 'success'
         env:
           PROXYRIFT_TMP_DIR: ${{ runner.temp }}/proxyrift
-        run: bash scripts/update/verify_lightgbm_summary.sh "$GITHUB_STEP_SUMMARY" "$PROXYRIFT_TMP_DIR/lightgbm-scores.json"
+        run: bash scripts/update/verify_lightgbm_summary.sh "$PROXYRIFT_TMP_DIR/run-summary.md" "$PROXYRIFT_TMP_DIR/lightgbm-scores.json"
 
       - name: "🧾 Prepare sanitized LightGBM evaluation artifact"
         if: always()

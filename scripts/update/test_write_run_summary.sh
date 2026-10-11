@@ -143,6 +143,8 @@ chmod +x "$tmp/bin/gh"
   bash "$repo_root/scripts/update/write_run_summary.sh"
 )
 
+cmp -s "$tmp/summary.md" "$work/proxyrift/run-summary.md"
+
 
 grep -Fq '| All | 1 |' "$tmp/summary.md"
 grep -Fq '| Light | 1 |' "$tmp/summary.md"
