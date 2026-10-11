@@ -11,7 +11,7 @@ pub const FEATURE_COUNT: usize = 19;
 
 const MAX_ROWS: usize = 50_000;
 const HISTORICAL_DATASET_REVISION_SCAN_LIMIT: usize = 32;
-const RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
+const RETENTION_SECS: u64 = 14 * 24 * 60 * 60;
 const MIN_ROWS_FOR_STRICT_MODEL: usize = 5_000;
 const MIN_UNIQUE_RUNS_FOR_STRICT_MODEL: usize = 20;
 const MIN_UNIQUE_CANDIDATES_FOR_STRICT_MODEL: usize = 1_000;
@@ -196,7 +196,7 @@ pub(crate) fn load_compatible_rows_for_training(path: &str) -> Result<Vec<Value>
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_secs();
-    Ok(ordered_stored_values(load_existing_rows(path, now, false)?))
+    Ok(ordered_stored_values(load_existing_rows(path, now, true)?))
 }
 
 fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats, String> {
@@ -601,6 +601,7 @@ fn valid_stored_row(value: &Value) -> bool {
 mod tests {
     use super::{
         persist_at, TrainingRow, DATASET_VERSION, FEATURE_COUNT, FEATURE_EXTRACTION_VERSION,
+        RETENTION_SECS,
     };
     use serde_json::Value;
     use std::collections::BTreeMap;
@@ -813,7 +814,7 @@ mod tests {
         let mut rows = vec![row("fresh", 1_000, true, None)];
         rows.push(row("old", 1, true, None));
 
-        persist_at(&path, &rows, 1_000 + 45 * 24 * 60 * 60).expect("persist retained rows");
+        persist_at(&path, &rows, 1_000 + RETENTION_SECS).expect("persist retained rows");
 
         let body = fs::read_to_string(&path).expect("read dataset");
         assert_eq!(body.lines().count(), 1);
