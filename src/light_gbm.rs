@@ -529,9 +529,15 @@ fn temporal_reason_label(reason: &str) -> String {
         "model_did_not_beat_temporal_baseline" => {
             "Model did not beat temporal baseline".to_string()
         }
+        "model_did_not_beat_unseen_candidate_baseline" => {
+            "Model did not beat unseen-candidate baseline".to_string()
+        },
         "top_20pct_below_random_selection_baseline" => {
             "Top-20% below random selection baseline".to_string()
         }
+        "top_20pct_below_unseen_candidate_baseline" => {
+            "Top-20% below unseen-candidate random-selection baseline".to_string()
+        },
         other => {
             let mut readable = other.replace('_', " ");
             if let Some(first) = readable.get_mut(..1) {
@@ -918,6 +924,32 @@ fn predict_booster(booster: &Booster, features: &[Vec<f64>]) -> Result<Vec<f64>,
         .collect())
 }
 
+fn first_unseen_holdout_indices(
+    rows: &[(&TrainingExample, bool)],
+    cutoff: u64,
+) -> Vec<usize> {
+    let training_candidates = rows
+        .iter()
+        .filter(|(row, _)| row.observed_at < cutoff)
+        .map(|(row, _)| row.candidate_fingerprint.clone())
+        .collect::<HashSet<_>>();
+    let mut selected_candidates = HashSet::new();
+
+    rows.iter()
+        .enumerate()
+        .filter_map(|(index, (row, _))| {
+            if row.observed_at < cutoff
+                || training_candidates.contains(&row.candidate_fingerprint)
+            {
+                return None;
+            }
+            selected_candidates
+                .insert(row.candidate_fingerprint.clone())
+                .then_some(index)
+        })
+        .collect()
+}
+
 fn train_target_model(
     examples: &[TrainingExample],
     candidates: &[String],
@@ -978,9 +1010,21 @@ fn train_target_model(
         .iter()
         .filter(|(row, _)| row.observed_at < cutoff)
         .collect::<Vec<_>>();
-    let holdout = rows
+    let training_fingerprints = training
         .iter()
-        .filter(|(row, _)| row.observed_at >= cutoff)
+        .map(|(row, _)| row.candidate_fingerprint.clone())
+        .collect::<HashSet<_>>();
+    let eligible_unseen_holdout_rows = rows
+        .iter()
+        .filter(|(row, _)| {
+            row.observed_at >= cutoff
+                && !training_fingerprints.contains(&row.candidate_fingerprint)
+        })
+        .count();
+    let holdout_indices = first_unseen_holdout_indices(&rows, cutoff);
+    let holdout = holdout_indices
+        .iter()
+        .map(|index| &rows[*index])
         .collect::<Vec<_>>();
     let training_positive = training.iter().filter(|(_, label)| *label).count();
     let training_negative = training.len().saturating_sub(training_positive);
@@ -997,7 +1041,7 @@ fn train_target_model(
         let mut result = TargetResult::unavailable(
             target,
             format!(
-                "time holdout lacks representative classes (train={}/{}/{}, holdout={}/{}/{})",
+                "unseen-candidate temporal holdout lacks representative classes (train={}/{}/{}, holdout={}/{}/{})",
                 training.len(),
                 training_positive,
                 training_negative,
@@ -1006,8 +1050,16 @@ fn train_target_model(
                 holdout_negative
             ),
         );
+        result.report["evaluation_strategy"] =
+            Value::from("temporal_unseen_candidates_first_observation");
         result.report["train_rows"] = Value::from(training.len() as u64);
         result.report["holdout_rows"] = Value::from(holdout.len() as u64);
+        result.report["holdout_unique_candidates"] = Value::from(holdout.len() as u64);
+        result.report["holdout_eligible_unseen_rows"] =
+            Value::from(eligible_unseen_holdout_rows as u64);
+        result.report["holdout_repeated_observations_excluded"] = Value::from(
+            eligible_unseen_holdout_rows.saturating_sub(holdout.len()) as u64,
+        );
         return Ok(result);
     }
 
@@ -1055,16 +1107,17 @@ fn train_target_model(
         && model_top_20pct_pass_rate + 1e-9 >= holdout_pass_rate;
     let accepted = brier_accepted && ranking_accepted;
     let reason = if !brier_accepted {
-        "model_did_not_beat_temporal_baseline"
+        "model_did_not_beat_unseen_candidate_baseline"
     } else if !ranking_accepted {
-        "top_20pct_below_random_selection_baseline"
+        "top_20pct_below_unseen_candidate_baseline"
     } else {
-        "better_brier_and_non_degrading_top_20pct"
+        "better_brier_and_non_degrading_unseen_top_20pct"
     };
 
     let mut report = serde_json::json!({
         "target": target.name(),
         "accepted": accepted,
+        "evaluation_strategy": "temporal_unseen_candidates_first_observation",
         "labelled_rows": rows.len(),
         "pass_rows": positive,
         "fail_rows": negative,
@@ -1072,6 +1125,9 @@ fn train_target_model(
         "train_pass_rows": training_positive,
         "train_fail_rows": training_negative,
         "holdout_rows": holdout.len(),
+        "holdout_unique_candidates": holdout.len(),
+        "holdout_eligible_unseen_rows": eligible_unseen_holdout_rows,
+        "holdout_repeated_observations_excluded": eligible_unseen_holdout_rows.saturating_sub(holdout.len()),
         "holdout_pass_rows": holdout_positive,
         "holdout_fail_rows": holdout_negative,
         "cutoff_timestamp": cutoff,
@@ -1651,9 +1707,10 @@ fn structural_vector(
 #[cfg(test)]
 mod tests {
     use super::{
-        backend_for_config, candidate_fingerprint, config_feature_vector, history_feature_vector,
-        load_training, parse_config_features, port_bucket, top_quintile_pass_rate, ModelTarget,
-        TrainingExample, HISTORY_FEATURE_COUNT, MODEL_FEATURE_COUNT,
+        backend_for_config, candidate_fingerprint, config_feature_vector,
+        first_unseen_holdout_indices, history_feature_vector, load_training, parse_config_features,
+        port_bucket, top_quintile_pass_rate, ModelTarget, TrainingExample, HISTORY_FEATURE_COUNT,
+        MODEL_FEATURE_COUNT,
     };
     use serde_json::{json, Map, Value};
     use std::fs;
@@ -1889,6 +1946,32 @@ mod tests {
         assert!((later.features[54] - (5.0 / 7.0)).abs() < 1e-9);
         assert_eq!(later.features.len(), MODEL_FEATURE_COUNT);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn temporal_holdout_keeps_only_first_observation_of_unseen_candidates() {
+        let example = |observed_at: u64, candidate_fingerprint: &str| TrainingExample {
+            observed_at,
+            candidate_fingerprint: candidate_fingerprint.to_string(),
+            features: Vec::new(),
+            strict_pass: true,
+            transfer_pass: None,
+            stream_pass: None,
+        };
+        let known_before_cutoff = example(1, "known");
+        let new_first = example(10, "new-a");
+        let new_repeat = example(11, "new-a");
+        let new_other = example(12, "new-b");
+        let known_after_cutoff = example(13, "known");
+        let rows = vec![
+            (&known_before_cutoff, true),
+            (&new_first, true),
+            (&new_repeat, false),
+            (&new_other, false),
+            (&known_after_cutoff, false),
+        ];
+
+        assert_eq!(first_unseen_holdout_indices(&rows, 10), vec![1, 3]);
     }
 
     #[test]
