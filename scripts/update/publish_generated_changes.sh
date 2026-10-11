@@ -21,9 +21,6 @@ fi
 if [ -s "subscriptions/light-training-stats.json" ]; then
   cp -- subscriptions/light-training-stats.json "$publish_snapshot/subscriptions/light-training-stats.json"
 fi
-if [ -s "subscriptions/light-ai.json" ]; then
-  cp -- subscriptions/light-ai.json "$publish_snapshot/subscriptions/light-ai.json"
-fi
 if [ -s "subscriptions/source-registry.json" ]; then
   cp -- subscriptions/source-registry.json "$publish_snapshot/subscriptions/source-registry.json"
 fi
