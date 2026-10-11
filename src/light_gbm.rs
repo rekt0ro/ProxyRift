@@ -73,6 +73,8 @@ const MODEL_FEATURE_COUNT: usize = STRUCTURAL_FEATURE_COUNT + HISTORY_FEATURE_CO
 const HOLDOUT_FRACTION_NUMERATOR: usize = 1;
 const HOLDOUT_FRACTION_DENOMINATOR: usize = 5;
 const MIN_RELATIVE_BRIER_IMPROVEMENT: f64 = 0.005;
+const RECENCY_WEIGHT_HALF_LIFE_SECS: f64 = 3.0 * 24.0 * 60.0 * 60.0;
+const MIN_RECENCY_WEIGHT: f64 = 0.10;
 
 impl LightGbmScores {
     pub fn train_and_score(candidates: &[String]) -> Result<Self, String> {
@@ -852,9 +854,38 @@ fn top_quintile_pass_rate(predictions: &[f64], labels: &[f32]) -> f64 {
     selected_passes / top_count as f64
 }
 
+fn recency_weight(observed_at: u64, as_of: u64) -> f32 {
+    let age_secs = as_of.saturating_sub(observed_at) as f64;
+    2.0_f64
+        .powf(-age_secs / RECENCY_WEIGHT_HALF_LIFE_SECS)
+        .max(MIN_RECENCY_WEIGHT)
+        .clamp(MIN_RECENCY_WEIGHT, 1.0) as f32
+}
+
 fn fit_booster(features: &[Vec<f64>], labels: &[f32], seed: i32) -> Result<Booster, String> {
+    fit_booster_with_optional_weights(features, labels, None, seed)
+}
+
+fn fit_booster_with_weights(
+    features: &[Vec<f64>],
+    labels: &[f32],
+    sample_weights: &[f32],
+    seed: i32,
+) -> Result<Booster, String> {
+    fit_booster_with_optional_weights(features, labels, Some(sample_weights), seed)
+}
+
+fn fit_booster_with_optional_weights(
+    features: &[Vec<f64>],
+    labels: &[f32],
+    sample_weights: Option<&[f32]>,
+    seed: i32,
+) -> Result<Booster, String> {
     if features.is_empty() || features.len() != labels.len() {
         return Err("cannot train LightGBM with empty or mismatched training rows".to_string());
+    }
+    if sample_weights.is_some_and(|weights| weights.len() != labels.len()) {
+        return Err("cannot train LightGBM with mismatched sample weights".to_string());
     }
     let matrix = MatBuf::from_rows_non_empty(features)
         .map_err(|error| format!("failed to build LightGBM training matrix: {error}"))?
@@ -883,6 +914,11 @@ fn fit_booster(features: &[Vec<f64>], labels: &[f32], seed: i32) -> Result<Boost
     train
         .set_field(Field::LABEL, labels)
         .map_err(|error| format!("failed to attach LightGBM labels: {error}"))?;
+    if let Some(weights) = sample_weights {
+        train
+            .set_field(Field::WEIGHT, weights)
+            .map_err(|error| format!("failed to attach LightGBM sample weights: {error}"))?;
+    }
     let mut booster = Booster::new(Arc::new(train), &parameters)
         .map_err(|error| format!("failed to create LightGBM booster: {error}"))?;
     for _ in 0..TRAINING_ITERATIONS {
@@ -1106,34 +1142,107 @@ fn train_target_model(
         .map(|label| f64::from(*label))
         .sum::<f64>()
         / train_labels.len() as f64;
-    let evaluation_booster = fit_booster(&train_features, &train_labels, target.seed())?;
-    let holdout_predictions = predict_booster(&evaluation_booster, &holdout_features)?;
-    let model_brier = brier_score(&holdout_predictions, &holdout_labels);
     let baseline_brier = brier_score(&vec![baseline_rate; holdout_labels.len()], &holdout_labels);
-    let relative_improvement = if baseline_brier > 0.0 {
-        (baseline_brier - model_brier) / baseline_brier
+    let holdout_pass_rate = holdout_positive as f64 / holdout.len() as f64;
+    let train_as_of = training
+        .iter()
+        .map(|(row, _)| row.observed_at)
+        .max()
+        .unwrap_or(cutoff);
+    let train_weights = training
+        .iter()
+        .map(|(row, _)| recency_weight(row.observed_at, train_as_of))
+        .collect::<Vec<_>>();
+
+    let unweighted_booster = fit_booster(&train_features, &train_labels, target.seed())?;
+    let unweighted_predictions = predict_booster(&unweighted_booster, &holdout_features)?;
+    let unweighted_brier = brier_score(&unweighted_predictions, &holdout_labels);
+    let unweighted_top_20pct_pass_rate =
+        top_quintile_pass_rate(&unweighted_predictions, &holdout_labels);
+    let unweighted_relative_improvement = if baseline_brier > 0.0 {
+        (baseline_brier - unweighted_brier) / baseline_brier
     } else {
         0.0
     };
-    let holdout_pass_rate = holdout_positive as f64 / holdout.len() as f64;
-    let model_top_20pct_pass_rate = top_quintile_pass_rate(&holdout_predictions, &holdout_labels);
+    let unweighted_brier_accepted = unweighted_brier.is_finite()
+        && baseline_brier.is_finite()
+        && unweighted_relative_improvement >= MIN_RELATIVE_BRIER_IMPROVEMENT;
+    let unweighted_ranking_accepted = unweighted_top_20pct_pass_rate.is_finite()
+        && unweighted_top_20pct_pass_rate + 1e-9 >= holdout_pass_rate;
+    let unweighted_accepted = unweighted_brier_accepted && unweighted_ranking_accepted;
+
+    let weighted_booster = fit_booster_with_weights(
+        &train_features,
+        &train_labels,
+        &train_weights,
+        target.seed(),
+    )?;
+    let weighted_predictions = predict_booster(&weighted_booster, &holdout_features)?;
+    let weighted_brier = brier_score(&weighted_predictions, &holdout_labels);
+    let weighted_top_20pct_pass_rate =
+        top_quintile_pass_rate(&weighted_predictions, &holdout_labels);
+    let weighted_relative_improvement = if baseline_brier > 0.0 {
+        (baseline_brier - weighted_brier) / baseline_brier
+    } else {
+        0.0
+    };
+    let weighted_brier_accepted = weighted_brier.is_finite()
+        && baseline_brier.is_finite()
+        && weighted_relative_improvement >= MIN_RELATIVE_BRIER_IMPROVEMENT;
+    let weighted_ranking_accepted = weighted_top_20pct_pass_rate.is_finite()
+        && weighted_top_20pct_pass_rate + 1e-9 >= holdout_pass_rate;
+    let weighted_accepted = weighted_brier_accepted && weighted_ranking_accepted;
+
+    let weighted_is_better = weighted_brier + 1e-9 < unweighted_brier
+        || ((weighted_brier - unweighted_brier).abs() <= 1e-9
+            && weighted_top_20pct_pass_rate > unweighted_top_20pct_pass_rate + 1e-9);
+    let use_weighted = weighted_accepted && (!unweighted_accepted || weighted_is_better);
+    let selected_strategy = if use_weighted {
+        "recency_weighted"
+    } else if unweighted_accepted {
+        "unweighted"
+    } else {
+        "none"
+    };
+    let (
+        model_brier,
+        relative_improvement,
+        model_top_20pct_pass_rate,
+        brier_accepted,
+        ranking_accepted,
+    ) = if use_weighted {
+        (
+            weighted_brier,
+            weighted_relative_improvement,
+            weighted_top_20pct_pass_rate,
+            weighted_brier_accepted,
+            weighted_ranking_accepted,
+        )
+    } else {
+        (
+            unweighted_brier,
+            unweighted_relative_improvement,
+            unweighted_top_20pct_pass_rate,
+            unweighted_brier_accepted,
+            unweighted_ranking_accepted,
+        )
+    };
     let top_20pct_lift = if holdout_pass_rate > 0.0 {
         model_top_20pct_pass_rate / holdout_pass_rate
     } else {
         0.0
     };
-    let brier_accepted = model_brier.is_finite()
-        && baseline_brier.is_finite()
-        && relative_improvement >= MIN_RELATIVE_BRIER_IMPROVEMENT;
-    let ranking_accepted = model_top_20pct_pass_rate.is_finite()
-        && model_top_20pct_pass_rate + 1e-9 >= holdout_pass_rate;
-    let accepted = brier_accepted && ranking_accepted;
-    let reason = if !brier_accepted {
+    let accepted = use_weighted || unweighted_accepted;
+    let reason = if !accepted && !brier_accepted {
         "model_did_not_beat_unseen_candidate_baseline"
-    } else if !ranking_accepted {
+    } else if !accepted && !ranking_accepted {
         "top_20pct_below_unseen_candidate_baseline"
+    } else if use_weighted {
+        "recency_weighted_model_beats_unweighted_temporal_holdout"
+    } else if accepted {
+        "unweighted_model_selected_by_temporal_holdout"
     } else {
-        "better_brier_and_non_degrading_unseen_top_20pct"
+        "neither_weighting_strategy_passed_temporal_holdout"
     };
 
     let mut report = serde_json::json!({
@@ -1162,6 +1271,19 @@ fn train_target_model(
         "top_20pct_lift": top_20pct_lift,
         "top_20pct_non_degrading": ranking_accepted,
         "reason": reason,
+        "recency_weighting_experiment": {
+            "half_life_days": 3.0,
+            "minimum_sample_weight": MIN_RECENCY_WEIGHT,
+            "unweighted_brier": unweighted_brier,
+            "unweighted_relative_brier_improvement": unweighted_relative_improvement,
+            "unweighted_top_20pct_pass_rate": unweighted_top_20pct_pass_rate,
+            "unweighted_accepted": unweighted_accepted,
+            "weighted_brier": weighted_brier,
+            "weighted_relative_brier_improvement": weighted_relative_improvement,
+            "weighted_top_20pct_pass_rate": weighted_top_20pct_pass_rate,
+            "weighted_accepted": weighted_accepted,
+            "selected_strategy": selected_strategy
+        }
     });
     if !accepted {
         return Ok(TargetResult {
@@ -1179,7 +1301,21 @@ fn train_target_model(
         .iter()
         .map(|(_, label)| if *label { 1.0_f32 } else { 0.0_f32 })
         .collect::<Vec<_>>();
-    let production_booster = fit_booster(&all_features, &all_labels, target.seed())?;
+    let production_booster = if use_weighted {
+        let as_of = current_epoch_seconds();
+        let production_weights = rows
+            .iter()
+            .map(|(row, _)| recency_weight(row.observed_at, as_of))
+            .collect::<Vec<_>>();
+        fit_booster_with_weights(
+            &all_features,
+            &all_labels,
+            &production_weights,
+            target.seed(),
+        )?
+    } else {
+        fit_booster(&all_features, &all_labels, target.seed())?
+    };
     let predictions = predict_booster(&production_booster, candidate_features)?;
     if predictions.len() != candidates.len() {
         return Err(format!(
@@ -1738,8 +1874,8 @@ mod tests {
     use super::{
         backend_for_config, candidate_fingerprint, config_feature_vector,
         first_unseen_holdout_indices, history_feature_vector, load_training, parse_config_features,
-        port_bucket, target_label_history, top_quintile_pass_rate, ModelTarget, TrainingExample,
-        HISTORY_FEATURE_COUNT, MODEL_FEATURE_COUNT,
+        port_bucket, recency_weight, target_label_history, top_quintile_pass_rate, ModelTarget,
+        TrainingExample, HISTORY_FEATURE_COUNT, MIN_RECENCY_WEIGHT, MODEL_FEATURE_COUNT,
     };
     use base64::Engine as _;
     use serde_json::{json, Map, Value};
@@ -1837,6 +1973,22 @@ mod tests {
             ModelTarget::EndToEnd.label(&training_example(true, Some(true), None)),
             None
         );
+    }
+
+    #[test]
+    fn recency_weights_decay_by_half_life_and_respect_the_floor() {
+        let now = 20 * 24 * 60 * 60;
+        let fresh = recency_weight(now, now);
+        let three_days_old = recency_weight(now - 3 * 24 * 60 * 60, now);
+        let six_days_old = recency_weight(now - 6 * 24 * 60 * 60, now);
+        let very_old = recency_weight(0, now);
+
+        assert!((fresh - 1.0).abs() < 1e-6);
+        assert!((three_days_old - 0.5).abs() < 1e-6);
+        assert!((six_days_old - 0.25).abs() < 1e-6);
+        assert!((very_old - MIN_RECENCY_WEIGHT as f32).abs() < 1e-6);
+        assert!(fresh > three_days_old);
+        assert!(three_days_old > six_days_old);
     }
 
     #[test]
@@ -1973,13 +2125,14 @@ mod tests {
     #[test]
     fn legacy_three_mib_stream_labels_are_not_mixed_with_sustained_nine_mib_labels() {
         let path = temp_path();
-        let mut legacy = stored_row(100, "legacy-stream", true);
+        let base_timestamp = super::current_epoch_seconds().saturating_sub(10_000);
+        let mut legacy = stored_row(base_timestamp + 100, "legacy-stream", true);
         legacy["label"]["transfer_tested"] = Value::from(true);
         legacy["label"]["transfer_pass"] = Value::from(true);
         legacy["label"]["stream_tested"] = Value::from(true);
         legacy["label"]["stream_pass"] = Value::from(true);
 
-        let mut sustained = stored_row(101, "sustained-stream", true);
+        let mut sustained = stored_row(base_timestamp + 101, "sustained-stream", true);
         sustained["label"]["transfer_tested"] = Value::from(true);
         sustained["label"]["transfer_pass"] = Value::from(true);
         sustained["label"]["stream_tested"] = Value::from(true);
@@ -2019,25 +2172,35 @@ mod tests {
     #[test]
     fn temporal_history_features_do_not_leak_same_run_labels() {
         let path = temp_path();
+        let base_timestamp = super::current_epoch_seconds().saturating_sub(10_000);
         let mut rows = Vec::new();
         for index in 0..3 {
-            let mut repeated = stored_row(100, "same-candidate", true);
-            repeated["observation_id"] = Value::from(format!("100:same-candidate:{index}"));
+            let mut repeated = stored_row(base_timestamp + 100, "same-candidate", true);
+            repeated["observation_id"] =
+                Value::from(format!("{}:same-candidate:{index}", base_timestamp + 100));
             rows.push(serde_json::to_string(&repeated).unwrap());
             if index == 0 {
                 rows.push(
-                    serde_json::to_string(&stored_row(100, "other-candidate", false)).unwrap(),
+                    serde_json::to_string(&stored_row(
+                        base_timestamp + 100,
+                        "other-candidate",
+                        false,
+                    ))
+                    .unwrap(),
                 );
             }
         }
-        rows.push(serde_json::to_string(&stored_row(200, "same-candidate", true)).unwrap());
-        let mut legacy = stored_row(250, "legacy-features", true);
+        rows.push(
+            serde_json::to_string(&stored_row(base_timestamp + 200, "same-candidate", true))
+                .unwrap(),
+        );
+        let mut legacy = stored_row(base_timestamp + 250, "legacy-features", true);
         legacy
             .as_object_mut()
             .expect("legacy row object")
             .remove("feature_extraction_version");
         rows.push(serde_json::to_string(&legacy).unwrap());
-        let mut stale = stored_row(300, "stale-features", true);
+        let mut stale = stored_row(base_timestamp + 300, "stale-features", true);
         stale["feature_extraction_version"] =
             Value::from(super::FEATURE_EXTRACTION_VERSION.saturating_sub(1));
         rows.push(serde_json::to_string(&stale).unwrap());
@@ -2059,13 +2222,13 @@ mod tests {
         let same_time = data
             .examples
             .iter()
-            .filter(|row| row.observed_at == 100)
+            .filter(|row| row.observed_at == base_timestamp + 100)
             .collect::<Vec<_>>();
         assert!(same_time.iter().all(|row| row.features[53] == 0.0));
         let later = data
             .examples
             .iter()
-            .find(|row| row.observed_at == 200)
+            .find(|row| row.observed_at == base_timestamp + 200)
             .expect("later row");
         assert!((later.features[54] - (5.0 / 7.0)).abs() < 1e-9);
         assert_eq!(later.features.len(), MODEL_FEATURE_COUNT);
