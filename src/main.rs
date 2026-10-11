@@ -6,8 +6,9 @@ use percent_encoding::percent_decode_str;
 use proxyrift::light_gbm::LightGbmScores;
 use proxyrift::source_discovery::CollectionOutcome;
 use proxyrift::validator::{
-    cheap_compatibility_rejection_reason, config_label, endpoint, is_locally_supported_config,
-    is_public_ip, resolve_public_tcp_host,
+    cheap_compatibility_rejection_context, cheap_compatibility_rejection_reason, config_label,
+    endpoint, is_locally_supported_config, is_public_ip, resolve_public_tcp_host,
+    CheapCompatibilityRejectionContext,
 };
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Endpoint};
@@ -479,11 +480,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let before_cheap_compatibility = configs.len();
     let mut cheap_rejection_counts = HashMap::<&'static str, usize>::new();
+    let mut cheap_rejection_context_counts =
+        HashMap::<(&'static str, CheapCompatibilityRejectionContext), usize>::new();
     configs.retain(|config| {
         let Some(reason) = cheap_compatibility_rejection_reason(config) else {
             return true;
         };
         *cheap_rejection_counts.entry(reason).or_default() += 1;
+        let context = cheap_compatibility_rejection_context(config, reason);
+        *cheap_rejection_context_counts
+            .entry((reason, context))
+            .or_default() += 1;
         config_sources.remove(config);
         false
     });
@@ -500,6 +507,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "[INFO] 🧹 [Compatibility] Rejected {} collected configs by cheap compatibility screening | Reasons: {}",
             cheaply_rejected,
             rejection_summary
+        );
+
+        let mut context_summary = cheap_rejection_context_counts
+            .into_iter()
+            .collect::<Vec<_>>();
+        context_summary.sort_unstable_by(
+            |((left_reason, left_context), _), ((right_reason, right_context), _)| {
+                left_reason
+                    .cmp(right_reason)
+                    .then_with(|| left_context.scheme.cmp(right_context.scheme))
+                    .then_with(|| left_context.transport.cmp(right_context.transport))
+                    .then_with(|| left_context.security.cmp(right_context.security))
+                    .then_with(|| left_context.detail.cmp(right_context.detail))
+            },
+        );
+        let context_summary = context_summary
+            .into_iter()
+            .map(|((reason, context), count)| {
+                format!(
+                    "{reason}[scheme={},transport={},security={},detail={}]={count}",
+                    context.scheme, context.transport, context.security, context.detail
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        println!(
+            "[INFO] 🧭 [Compatibility] Sanitized rejection context counts (no raw config values): {}",
+            context_summary
         );
     }
 

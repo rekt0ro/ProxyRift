@@ -2489,6 +2489,220 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CheapCompatibilityRejectionContext {
+    pub scheme: &'static str,
+    pub transport: &'static str,
+    pub security: &'static str,
+    pub detail: &'static str,
+}
+
+fn compatibility_scheme_bucket(scheme: &str) -> &'static str {
+    match scheme {
+        "vless" => "vless",
+        "vmess" => "vmess",
+        "trojan" => "trojan",
+        "hysteria" => "hysteria-v1",
+        "hysteria2" | "hy2" => "hysteria2",
+        "ss" => "shadowsocks",
+        "tuic" => "tuic",
+        "wg" => "wireguard",
+        "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" => "socks",
+        "http" => "http",
+        _ => "other",
+    }
+}
+
+fn compatibility_transport_bucket(value: &str) -> &'static str {
+    match normalize_transport(value).as_str() {
+        "raw" => "raw",
+        "ws" => "ws",
+        "http" => "http",
+        "grpc" => "grpc",
+        "httpupgrade" => "httpupgrade",
+        "kcp" => "kcp",
+        "quic" => "quic",
+        "xhttp" => "xhttp",
+        "hysteria" => "hysteria",
+        _ => "other",
+    }
+}
+
+fn compatibility_security_bucket(value: &str) -> &'static str {
+    match value
+        .trim()
+        .trim_end_matches('.')
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "" | "none" => "none",
+        "tls" | "t" | "tl" => "tls",
+        "reality" => "reality",
+        "tls-required" => "tls-required",
+        "native" => "native",
+        _ => "other",
+    }
+}
+
+fn compatibility_bandwidth_state(url: &Url, name: &str) -> &'static str {
+    let value = first_query(url, &[name], Some(""));
+    if value.trim().is_empty() {
+        return "missing";
+    }
+    if value
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .is_some_and(|value| value > 0)
+    {
+        "valid"
+    } else {
+        "invalid"
+    }
+}
+
+fn compatibility_hysteria_bandwidth_detail(url: Option<&Url>) -> &'static str {
+    let Some(url) = url else {
+        return "bandwidth=unavailable";
+    };
+    match (
+        compatibility_bandwidth_state(url, "upmbps"),
+        compatibility_bandwidth_state(url, "downmbps"),
+    ) {
+        ("missing", "missing") => "bandwidth=both-missing",
+        ("missing", "valid") => "bandwidth=up-missing",
+        ("valid", "missing") => "bandwidth=down-missing",
+        ("invalid", "valid") => "bandwidth=up-invalid",
+        ("valid", "invalid") => "bandwidth=down-invalid",
+        ("missing", "invalid") => "bandwidth=up-missing-down-invalid",
+        ("invalid", "missing") => "bandwidth=up-invalid-down-missing",
+        ("invalid", "invalid") => "bandwidth=both-invalid",
+        _ => "bandwidth=unexpected",
+    }
+}
+
+fn compatibility_shadowsocks_plugin_bucket(url: Option<&Url>) -> &'static str {
+    let Some(url) = url else {
+        return "plugin=unavailable";
+    };
+    for (key, value) in url.query_pairs() {
+        if !key.eq_ignore_ascii_case("plugin") {
+            continue;
+        }
+        return match value
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "obfs-local" => "plugin=obfs-local",
+            "v2ray-plugin" => "plugin=v2ray-plugin",
+            "" => "plugin=empty",
+            _ => "plugin=other",
+        };
+    }
+    "plugin=missing"
+}
+
+pub fn cheap_compatibility_rejection_context(
+    config: &str,
+    reason: &str,
+) -> CheapCompatibilityRejectionContext {
+    let cleaned = clean(config);
+    let scheme = scheme_of(cleaned);
+    let parsed_url = Url::parse(cleaned).ok();
+    let (transport, security) = match scheme.as_str() {
+        "vless" | "trojan" => match parsed_url.as_ref() {
+            Some(url) => (
+                compatibility_transport_bucket(&first_query(
+                    url,
+                    &["type", "network"],
+                    Some("tcp"),
+                )),
+                compatibility_security_bucket(&first_query(url, &["security"], Some("none"))),
+            ),
+            None => ("unavailable", "unavailable"),
+        },
+        "vmess" => {
+            let parsed_value = cleaned
+                .split_once("://")
+                .and_then(|(_, payload)| b64decode(payload))
+                .and_then(|decoded| serde_json::from_slice::<Value>(&decoded).ok());
+            match parsed_value.as_ref() {
+                Some(value) => (
+                    compatibility_transport_bucket(
+                        &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
+                    ),
+                    compatibility_security_bucket(&vmess_tls_security(value.get("tls"))),
+                ),
+                None => ("unavailable", "unavailable"),
+            }
+        }
+        "hysteria" => {
+            let transport = match parsed_url.as_ref() {
+                Some(url) => match hysteria_v1_protocol(url)
+                    .trim()
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "udp" => "hysteria-udp",
+                    "wechat-video" => "hysteria-wechat-video",
+                    "faketcp" => "hysteria-faketcp",
+                    _ => "hysteria-other",
+                },
+                None => "unavailable",
+            };
+            (transport, "tls-required")
+        }
+        "hysteria2" | "hy2" | "tuic" => ("quic", "tls-required"),
+        "wg" | "ss" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" | "http" => {
+            ("native", "native")
+        }
+        _ => ("not-applicable", "not-applicable"),
+    };
+
+    let detail = match reason {
+        "incompatible-security-transport" => "reality-transport=incompatible",
+        "missing-reality-key" => "reality-key=missing",
+        "unsupported-flow" => "flow=other",
+        "unsupported-kcp-header" => "kcp-header=legacy",
+        "unsupported-kcp-seed" => "kcp-seed=present",
+        "unsupported-vmess-kcp-header" => "kcp-header=legacy",
+        "unsupported-vmess-kcp-seed" => "kcp-seed=present",
+        "unsupported-vmess-quic-header" => "quic-header=legacy",
+        "unsupported-vmess-tls" if security == "reality" => "vmess-tls=reality",
+        "unsupported-vmess-tls" => "vmess-tls=other",
+        "unsupported-security" => "security=other",
+        "unsupported-transport" | "unsupported-vmess-transport" => "transport=unsupported",
+        "unsupported-shadowsocks-plugin" => {
+            compatibility_shadowsocks_plugin_bucket(parsed_url.as_ref())
+        }
+        "missing-shadowsocks-password" => "password=missing",
+        "invalid-hysteria-bandwidth" => {
+            compatibility_hysteria_bandwidth_detail(parsed_url.as_ref())
+        }
+        "unsupported-hysteria-transport" => "hysteria-transport=other",
+        "unsupported-hysteria-obfuscation" => "hysteria-obfuscation=other",
+        "missing-hysteria-obfuscation-credential" => "hysteria-obfuscation-credential=missing",
+        "hysteria-obfuscation-credential-without-mode" => "hysteria-obfuscation=missing-mode",
+        "unsupported-quic-encryption" => "quic-encryption=other",
+        "unsupported-quic-header" => "quic-header=legacy",
+        "unsupported-quic-parameters" => "quic-parameters=unsupported",
+        "invalid-kcp-parameters" => "kcp-parameters=invalid",
+        "missing-credential" => "credential=missing",
+        _ => "detail=not-classified",
+    };
+
+    CheapCompatibilityRejectionContext {
+        scheme: compatibility_scheme_bucket(&scheme),
+        transport,
+        security,
+        detail,
+    }
+}
+
 pub fn is_cheaply_supported_config(config: &str) -> bool {
     cheap_compatibility_rejection_reason(config).is_none()
 }
@@ -6147,6 +6361,74 @@ mod tests {
         assert!(is_cheaply_supported_config("socks4a://example.com:1080"));
         assert!(is_light_consumer_compatible("socks4://example.com:1080"));
         assert!(is_light_consumer_compatible("socks4a://example.com:1080"));
+    }
+
+    #[test]
+    fn rejection_context_is_sanitized_and_identifies_hysteria_transport_candidates() {
+        let config =
+            "vless://private-user@example.com:443?type=hysteria&security=tls&token=secret-value";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(config),
+            Some("unsupported-transport")
+        );
+        let context = cheap_compatibility_rejection_context(config, "unsupported-transport");
+
+        assert_eq!(context.scheme, "vless");
+        assert_eq!(context.transport, "hysteria");
+        assert_eq!(context.security, "tls");
+        assert_eq!(context.detail, "transport=unsupported");
+        let serialized = format!("{context:?}");
+        for secret in ["private-user", "example.com", "secret-value"] {
+            assert!(!serialized.contains(secret));
+        }
+    }
+
+    #[test]
+    fn rejection_context_classifies_vmess_reality_without_logging_payload_values() {
+        let payload = serde_json::json!({
+            "add": "private.example.com",
+            "port": "443",
+            "id": "secret-uuid",
+            "net": "tcp",
+            "tls": "reality"
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+        assert_eq!(
+            cheap_compatibility_rejection_reason(&config),
+            Some("unsupported-vmess-tls")
+        );
+
+        let context = cheap_compatibility_rejection_context(&config, "unsupported-vmess-tls");
+        assert_eq!(context.scheme, "vmess");
+        assert_eq!(context.transport, "raw");
+        assert_eq!(context.security, "reality");
+        assert_eq!(context.detail, "vmess-tls=reality");
+        let serialized = format!("{context:?}");
+        assert!(!serialized.contains("private.example.com"));
+        assert!(!serialized.contains("secret-uuid"));
+    }
+
+    #[test]
+    fn rejection_context_reports_shadowsocks_plugin_family_not_plugin_values() {
+        let config =
+            "ss://method:secret-password@example.com:443/?plugin=custom-plugin;secret-option=value";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(config),
+            Some("unsupported-shadowsocks-plugin")
+        );
+        let context =
+            cheap_compatibility_rejection_context(config, "unsupported-shadowsocks-plugin");
+        assert_eq!(context.scheme, "shadowsocks");
+        assert_eq!(context.detail, "plugin=other");
+        let serialized = format!("{context:?}");
+        for secret in [
+            "secret-password",
+            "example.com",
+            "custom-plugin",
+            "secret-option",
+        ] {
+            assert!(!serialized.contains(secret));
+        }
     }
 
     #[test]
