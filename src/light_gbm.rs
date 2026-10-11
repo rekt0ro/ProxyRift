@@ -632,10 +632,15 @@ fn load_training(path: &str) -> Result<TrainingData, String> {
         } else {
             None
         };
-        let stream_tested = label
-            .get("stream_tested")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let stream_validation_version = label
+            .get("stream_validation_version")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        let stream_tested = stream_validation_version >= 2
+            && label
+                .get("stream_tested")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
         let stream_pass = if stream_tested {
             label.get("stream_pass").and_then(Value::as_bool)
         } else {
@@ -1963,6 +1968,52 @@ mod tests {
         let stored = super::training_feature_vector(&fields).expect("stored features");
         assert_eq!(parsed.query_parameter_count, 3);
         assert_eq!(structural, stored);
+    }
+
+    #[test]
+    fn legacy_three_mib_stream_labels_are_not_mixed_with_sustained_nine_mib_labels() {
+        let path = temp_path();
+        let mut legacy = stored_row(100, "legacy-stream", true);
+        legacy["label"]["transfer_tested"] = Value::from(true);
+        legacy["label"]["transfer_pass"] = Value::from(true);
+        legacy["label"]["stream_tested"] = Value::from(true);
+        legacy["label"]["stream_pass"] = Value::from(true);
+
+        let mut sustained = stored_row(101, "sustained-stream", true);
+        sustained["label"]["transfer_tested"] = Value::from(true);
+        sustained["label"]["transfer_pass"] = Value::from(true);
+        sustained["label"]["stream_tested"] = Value::from(true);
+        sustained["label"]["stream_pass"] = Value::from(false);
+        sustained["label"]["stream_validation_version"] = Value::from(2);
+
+        fs::write(
+            &path,
+            [
+                serde_json::to_string(&legacy).unwrap(),
+                serde_json::to_string(&sustained).unwrap(),
+            ]
+            .join("\n")
+                + "\n",
+        )
+        .expect("write stream protocol fixtures");
+
+        let data = load_training(&path).expect("load training data");
+        let legacy_row = data
+            .examples
+            .iter()
+            .find(|row| row.candidate_fingerprint == "legacy-stream")
+            .expect("legacy candidate");
+        let sustained_row = data
+            .examples
+            .iter()
+            .find(|row| row.candidate_fingerprint == "sustained-stream")
+            .expect("sustained candidate");
+
+        assert_eq!(legacy_row.transfer_pass, Some(true));
+        assert_eq!(legacy_row.stream_pass, None);
+        assert_eq!(sustained_row.transfer_pass, Some(true));
+        assert_eq!(sustained_row.stream_pass, Some(false));
+        let _ = fs::remove_file(path);
     }
 
     #[test]
