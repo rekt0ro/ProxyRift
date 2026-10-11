@@ -144,6 +144,8 @@ chmod +x "$tmp/bin/gh"
   bash "$repo_root/scripts/update/write_run_summary.sh"
 )
 
+cat "$tmp/summary.md"
+
 grep -Fq '| All | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
 grep -Fq '| Light | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
 grep -Fq '| 15000 | 317 | 300 | 200 | 200 |' "$tmp/summary.md"
