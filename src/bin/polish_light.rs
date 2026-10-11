@@ -883,8 +883,6 @@ fn rank_discovery_candidates(
     seed: u64,
     preferred_candidates: &HashSet<String>,
 ) -> Vec<String> {
-    // Revalidate the currently published cohort first, but never trust stale results:
-    // every candidate still passes the normal strict, transfer, and stream gates.
     let mut preferred = candidates
         .iter()
         .filter(|config| preferred_candidates.contains(*config))
@@ -897,7 +895,6 @@ fn rank_discovery_candidates(
             .then_with(|| a.cmp(b))
     });
 
-    // Keep exploration focused on candidates outside the current published cohort.
     let remaining_candidates = candidates
         .iter()
         .filter(|config| !preferred_candidates.contains(*config))
@@ -1246,8 +1243,6 @@ async fn validate_light_transfer_batch(
         }
     }
 
-    // The first 1 MiB has already passed. Require the remaining 9 MiB to
-    // arrive as a sustained stream before a candidate can enter sub-light.
     let targets = [target];
     let request_timeout = std::time::Duration::from_secs_f64(FINAL_TRANSFER_TIMEOUT_SECS);
     let max_idle_gap = std::time::Duration::from_secs(STREAM_CONTINUITY_MAX_IDLE_SECS);
@@ -1518,8 +1513,6 @@ fn select_transfer_target(
     let has_healthy_primary = !healthy_primary.is_empty();
     let both_primaries_healthy = primary_count == PRIMARY_TRANSFER_TARGET_COUNT
         && healthy_primary.len() == PRIMARY_TRANSFER_TARGET_COUNT;
-    // Keep using a remaining Iranian mirror while it is healthy. Only try
-    // international fallbacks after both Iranian primaries are unavailable.
     let healthy = if has_healthy_primary {
         healthy_primary
     } else {
@@ -1820,9 +1813,6 @@ fn mirror_sustained_stream_results(
     stream_tested: &mut HashSet<String>,
     stream_verified: &mut HashMap<String, ProxyMetrics>,
 ) -> usize {
-    // The transfer pass is the sustained 9 MiB continuation after the
-    // mandatory 1 MiB stability stage. Reuse its outcomes instead of
-    // issuing a duplicate, independent stream download.
     stream_tested.clone_from(transfer_tested);
     stream_verified.clone_from(transfer_verified);
     stream_verified.len()
@@ -4459,8 +4449,6 @@ mod tests {
         states[3].tested = 12;
         states[3].passed = 3;
         states[3].batches = 1;
-        // Use the still-healthy Iranian target even when a foreign target's
-        // observed pass rate is higher; fallback is reserved for both primaries.
         assert_eq!(select_transfer_target(&states, 1), Some(0));
     }
 
@@ -4472,7 +4460,6 @@ mod tests {
         states[1].passed = 40;
         states[1].batches = 2;
 
-        // A usable Iranian mirror must be tried before either foreign fallback.
         assert_eq!(select_transfer_target(&states, 1), Some(1));
 
         states[2].tested = 16;
@@ -4480,7 +4467,6 @@ mod tests {
         states[2].batches = 1;
         assert_eq!(select_transfer_target(&states, 1), Some(1));
 
-        // Fallbacks become eligible only when both Iranian mirrors are unavailable.
         states[1].quarantined = true;
         states[2].tested = 16;
         states[3].tested = 32;

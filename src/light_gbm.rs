@@ -1065,8 +1065,6 @@ fn train_target_model(
         .iter()
         .filter(|(row, _)| row.observed_at < cutoff)
         .collect::<Vec<_>>();
-    // "Unseen" is target-specific: a prior strict check must not disqualify a
-    // candidate from the transfer/stream holdout before that target was labelled.
     let (previously_seen_candidates, first_observed_at) = target_label_history(&rows, cutoff);
     let eligible_unseen_holdout_rows = rows
         .iter()
@@ -2259,8 +2257,6 @@ mod tests {
             (&known_after_cutoff, false),
             (&seen_by_an_unlabelled_stage, false),
         ];
-        // Only target-labelled observations belong in this history. The
-        // strict-only observation of "seen-other-stage" is intentionally absent.
         let (previously_seen_candidates, first_observed_at) = target_label_history(&rows, 10);
         assert_eq!(
             previously_seen_candidates,
