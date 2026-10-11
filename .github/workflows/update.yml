@@ -222,6 +222,7 @@ jobs:
           GENERATION_OUTCOME: ${{ steps.generate_base64.outcome }}
           PREPARE_OUTCOME: ${{ steps.prepare_outputs.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          PROXYRIFT_TMP_DIR: /tmp/proxyrift
           GH_TOKEN: ${{ github.token }}
           GH_REPOSITORY: ${{ github.repository }}
           XRAY_VERSION: ${{ steps.validation-cores.outputs.xray_version }}
@@ -231,13 +232,13 @@ jobs:
       - name: "🔎 Verify LightGBM summary against run report"
         if: always() && steps.build_light.outcome == 'success'
         env:
-          PROXYRIFT_TMP_DIR: ${{ runner.temp }}/proxyrift
+          PROXYRIFT_TMP_DIR: /tmp/proxyrift
         run: bash scripts/update/verify_lightgbm_summary.sh "$PROXYRIFT_TMP_DIR/run-summary.md" "$PROXYRIFT_TMP_DIR/lightgbm-scores.json"
 
       - name: "🧾 Prepare sanitized LightGBM evaluation artifact"
         if: always()
         env:
-          PROXYRIFT_TMP_DIR: ${{ runner.temp }}/proxyrift
+          PROXYRIFT_TMP_DIR: /tmp/proxyrift
           LIGHTGBM_ARTIFACT_PATH: ${{ runner.temp }}/lightgbm-evaluation.json
         run: bash scripts/update/write_lightgbm_artifact.sh "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "$LIGHTGBM_ARTIFACT_PATH"
 
