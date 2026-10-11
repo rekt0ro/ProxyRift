@@ -3336,7 +3336,13 @@ pub(crate) fn throughput_bytes_for_target(url: &str) -> Option<usize> {
 }
 
 pub(crate) fn minimum_probe_body_bytes_for_target(url: &str, configured_minimum: usize) -> usize {
-    if url == ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET || url == MOBINHOST_SPEEDTEST_100MB_TARGET
+    // The named mirrors still require a real 10 MiB throughput probe in the
+    // transfer gate (via throughput_bytes_for_target). Do not silently turn
+    // the cheaper 1 MiB stability or 3 MiB continuity probes into 10 MiB
+    // downloads; each stage must enforce its own configured payload size.
+    if (url == ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
+        || url == MOBINHOST_SPEEDTEST_100MB_TARGET)
+        && configured_minimum >= STRICT_THROUGHPUT_BYTES
     {
         configured_minimum.max(STRICT_THROUGHPUT_BYTES)
     } else {
@@ -5424,29 +5430,37 @@ mod tests {
     }
 
     #[test]
-    fn named_transfer_targets_use_the_strict_transfer_threshold() {
+    fn transfer_payload_size_is_scoped_to_each_validation_stage() {
+        let stream_bytes = SUSTAINED_STREAM_SEGMENTS * SUSTAINED_STREAM_SEGMENT_BYTES;
+
         for target in [
             ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
             MOBINHOST_SPEEDTEST_100MB_TARGET,
         ] {
             assert!(STRICT_THROUGHPUT_TARGETS.contains(&target));
             assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(&target));
+
+            // The dedicated 10 MiB gate retains its full payload requirement.
             assert_eq!(
                 throughput_bytes_for_target(target),
                 Some(STRICT_THROUGHPUT_BYTES)
             );
             assert_eq!(
+                minimum_probe_body_bytes_for_target(target, STRICT_THROUGHPUT_BYTES),
+                STRICT_THROUGHPUT_BYTES
+            );
+
+            // Earlier stability and continuity gates must not secretly repeat
+            // the entire 10 MiB transfer for each candidate and each mirror.
+            assert_eq!(
                 minimum_probe_body_bytes_for_target(target, LIGHT_TRANSFER_STABILITY_BYTES),
-                STRICT_THROUGHPUT_BYTES,
-                "light transfer must download at least 10 MiB from {target}"
+                LIGHT_TRANSFER_STABILITY_BYTES,
+                "stability probe should only require 1 MiB from {target}"
             );
             assert_eq!(
-                minimum_probe_body_bytes_for_target(
-                    target,
-                    SUSTAINED_STREAM_SEGMENTS * SUSTAINED_STREAM_SEGMENT_BYTES
-                ),
-                STRICT_THROUGHPUT_BYTES,
-                "stream-continuity validation must also download at least 10 MiB from {target}"
+                minimum_probe_body_bytes_for_target(target, stream_bytes),
+                stream_bytes,
+                "continuity probe should require its configured 3 MiB from {target}"
             );
 
             let parsed = Url::parse(target).expect("transfer target should parse");
@@ -5466,7 +5480,7 @@ mod tests {
                 LIGHT_TRANSFER_STABILITY_BYTES
             ),
             LIGHT_TRANSFER_STABILITY_BYTES,
-            "other targets keep their existing light-stage threshold"
+            "configured light-stage thresholds remain unchanged for other hosts"
         );
     }
 

@@ -921,6 +921,25 @@ fn predict_booster(booster: &Booster, features: &[Vec<f64>]) -> Result<Vec<f64>,
         .collect())
 }
 
+fn target_label_history(
+    rows: &[(&TrainingExample, bool)],
+    cutoff: u64,
+) -> (HashSet<String>, HashMap<String, u64>) {
+    let previously_seen_candidates = rows
+        .iter()
+        .filter(|(row, _)| row.observed_at < cutoff)
+        .map(|(row, _)| row.candidate_fingerprint.clone())
+        .collect::<HashSet<_>>();
+    let mut first_observed_at = HashMap::<String, u64>::new();
+    for (row, _) in rows {
+        first_observed_at
+            .entry(row.candidate_fingerprint.clone())
+            .and_modify(|timestamp| *timestamp = (*timestamp).min(row.observed_at))
+            .or_insert(row.observed_at);
+    }
+    (previously_seen_candidates, first_observed_at)
+}
+
 fn first_unseen_holdout_indices(
     rows: &[(&TrainingExample, bool)],
     cutoff: u64,
@@ -1005,18 +1024,9 @@ fn train_target_model(
         .iter()
         .filter(|(row, _)| row.observed_at < cutoff)
         .collect::<Vec<_>>();
-    let previously_seen_candidates = examples
-        .iter()
-        .filter(|row| row.observed_at < cutoff)
-        .map(|row| row.candidate_fingerprint.clone())
-        .collect::<HashSet<_>>();
-    let mut first_observed_at = HashMap::<String, u64>::new();
-    for row in examples {
-        first_observed_at
-            .entry(row.candidate_fingerprint.clone())
-            .and_modify(|timestamp| *timestamp = (*timestamp).min(row.observed_at))
-            .or_insert(row.observed_at);
-    }
+    // "Unseen" is target-specific: a prior strict check must not disqualify a
+    // candidate from the transfer/stream holdout before that target was labelled.
+    let (previously_seen_candidates, first_observed_at) = target_label_history(&rows, cutoff);
     let eligible_unseen_holdout_rows = rows
         .iter()
         .filter(|(row, _)| {
@@ -1723,8 +1733,8 @@ mod tests {
     use super::{
         backend_for_config, candidate_fingerprint, config_feature_vector,
         first_unseen_holdout_indices, history_feature_vector, load_training, parse_config_features,
-        port_bucket, top_quintile_pass_rate, ModelTarget, TrainingExample, HISTORY_FEATURE_COUNT,
-        MODEL_FEATURE_COUNT,
+        port_bucket, target_label_history, top_quintile_pass_rate, ModelTarget, TrainingExample,
+        HISTORY_FEATURE_COUNT, MODEL_FEATURE_COUNT,
     };
     use base64::Engine as _;
     use serde_json::{json, Map, Value};
@@ -2012,7 +2022,7 @@ mod tests {
     }
 
     #[test]
-    fn temporal_holdout_keeps_only_first_observation_of_unseen_candidates() {
+    fn temporal_holdout_uses_target_label_history_and_keeps_only_first_observation() {
         let example = |observed_at: u64, candidate_fingerprint: &str| TrainingExample {
             observed_at,
             candidate_fingerprint: candidate_fingerprint.to_string(),
@@ -2035,13 +2045,14 @@ mod tests {
             (&known_after_cutoff, false),
             (&seen_by_an_unlabelled_stage, false),
         ];
-        let previously_seen_candidates = std::collections::HashSet::from(["known".to_string()]);
-        let first_observed_at = std::collections::HashMap::from([
-            ("known".to_string(), 1),
-            ("new-a".to_string(), 10),
-            ("new-b".to_string(), 12),
-            ("seen-other-stage".to_string(), 10),
-        ]);
+        // Only target-labelled observations belong in this history. The
+        // strict-only observation of "seen-other-stage" is intentionally absent.
+        let (previously_seen_candidates, first_observed_at) = target_label_history(&rows, 10);
+        assert_eq!(
+            previously_seen_candidates,
+            std::collections::HashSet::from(["known".to_string()])
+        );
+        assert_eq!(first_observed_at["seen-other-stage"], 14);
 
         assert_eq!(
             first_unseen_holdout_indices(
@@ -2050,7 +2061,7 @@ mod tests {
                 &previously_seen_candidates,
                 &first_observed_at,
             ),
-            vec![1, 3]
+            vec![1, 3, 5]
         );
     }
 
