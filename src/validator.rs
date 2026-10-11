@@ -1824,7 +1824,8 @@ fn supported_ss_plugin(key: &str, value: &str) -> bool {
                     if value.is_some_and(|value| {
                         matches!(value.trim().to_ascii_lowercase().as_str(), "http" | "tls")
                     }) => {}
-                "obfs-host" if value.is_some() => {}
+                "obfs-host" | "obfs-uri" if value.is_some() => {}
+                "fast-open" | "mptcp" if value.is_none() => {}
                 _ => return false,
             },
             "v2ray-plugin" => match key.as_str() {
@@ -6449,6 +6450,25 @@ mod tests {
             "v2ray-plugin;mode=quic;host=example.com",
             "v2ray-plugin;mode=websocket;mux=8;host=example.com",
             "v2ray-plugin;mode=websocket;loglevel=warning;tls;path=/ws",
+        ] {
+            let config = format!(
+                "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:443/?plugin={}",
+                urlencoding(plugin)
+            );
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{plugin}"
+            );
+            assert!(is_cheaply_supported_config(&config), "{plugin}");
+        }
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_supported_simple_obfs_client_options() {
+        for plugin in [
+            "obfs-local;obfs=http;obfs-host=example.com;obfs-uri=/index.html",
+            "obfs-local;obfs=tls;obfs-host=example.com;fast-open;mptcp",
         ] {
             let config = format!(
                 "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:443/?plugin={}",
