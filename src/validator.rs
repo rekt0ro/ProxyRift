@@ -23,7 +23,15 @@ pub const STRICT_THROUGHPUT_TARGETS: &[&str] = &[
     "https://cdn.truefilesize.com/test/test-10mb.bin",
     "http://speedtest.tele2.net/10MB.zip",
 ];
-pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = STRICT_THROUGHPUT_TARGETS;
+pub const ARVANCLOUD_ARCH_MIRROR_TARGET: &str =
+    "https://mirror.arvancloud.ir/archlinux/extra/os/x86_64/extra.db";
+pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
+    STRICT_THROUGHPUT_TARGET,
+    "https://fsn1-speed.hetzner.com/100MB.bin",
+    "https://cdn.truefilesize.com/test/test-10mb.bin",
+    "http://speedtest.tele2.net/10MB.zip",
+    ARVANCLOUD_ARCH_MIRROR_TARGET,
+];
 pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 2;
 pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
     PRIMARY_TARGET,
@@ -5343,6 +5351,27 @@ mod tests {
 
         let other = Url::parse("https://example.com/").expect("example target should parse");
         assert!(valid_probe_status(&other, 200));
+    }
+
+    #[test]
+    fn arvancloud_mirror_uses_the_light_transfer_threshold() {
+        assert!(!STRICT_THROUGHPUT_TARGETS.contains(&ARVANCLOUD_ARCH_MIRROR_TARGET));
+        assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(&ARVANCLOUD_ARCH_MIRROR_TARGET));
+        assert_eq!(
+            throughput_bytes_for_target(ARVANCLOUD_ARCH_MIRROR_TARGET),
+            Some(LIGHT_TRANSFER_STABILITY_BYTES)
+        );
+
+        let target =
+            Url::parse(ARVANCLOUD_ARCH_MIRROR_TARGET).expect("ArvanCloud target should parse");
+        assert!(!valid_probe_body(
+            &target,
+            &vec![0_u8; LIGHT_TRANSFER_STABILITY_BYTES - 1]
+        ));
+        assert!(valid_probe_body(
+            &target,
+            &vec![0_u8; LIGHT_TRANSFER_STABILITY_BYTES]
+        ));
     }
 
     #[test]
