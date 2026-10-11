@@ -1005,13 +1005,15 @@ fn train_target_model(
         .iter()
         .filter(|(row, _)| row.observed_at < cutoff)
         .collect::<Vec<_>>();
-    let previously_seen_candidates = examples
+    // "Unseen" is target-specific: a prior strict check must not disqualify a
+    // candidate from the transfer/stream holdout before that target was labelled.
+    let previously_seen_candidates = rows
         .iter()
-        .filter(|row| row.observed_at < cutoff)
-        .map(|row| row.candidate_fingerprint.clone())
+        .filter(|(row, _)| row.observed_at < cutoff)
+        .map(|(row, _)| row.candidate_fingerprint.clone())
         .collect::<HashSet<_>>();
     let mut first_observed_at = HashMap::<String, u64>::new();
-    for row in examples {
+    for (row, _) in &rows {
         first_observed_at
             .entry(row.candidate_fingerprint.clone())
             .and_modify(|timestamp| *timestamp = (*timestamp).min(row.observed_at))
@@ -2012,7 +2014,7 @@ mod tests {
     }
 
     #[test]
-    fn temporal_holdout_keeps_only_first_observation_of_unseen_candidates() {
+    fn temporal_holdout_uses_target_label_history_and_keeps_only_first_observation() {
         let example = |observed_at: u64, candidate_fingerprint: &str| TrainingExample {
             observed_at,
             candidate_fingerprint: candidate_fingerprint.to_string(),
@@ -2036,11 +2038,13 @@ mod tests {
             (&seen_by_an_unlabelled_stage, false),
         ];
         let previously_seen_candidates = std::collections::HashSet::from(["known".to_string()]);
+        // Only target-labelled observations belong in this map. A candidate
+        // previously seen by strict validation can still be unseen to stream.
         let first_observed_at = std::collections::HashMap::from([
             ("known".to_string(), 1),
             ("new-a".to_string(), 10),
             ("new-b".to_string(), 12),
-            ("seen-other-stage".to_string(), 10),
+            ("seen-other-stage".to_string(), 14),
         ]);
 
         assert_eq!(
@@ -2050,7 +2054,7 @@ mod tests {
                 &previously_seen_candidates,
                 &first_observed_at,
             ),
-            vec![1, 3]
+            vec![1, 3, 5]
         );
     }
 
