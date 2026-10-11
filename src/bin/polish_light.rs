@@ -2068,7 +2068,7 @@ async fn run_transfer_gate_consumer(
         }
         let preferred_iranian_index = [
             proxyrift::validator::ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
-            proxyrift::validator::MOBINHOST_UBUNTU_SECURITY_CONTENTS_TARGET,
+            proxyrift::validator::MOBINHOST_SPEEDTEST_100MB_TARGET,
         ]
         .iter()
         .find_map(|&preferred_target| {
