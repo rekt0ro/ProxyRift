@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DATASET_VERSION: u64 = 2;
+pub const FEATURE_EXTRACTION_VERSION: u64 = 2;
 pub const FEATURE_COUNT: usize = 19;
 
 const MAX_ROWS: usize = 50_000;
@@ -306,6 +307,10 @@ impl TrainingRow {
         let mut root = Map::new();
         root.insert("schema_version".to_string(), Value::from(DATASET_VERSION));
         root.insert(
+            "feature_extraction_version".to_string(),
+            Value::from(FEATURE_EXTRACTION_VERSION),
+        );
+        root.insert(
             "observation_id".to_string(),
             Value::from(self.observation_id.clone()),
         );
@@ -379,6 +384,10 @@ fn finite_number(value: Option<&Value>) -> bool {
 
 fn valid_stored_row(value: &Value) -> bool {
     if value.get("schema_version").and_then(Value::as_u64) != Some(DATASET_VERSION)
+        || value
+            .get("feature_extraction_version")
+            .and_then(Value::as_u64)
+            != Some(FEATURE_EXTRACTION_VERSION)
         || value
             .get("observation_id")
             .and_then(Value::as_str)
@@ -495,7 +504,9 @@ fn valid_stored_row(value: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{persist_at, TrainingRow, DATASET_VERSION, FEATURE_COUNT};
+    use super::{
+        persist_at, TrainingRow, DATASET_VERSION, FEATURE_COUNT, FEATURE_EXTRACTION_VERSION,
+    };
     use serde_json::Value;
     use std::collections::BTreeMap;
     use std::fs;
@@ -584,6 +595,12 @@ mod tests {
         assert_eq!(
             value.get("schema_version").and_then(Value::as_u64),
             Some(DATASET_VERSION)
+        );
+        assert_eq!(
+            value
+                .get("feature_extraction_version")
+                .and_then(Value::as_u64),
+            Some(FEATURE_EXTRACTION_VERSION)
         );
         assert_eq!(value["label"]["stream_tested"].as_bool(), Some(false));
         assert!(value["label"]["stream_pass"].is_null());
@@ -682,6 +699,26 @@ mod tests {
     }
 
     #[test]
+    fn persistence_prunes_rows_with_stale_feature_extraction_version() {
+        let path = temp_path();
+        let mut stale = row("stale", 1_000, true, None).to_value();
+        stale["feature_extraction_version"] = Value::from(FEATURE_EXTRACTION_VERSION - 1);
+        let stale_line = serde_json::to_string(&stale).expect("serialize stale row");
+        fs::write(&path, stale_line + "\n").expect("write stale row");
+
+        let stats = persist_at(&path, &[row("fresh", 1_001, true, None)], 1_001)
+            .expect("persist fresh row");
+
+        assert_eq!(stats.rows, 1);
+        assert_eq!(stats.new_rows, 1);
+        let body = fs::read_to_string(&path).expect("read persisted data");
+        assert!(body.contains("\"fresh\""));
+        assert!(!body.contains("\"stale\""));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn rejects_rows_with_wrong_feature_schema() {
         let path = temp_path();
         let mut value = row("invalid", 1_000, true, None).to_value();
@@ -692,6 +729,14 @@ mod tests {
 
         assert!(!super::valid_stored_row(&value));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_rows_with_stale_feature_extraction_version() {
+        let mut value = row("stale-features", 1_000, true, None).to_value();
+        value["feature_extraction_version"] = Value::from(FEATURE_EXTRACTION_VERSION - 1);
+
+        assert!(!super::valid_stored_row(&value));
     }
 
     #[test]

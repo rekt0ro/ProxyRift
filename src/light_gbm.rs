@@ -1,3 +1,4 @@
+use crate::light_training::FEATURE_EXTRACTION_VERSION;
 use base64::{engine::general_purpose, Engine as _};
 use lgbm::{
     parameters::{Boosting, Objective, Verbosity},
@@ -529,8 +530,14 @@ fn temporal_reason_label(reason: &str) -> String {
         "model_did_not_beat_temporal_baseline" => {
             "Model did not beat temporal baseline".to_string()
         }
+        "model_did_not_beat_unseen_candidate_baseline" => {
+            "Model did not beat unseen-candidate baseline".to_string()
+        }
         "top_20pct_below_random_selection_baseline" => {
             "Top-20% below random selection baseline".to_string()
+        }
+        "top_20pct_below_unseen_candidate_baseline" => {
+            "Top-20% below unseen-candidate random-selection baseline".to_string()
         }
         other => {
             let mut readable = other.replace('_', " ");
@@ -592,6 +599,13 @@ fn load_training(path: &str) -> Result<TrainingData, String> {
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+        if value
+            .get("feature_extraction_version")
+            .and_then(Value::as_u64)
+            != Some(FEATURE_EXTRACTION_VERSION)
+        {
+            continue;
+        }
         let Some(label) = value.get("label").and_then(Value::as_object) else {
             continue;
         };
@@ -918,6 +932,30 @@ fn predict_booster(booster: &Booster, features: &[Vec<f64>]) -> Result<Vec<f64>,
         .collect())
 }
 
+fn first_unseen_holdout_indices(
+    rows: &[(&TrainingExample, bool)],
+    cutoff: u64,
+    previously_seen_candidates: &HashSet<String>,
+    first_observed_at: &HashMap<String, u64>,
+) -> Vec<usize> {
+    let mut selected_candidates = HashSet::new();
+
+    rows.iter()
+        .enumerate()
+        .filter_map(|(index, (row, _))| {
+            if row.observed_at < cutoff
+                || previously_seen_candidates.contains(&row.candidate_fingerprint)
+                || first_observed_at.get(&row.candidate_fingerprint) != Some(&row.observed_at)
+            {
+                return None;
+            }
+            selected_candidates
+                .insert(row.candidate_fingerprint.clone())
+                .then_some(index)
+        })
+        .collect()
+}
+
 fn train_target_model(
     examples: &[TrainingExample],
     candidates: &[String],
@@ -978,9 +1016,34 @@ fn train_target_model(
         .iter()
         .filter(|(row, _)| row.observed_at < cutoff)
         .collect::<Vec<_>>();
-    let holdout = rows
+    let previously_seen_candidates = examples
         .iter()
-        .filter(|(row, _)| row.observed_at >= cutoff)
+        .filter(|row| row.observed_at < cutoff)
+        .map(|row| row.candidate_fingerprint.clone())
+        .collect::<HashSet<_>>();
+    let mut first_observed_at = HashMap::<String, u64>::new();
+    for row in examples {
+        first_observed_at
+            .entry(row.candidate_fingerprint.clone())
+            .and_modify(|timestamp| *timestamp = (*timestamp).min(row.observed_at))
+            .or_insert(row.observed_at);
+    }
+    let eligible_unseen_holdout_rows = rows
+        .iter()
+        .filter(|(row, _)| {
+            row.observed_at >= cutoff
+                && !previously_seen_candidates.contains(&row.candidate_fingerprint)
+        })
+        .count();
+    let holdout_indices = first_unseen_holdout_indices(
+        &rows,
+        cutoff,
+        &previously_seen_candidates,
+        &first_observed_at,
+    );
+    let holdout = holdout_indices
+        .iter()
+        .map(|index| &rows[*index])
         .collect::<Vec<_>>();
     let training_positive = training.iter().filter(|(_, label)| *label).count();
     let training_negative = training.len().saturating_sub(training_positive);
@@ -997,7 +1060,7 @@ fn train_target_model(
         let mut result = TargetResult::unavailable(
             target,
             format!(
-                "time holdout lacks representative classes (train={}/{}/{}, holdout={}/{}/{})",
+                "unseen-candidate temporal holdout lacks representative classes (train={}/{}/{}, holdout={}/{}/{})",
                 training.len(),
                 training_positive,
                 training_negative,
@@ -1006,8 +1069,15 @@ fn train_target_model(
                 holdout_negative
             ),
         );
+        result.report["evaluation_strategy"] =
+            Value::from("temporal_unseen_candidates_first_observation");
         result.report["train_rows"] = Value::from(training.len() as u64);
         result.report["holdout_rows"] = Value::from(holdout.len() as u64);
+        result.report["holdout_unique_candidates"] = Value::from(holdout.len() as u64);
+        result.report["holdout_eligible_unseen_rows"] =
+            Value::from(eligible_unseen_holdout_rows as u64);
+        result.report["holdout_repeated_observations_excluded"] =
+            Value::from(eligible_unseen_holdout_rows.saturating_sub(holdout.len()) as u64);
         return Ok(result);
     }
 
@@ -1055,16 +1125,17 @@ fn train_target_model(
         && model_top_20pct_pass_rate + 1e-9 >= holdout_pass_rate;
     let accepted = brier_accepted && ranking_accepted;
     let reason = if !brier_accepted {
-        "model_did_not_beat_temporal_baseline"
+        "model_did_not_beat_unseen_candidate_baseline"
     } else if !ranking_accepted {
-        "top_20pct_below_random_selection_baseline"
+        "top_20pct_below_unseen_candidate_baseline"
     } else {
-        "better_brier_and_non_degrading_top_20pct"
+        "better_brier_and_non_degrading_unseen_top_20pct"
     };
 
     let mut report = serde_json::json!({
         "target": target.name(),
         "accepted": accepted,
+        "evaluation_strategy": "temporal_unseen_candidates_first_observation",
         "labelled_rows": rows.len(),
         "pass_rows": positive,
         "fail_rows": negative,
@@ -1072,6 +1143,10 @@ fn train_target_model(
         "train_pass_rows": training_positive,
         "train_fail_rows": training_negative,
         "holdout_rows": holdout.len(),
+        "holdout_unique_candidates": holdout.len(),
+        "holdout_eligible_unseen_rows": eligible_unseen_holdout_rows,
+        "holdout_repeated_observations_excluded": eligible_unseen_holdout_rows
+            .saturating_sub(holdout.len()),
         "holdout_pass_rows": holdout_positive,
         "holdout_fail_rows": holdout_negative,
         "cutoff_timestamp": cutoff,
@@ -1218,6 +1293,147 @@ struct ConfigFeatures {
     reality_enabled: bool,
 }
 
+pub fn backend_for_config(config: &str) -> &'static str {
+    let Ok(url) = url::Url::parse(config.split('#').next().unwrap_or(config)) else {
+        return "sing-box";
+    };
+
+    let query_value = |names: &[&str]| {
+        url.query_pairs()
+            .find(|(key, value)| {
+                names.iter().any(|name| key.eq_ignore_ascii_case(name)) && !value.is_empty()
+            })
+            .map(|(_, value)| value.into_owned())
+            .unwrap_or_default()
+    };
+    let has_query_key = |names: &[&str]| {
+        url.query_pairs()
+            .any(|(key, _)| names.iter().any(|name| key.eq_ignore_ascii_case(name)))
+    };
+
+    let xray_only_tls_extensions = || {
+        let pcs = query_value(&["pcs", "pinnedPeerCertSha256"]);
+        let vcn = query_value(&["vcn", "verifyPeerCertByName"]);
+        let ech = query_value(&["ech"]);
+        !pcs.is_empty() || !vcn.is_empty() || ech.contains("://")
+    };
+
+    let transport = query_value(&["type", "network"]).to_ascii_lowercase();
+    let security = query_value(&["security"]).to_ascii_lowercase();
+    let scheme = url.scheme().to_ascii_lowercase();
+
+    if matches!(scheme.as_str(), "socks4" | "socks4a") {
+        return "sing-box";
+    }
+    if matches!(scheme.as_str(), "http" | "socks" | "socks5" | "socks5h") {
+        return "xray";
+    }
+    if scheme == "tuic" {
+        return "sing-box";
+    }
+
+    if scheme == "vmess" {
+        if let Some(value) = decode_vmess(config) {
+            let network = value
+                .get("net")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_ascii_lowercase();
+
+            if matches!(network.as_str(), "xhttp" | "splithttp" | "kcp" | "mkcp") {
+                return "xray";
+            }
+            if network == "quic" {
+                return "sing-box";
+            }
+
+            if network == "grpc" {
+                let mode = value
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let has_authority = ["authority", "host"].iter().any(|key| {
+                    value
+                        .get(*key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|item| !item.is_empty())
+                });
+
+                if mode == "multi" || has_authority {
+                    return "xray";
+                }
+            }
+
+            let has_certificate_extension = ["pcs", "vcn"].iter().any(|key| {
+                value
+                    .get(*key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|item| !item.is_empty())
+            });
+            let ech = value
+                .get("ech")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .replace(' ', "+");
+            if has_certificate_extension || ech.contains("://") {
+                return "xray";
+            }
+        }
+    }
+
+    let legacy_raw_http = (transport.is_empty() || transport == "tcp" || transport == "raw")
+        && query_value(&["headerType"]).eq_ignore_ascii_case("http");
+    if legacy_raw_http && !xray_only_tls_extensions() {
+        return "sing-box";
+    }
+
+    if matches!(transport.as_str(), "xhttp" | "splithttp" | "kcp" | "mkcp") {
+        return "xray";
+    }
+    if transport == "quic" {
+        return "sing-box";
+    }
+    if transport == "grpc"
+        && (has_query_key(&["authority", "host"])
+            || query_value(&["mode"]).eq_ignore_ascii_case("multi"))
+    {
+        return "xray";
+    }
+
+    if xray_only_tls_extensions() {
+        return "xray";
+    }
+
+    if matches!(scheme.as_str(), "hysteria2" | "hy2") && has_query_key(&["pinSHA256"]) {
+        return "xray";
+    }
+
+    if scheme == "vless" {
+        let flow = query_value(&["flow"]).to_ascii_lowercase();
+        if !flow.is_empty() && flow != "xtls-rprx-vision" {
+            return "xray";
+        }
+
+        if has_query_key(&["fm", "finalmask"]) {
+            return "xray";
+        }
+        let encryption = query_value(&["encryption"]);
+        if !encryption.is_empty() && !encryption.eq_ignore_ascii_case("none") {
+            return "xray";
+        }
+        if !query_value(&["extra"]).is_empty() {
+            return "xray";
+        }
+    }
+
+    if security == "reality" {
+        return "fallback";
+    }
+
+    "sing-box"
+}
+
 fn parse_config_features(config: &str) -> ConfigFeatures {
     let cleaned = config.split('#').next().unwrap_or(config);
     let parsed = url::Url::parse(cleaned).ok();
@@ -1262,6 +1478,7 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
                 .is_some_and(|value| !value.trim().is_empty());
 
             return finish_features(
+                config,
                 "vmess".to_string(),
                 transport,
                 security,
@@ -1309,6 +1526,7 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
         || has_query_key(&query, &["path"]);
 
     finish_features(
+        config,
         protocol,
         transport,
         security,
@@ -1322,6 +1540,7 @@ fn parse_config_features(config: &str) -> ConfigFeatures {
 
 #[allow(clippy::too_many_arguments)]
 fn finish_features(
+    config: &str,
     protocol: String,
     transport: String,
     security: String,
@@ -1335,18 +1554,7 @@ fn finish_features(
     let transport = normalize_transport(&transport);
     let security = normalize_security(&security);
 
-    let backend = if matches!(
-        protocol.as_str(),
-        "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h"
-    ) {
-        "xray"
-    } else if security == "reality" {
-        "fallback"
-    } else if matches!(transport.as_str(), "xhttp" | "splithttp") {
-        "xray"
-    } else {
-        "sing-box"
-    };
+    let backend = backend_for_config(config).to_string();
 
     ConfigFeatures {
         protocol,
@@ -1516,10 +1724,12 @@ fn structural_vector(
 #[cfg(test)]
 mod tests {
     use super::{
-        candidate_fingerprint, config_feature_vector, history_feature_vector, load_training,
-        parse_config_features, port_bucket, top_quintile_pass_rate, ModelTarget, TrainingExample,
-        HISTORY_FEATURE_COUNT, MODEL_FEATURE_COUNT,
+        backend_for_config, candidate_fingerprint, config_feature_vector,
+        first_unseen_holdout_indices, history_feature_vector, load_training, parse_config_features,
+        port_bucket, top_quintile_pass_rate, ModelTarget, TrainingExample, HISTORY_FEATURE_COUNT,
+        MODEL_FEATURE_COUNT,
     };
+    use base64::Engine as _;
     use serde_json::{json, Map, Value};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1538,6 +1748,7 @@ mod tests {
     fn stored_row(timestamp: u64, fingerprint: &str, passed: bool) -> Value {
         json!({
             "schema_version": 2,
+            "feature_extraction_version": super::FEATURE_EXTRACTION_VERSION,
             "observed_at": timestamp,
             "candidate_fingerprint": fingerprint,
             "observation_id": format!("{timestamp}:{fingerprint}:{passed}"),
@@ -1669,6 +1880,38 @@ mod tests {
     }
 
     #[test]
+    fn ranking_backend_features_match_validator_backend_selection() {
+        let vmess_payload = super::general_purpose::STANDARD.encode(
+            json!({
+                "add": "node.example.com",
+                "port": "443",
+                "id": "00000000-0000-0000-0000-000000000001",
+                "net": "grpc",
+                "type": "multi",
+                "host": "front.example.com",
+                "tls": "tls"
+            })
+            .to_string(),
+        );
+        let vmess = format!("vmess://{vmess_payload}");
+        let cases = [
+            ("vless://id@example.com:443?flow=custom-flow", "xray"),
+            (vmess.as_str(), "xray"),
+            ("hysteria2://password@example.com:443?pinSHA256=abc", "xray"),
+            ("hysteria2://password@example.com:443?pinSHA256=", "xray"),
+            ("vless://id@example.com:443?type=grpc&host=", "xray"),
+            ("vless://id@example.com:443?finalmask=", "xray"),
+            ("vless://id@example.com:443?security=reality", "fallback"),
+            ("vless://id@example.com:443?type=ws", "sing-box"),
+        ];
+
+        for (config, expected) in cases {
+            assert_eq!(backend_for_config(config), expected, "{config}");
+            assert_eq!(parse_config_features(config).backend, expected, "{config}");
+        }
+    }
+
+    #[test]
     fn query_parameter_feature_counts_pairs_consistently() {
         let config = "vless://token@example.com:443?type=ws&fp=chrome&fp=safari";
         let parsed = parse_config_features(config);
@@ -1704,9 +1947,19 @@ mod tests {
             }
         }
         rows.push(serde_json::to_string(&stored_row(200, "same-candidate", true)).unwrap());
+        let mut legacy = stored_row(250, "legacy-features", true);
+        legacy
+            .as_object_mut()
+            .expect("legacy row object")
+            .remove("feature_extraction_version");
+        rows.push(serde_json::to_string(&legacy).unwrap());
         fs::write(&path, rows.join("\n") + "\n").expect("write training data");
 
         let data = load_training(&path).expect("load training data");
+        assert!(data
+            .examples
+            .iter()
+            .all(|row| row.candidate_fingerprint != candidate_fingerprint("legacy-features")));
         assert!(data
             .examples
             .iter()
@@ -1725,6 +1978,49 @@ mod tests {
         assert!((later.features[54] - (5.0 / 7.0)).abs() < 1e-9);
         assert_eq!(later.features.len(), MODEL_FEATURE_COUNT);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn temporal_holdout_keeps_only_first_observation_of_unseen_candidates() {
+        let example = |observed_at: u64, candidate_fingerprint: &str| TrainingExample {
+            observed_at,
+            candidate_fingerprint: candidate_fingerprint.to_string(),
+            features: Vec::new(),
+            strict_pass: true,
+            transfer_pass: None,
+            stream_pass: None,
+        };
+        let known_before_cutoff = example(1, "known");
+        let new_first = example(10, "new-a");
+        let new_repeat = example(11, "new-a");
+        let new_other = example(12, "new-b");
+        let known_after_cutoff = example(13, "known");
+        let seen_by_an_unlabelled_stage = example(14, "seen-other-stage");
+        let rows = vec![
+            (&known_before_cutoff, true),
+            (&new_first, true),
+            (&new_repeat, false),
+            (&new_other, false),
+            (&known_after_cutoff, false),
+            (&seen_by_an_unlabelled_stage, false),
+        ];
+        let previously_seen_candidates = std::collections::HashSet::from(["known".to_string()]);
+        let first_observed_at = std::collections::HashMap::from([
+            ("known".to_string(), 1),
+            ("new-a".to_string(), 10),
+            ("new-b".to_string(), 12),
+            ("seen-other-stage".to_string(), 10),
+        ]);
+
+        assert_eq!(
+            first_unseen_holdout_indices(
+                &rows,
+                10,
+                &previously_seen_candidates,
+                &first_observed_at,
+            ),
+            vec![1, 3]
+        );
     }
 
     #[test]

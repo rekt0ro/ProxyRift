@@ -1,6 +1,6 @@
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
-use proxyrift::light_gbm::LightGbmScores;
+use proxyrift::light_gbm::{backend_for_config, LightGbmScores};
 use proxyrift::light_training::{
     persist as persist_light_training, write_readiness_report, DatasetStats, TrainingRow,
 };
@@ -2066,7 +2066,21 @@ async fn run_transfer_gate_consumer(
                 state.quarantined = true;
             }
         }
-        let Some(target_index) = select_transfer_target(&target_states) else {
+        let preferred_named_target_index = [
+            proxyrift::validator::ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
+            proxyrift::validator::MOBINHOST_SPEEDTEST_100MB_TARGET,
+        ]
+        .iter()
+        .find_map(|&preferred_target| {
+            let index = proxyrift::validator::STRICT_THROUGHPUT_TARGETS
+                .iter()
+                .position(|target| *target == preferred_target)?;
+            (target_tested_candidates[index].is_empty() && !target_states[index].quarantined)
+                .then_some(index)
+        });
+        let Some(target_index) =
+            preferred_named_target_index.or_else(|| select_transfer_target(&target_states))
+        else {
             println!(
                 "[WARN] ⛔ [10 MiB] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
                 transfer_tested.len(),
@@ -2636,153 +2650,12 @@ fn has_disabled_tls_verification(config: &str) -> bool {
     })
 }
 
-fn xray_only_tls_extensions(url: &Url) -> bool {
-    let pcs = query_value(url, &["pcs", "pinnedPeerCertSha256"]);
-    let vcn = query_value(url, &["vcn", "verifyPeerCertByName"]);
-    let ech = query_value(url, &["ech"]);
-    !pcs.is_empty() || !vcn.is_empty() || ech.contains("://")
-}
-
 fn light_backend(config: &str) -> LightBackend {
-    let Ok(url) = Url::parse(config.split('#').next().unwrap_or(config)) else {
-        return LightBackend::SingBox;
-    };
-
-    let transport = query_value(&url, &["type", "network"]).to_ascii_lowercase();
-    let security = query_value(&url, &["security"]).to_ascii_lowercase();
-
-    let scheme = url.scheme().to_ascii_lowercase();
-    if matches!(scheme.as_str(), "socks4" | "socks4a") {
-        return LightBackend::SingBox;
+    match backend_for_config(config) {
+        "xray" => LightBackend::Xray,
+        "fallback" => LightBackend::Fallback,
+        _ => LightBackend::SingBox,
     }
-
-    if matches!(scheme.as_str(), "http" | "socks" | "socks5" | "socks5h") {
-        return LightBackend::Xray;
-    }
-    if scheme == "tuic" {
-        return LightBackend::SingBox;
-    }
-
-    if scheme == "vmess" {
-        if let Some(encoded) = config.split_once("://").map(|(_, rest)| rest) {
-            let payload = encoded.split('#').next().unwrap_or("").trim();
-            let mut padded = payload.to_string();
-            while !padded.len().is_multiple_of(4) {
-                padded.push('=');
-            }
-
-            for candidate in [payload, padded.as_str()] {
-                for bytes in [
-                    STANDARD.decode(candidate),
-                    URL_SAFE.decode(candidate),
-                    URL_SAFE_NO_PAD.decode(candidate),
-                ]
-                .into_iter()
-                .flatten()
-                {
-                    if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
-                        let network = value
-                            .get("net")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_ascii_lowercase();
-
-                        if matches!(network.as_str(), "xhttp" | "splithttp" | "kcp" | "mkcp") {
-                            return LightBackend::Xray;
-                        }
-                        if network == "quic" {
-                            return LightBackend::SingBox;
-                        }
-
-                        if network == "grpc" {
-                            let mode = value
-                                .get("type")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .to_ascii_lowercase();
-                            let has_authority = ["authority", "host"].iter().any(|key| {
-                                value
-                                    .get(*key)
-                                    .and_then(Value::as_str)
-                                    .is_some_and(|item| !item.is_empty())
-                            });
-
-                            if mode == "multi" || has_authority {
-                                return LightBackend::Xray;
-                            }
-                        }
-
-                        let has_certificate_extension = ["pcs", "vcn"].iter().any(|key| {
-                            value
-                                .get(*key)
-                                .and_then(Value::as_str)
-                                .is_some_and(|item| !item.is_empty())
-                        });
-                        let ech = value
-                            .get("ech")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .replace(' ', "+");
-                        if has_certificate_extension || ech.contains("://") {
-                            return LightBackend::Xray;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let legacy_raw_http = (transport.is_empty() || transport == "tcp" || transport == "raw")
-        && query_value(&url, &["headerType"]).eq_ignore_ascii_case("http");
-
-    if legacy_raw_http && !xray_only_tls_extensions(&url) {
-        return LightBackend::SingBox;
-    }
-
-    if matches!(transport.as_str(), "xhttp" | "splithttp" | "kcp" | "mkcp") {
-        return LightBackend::Xray;
-    }
-    if transport == "quic" {
-        return LightBackend::SingBox;
-    }
-
-    if transport == "grpc"
-        && (has_query_key(&url, &["authority", "host"])
-            || query_value(&url, &["mode"]).eq_ignore_ascii_case("multi"))
-    {
-        return LightBackend::Xray;
-    }
-
-    if xray_only_tls_extensions(&url) {
-        return LightBackend::Xray;
-    }
-
-    if matches!(scheme.as_str(), "hysteria2" | "hy2") && has_query_key(&url, &["pinSHA256"]) {
-        return LightBackend::Xray;
-    }
-
-    if url.scheme().eq_ignore_ascii_case("vless") {
-        let flow = query_value(&url, &["flow"]).to_ascii_lowercase();
-        if !flow.is_empty() && flow != "xtls-rprx-vision" {
-            return LightBackend::Xray;
-        }
-
-        if has_query_key(&url, &["fm", "finalmask"])
-            || {
-                let encryption = query_value(&url, &["encryption"]);
-                !encryption.is_empty() && !encryption.eq_ignore_ascii_case("none")
-            }
-            || !query_value(&url, &["extra"]).is_empty()
-        {
-            return LightBackend::Xray;
-        }
-    }
-
-    if security == "reality" {
-        return LightBackend::Fallback;
-    }
-
-    LightBackend::SingBox
 }
 
 fn vmess_payload(config: &str) -> Option<Value> {
