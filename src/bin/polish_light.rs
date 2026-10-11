@@ -4459,7 +4459,9 @@ mod tests {
         states[3].tested = 12;
         states[3].passed = 3;
         states[3].batches = 1;
-        assert_eq!(select_transfer_target(&states, 1), Some(2));
+        // Use the still-healthy Iranian target even when a foreign target's
+        // observed pass rate is higher; fallback is reserved for both primaries.
+        assert_eq!(select_transfer_target(&states, 1), Some(0));
     }
 
     #[test]
