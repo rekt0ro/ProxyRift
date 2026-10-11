@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DATASET_VERSION: u64 = 2;
+pub const FEATURE_EXTRACTION_VERSION: u64 = 2;
 pub const FEATURE_COUNT: usize = 19;
 
 const MAX_ROWS: usize = 50_000;
