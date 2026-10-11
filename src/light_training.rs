@@ -307,6 +307,10 @@ impl TrainingRow {
         let mut root = Map::new();
         root.insert("schema_version".to_string(), Value::from(DATASET_VERSION));
         root.insert(
+            "feature_extraction_version".to_string(),
+            Value::from(FEATURE_EXTRACTION_VERSION),
+        );
+        root.insert(
             "observation_id".to_string(),
             Value::from(self.observation_id.clone()),
         );
