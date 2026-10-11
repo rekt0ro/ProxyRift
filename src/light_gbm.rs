@@ -1238,6 +1238,13 @@ pub fn backend_for_config(config: &str) -> &'static str {
         })
     };
 
+    let xray_only_tls_extensions = || {
+        let pcs = query_value(&["pcs", "pinnedPeerCertSha256"]);
+        let vcn = query_value(&["vcn", "verifyPeerCertByName"]);
+        let ech = query_value(&["ech"]);
+        !pcs.is_empty() || !vcn.is_empty() || ech.contains("://")
+    };
+
     let transport = query_value(&["type", "network"]).to_ascii_lowercase();
     let security = query_value(&["security"]).to_ascii_lowercase();
     let scheme = url.scheme().to_ascii_lowercase();
@@ -1352,13 +1359,6 @@ pub fn backend_for_config(config: &str) -> &'static str {
     }
 
     "sing-box"
-}
-
-fn xray_only_tls_extensions() -> bool {
-    let pcs = query_value(&["pcs", "pinnedPeerCertSha256"]);
-    let vcn = query_value(&["vcn", "verifyPeerCertByName"]);
-    let ech = query_value(&["ech"]);
-    !pcs.is_empty() || !vcn.is_empty() || ech.contains("://")
 }
 
 fn parse_config_features(config: &str) -> ConfigFeatures {
