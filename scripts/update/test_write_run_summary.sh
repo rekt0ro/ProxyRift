@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set -x
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 tmp="$(mktemp -d)"
