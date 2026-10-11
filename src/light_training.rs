@@ -504,7 +504,9 @@ fn valid_stored_row(value: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{persist_at, TrainingRow, DATASET_VERSION, FEATURE_COUNT, FEATURE_EXTRACTION_VERSION};
+    use super::{
+        persist_at, TrainingRow, DATASET_VERSION, FEATURE_COUNT, FEATURE_EXTRACTION_VERSION,
+    };
     use serde_json::Value;
     use std::collections::BTreeMap;
     use std::fs;
@@ -595,7 +597,9 @@ mod tests {
             Some(DATASET_VERSION)
         );
         assert_eq!(
-            value.get("feature_extraction_version").and_then(Value::as_u64),
+            value
+                .get("feature_extraction_version")
+                .and_then(Value::as_u64),
             Some(FEATURE_EXTRACTION_VERSION)
         );
         assert_eq!(value["label"]["stream_tested"].as_bool(), Some(false));
@@ -698,8 +702,7 @@ mod tests {
     fn persistence_prunes_rows_with_stale_feature_extraction_version() {
         let path = temp_path();
         let mut stale = row("stale", 1_000, true, None).to_value();
-        stale["feature_extraction_version"] =
-            Value::from(FEATURE_EXTRACTION_VERSION - 1);
+        stale["feature_extraction_version"] = Value::from(FEATURE_EXTRACTION_VERSION - 1);
         let stale_line = serde_json::to_string(&stale).expect("serialize stale row");
         fs::write(&path, stale_line + "\n").expect("write stale row");
 
