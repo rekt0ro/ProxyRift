@@ -19,19 +19,19 @@ pub const PRIMARY_TARGET: &str = "https://www.google.com/generate_204";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speed.cloudflare.com/__down?bytes=10485760";
 pub const ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET: &str =
     "https://mirror.arvancloud.ir/ubuntu/dists/noble-security/Contents-amd64.gz";
+pub const MOBINHOST_UBUNTU_SECURITY_CONTENTS_TARGET: &str =
+    "https://mirror.mobinhost.com/ubuntu/dists/noble-security/Contents-amd64.gz";
 pub const STRICT_THROUGHPUT_TARGETS: &[&str] = &[
     ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
+    MOBINHOST_UBUNTU_SECURITY_CONTENTS_TARGET,
     STRICT_THROUGHPUT_TARGET,
     "https://fsn1-speed.hetzner.com/100MB.bin",
-    "https://cdn.truefilesize.com/test/test-10mb.bin",
-    "http://speedtest.tele2.net/10MB.zip",
 ];
 pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
     ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
+    MOBINHOST_UBUNTU_SECURITY_CONTENTS_TARGET,
     STRICT_THROUGHPUT_TARGET,
     "https://fsn1-speed.hetzner.com/100MB.bin",
-    "https://cdn.truefilesize.com/test/test-10mb.bin",
-    "http://speedtest.tele2.net/10MB.zip",
 ];
 pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 2;
 pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
@@ -3319,7 +3319,9 @@ pub(crate) fn minimum_probe_body_bytes_for_target(
     url: &str,
     configured_minimum: usize,
 ) -> usize {
-    if url == ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET {
+    if url == ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
+        || url == MOBINHOST_UBUNTU_SECURITY_CONTENTS_TARGET
+    {
         configured_minimum.max(STRICT_THROUGHPUT_BYTES)
     } else {
         configured_minimum
@@ -5372,31 +5374,42 @@ mod tests {
     }
 
     #[test]
-    fn arvancloud_ubuntu_security_index_uses_the_strict_transfer_threshold() {
-        assert!(STRICT_THROUGHPUT_TARGETS
-            .contains(&ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET));
-        assert!(LIGHT_TRANSFER_STABILITY_TARGETS
-            .contains(&ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET));
-        assert_eq!(
-            throughput_bytes_for_target(ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET),
-            Some(STRICT_THROUGHPUT_BYTES)
-        );
-        assert_eq!(
-            minimum_probe_body_bytes_for_target(
-                ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
-                LIGHT_TRANSFER_STABILITY_BYTES
-            ),
-            STRICT_THROUGHPUT_BYTES,
-            "light transfer must download at least 10 MiB from ArvanCloud"
-        );
-        assert_eq!(
-            minimum_probe_body_bytes_for_target(
-                ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
-                SUSTAINED_STREAM_SEGMENTS * SUSTAINED_STREAM_SEGMENT_BYTES
-            ),
-            STRICT_THROUGHPUT_BYTES,
-            "stream-continuity validation must also download at least 10 MiB from ArvanCloud"
-        );
+    fn iranian_ubuntu_security_indexes_use_the_strict_transfer_threshold() {
+        for target in [
+            ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
+            MOBINHOST_UBUNTU_SECURITY_CONTENTS_TARGET,
+        ] {
+            assert!(STRICT_THROUGHPUT_TARGETS.contains(&target));
+            assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(&target));
+            assert_eq!(
+                throughput_bytes_for_target(target),
+                Some(STRICT_THROUGHPUT_BYTES)
+            );
+            assert_eq!(
+                minimum_probe_body_bytes_for_target(target, LIGHT_TRANSFER_STABILITY_BYTES),
+                STRICT_THROUGHPUT_BYTES,
+                "light transfer must download at least 10 MiB from {target}"
+            );
+            assert_eq!(
+                minimum_probe_body_bytes_for_target(
+                    target,
+                    SUSTAINED_STREAM_SEGMENTS * SUSTAINED_STREAM_SEGMENT_BYTES
+                ),
+                STRICT_THROUGHPUT_BYTES,
+                "stream-continuity validation must also download at least 10 MiB from {target}"
+            );
+
+            let parsed = Url::parse(target).expect("Iranian Ubuntu target should parse");
+            assert!(!valid_probe_body(
+                &parsed,
+                &vec![0_u8; STRICT_THROUGHPUT_BYTES - 1]
+            ));
+            assert!(valid_probe_body(
+                &parsed,
+                &vec![0_u8; STRICT_THROUGHPUT_BYTES]
+            ));
+        }
+
         assert_eq!(
             minimum_probe_body_bytes_for_target(
                 STRICT_THROUGHPUT_TARGET,
@@ -5405,17 +5418,28 @@ mod tests {
             LIGHT_TRANSFER_STABILITY_BYTES,
             "other targets keep their existing light-stage threshold"
         );
+    }
 
-        let target = Url::parse(ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET)
-            .expect("ArvanCloud Ubuntu target should parse");
-        assert!(!valid_probe_body(
-            &target,
-            &vec![0_u8; STRICT_THROUGHPUT_BYTES - 1]
-        ));
-        assert!(valid_probe_body(
-            &target,
-            &vec![0_u8; STRICT_THROUGHPUT_BYTES]
-        ));
+    #[test]
+    fn transfer_pools_balance_two_iranian_and_two_international_hosts() {
+        assert_eq!(STRICT_THROUGHPUT_TARGETS.len(), 4);
+        assert_eq!(LIGHT_TRANSFER_STABILITY_TARGETS.len(), 4);
+
+        for target in [
+            ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
+            MOBINHOST_UBUNTU_SECURITY_CONTENTS_TARGET,
+        ] {
+            assert!(STRICT_THROUGHPUT_TARGETS.contains(&target));
+            assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(&target));
+        }
+
+        for target in [
+            STRICT_THROUGHPUT_TARGET,
+            "https://fsn1-speed.hetzner.com/100MB.bin",
+        ] {
+            assert!(STRICT_THROUGHPUT_TARGETS.contains(&target));
+            assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(&target));
+        }
     }
 
     #[test]
