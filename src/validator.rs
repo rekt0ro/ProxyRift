@@ -33,7 +33,7 @@ pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
     "https://fsn1-speed.hetzner.com/100MB.bin",
 ];
-pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 2;
+pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 1;
 pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
     PRIMARY_TARGET,
     "https://example.com/",
