@@ -385,6 +385,10 @@ fn finite_number(value: Option<&Value>) -> bool {
 fn valid_stored_row(value: &Value) -> bool {
     if value.get("schema_version").and_then(Value::as_u64) != Some(DATASET_VERSION)
         || value
+            .get("feature_extraction_version")
+            .and_then(Value::as_u64)
+            != Some(FEATURE_EXTRACTION_VERSION)
+        || value
             .get("observation_id")
             .and_then(Value::as_str)
             .is_none_or(str::is_empty)
@@ -701,6 +705,15 @@ mod tests {
 
         assert!(!super::valid_stored_row(&value));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_rows_with_stale_feature_extraction_version() {
+        let mut value = row("stale-features", 1_000, true, None).to_value();
+        value["feature_extraction_version"] =
+            Value::from(FEATURE_EXTRACTION_VERSION - 1);
+
+        assert!(!super::valid_stored_row(&value));
     }
 
     #[test]
