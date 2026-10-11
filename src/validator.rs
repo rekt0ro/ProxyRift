@@ -3315,6 +3315,17 @@ pub(crate) fn throughput_bytes_for_target(url: &str) -> Option<usize> {
     }
 }
 
+pub(crate) fn minimum_probe_body_bytes_for_target(
+    url: &str,
+    configured_minimum: usize,
+) -> usize {
+    if url == ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET {
+        configured_minimum.max(STRICT_THROUGHPUT_BYTES)
+    } else {
+        configured_minimum
+    }
+}
+
 pub(crate) fn response_limit_for_target(url: &str) -> usize {
     throughput_bytes_for_target(url).unwrap_or(MAX_RESPONSE_BYTES)
 }
@@ -3426,6 +3437,9 @@ async fn probe_request_with_minimum_mode(
     }
 
     let started = Instant::now();
+    let minimum_body_bytes = minimum_body_bytes.map(|minimum| {
+        minimum_probe_body_bytes_for_target(url.as_str(), minimum)
+    });
     let response_limit =
         minimum_body_bytes.unwrap_or_else(|| response_limit_for_target(url.as_str()));
     let mut request = client.get(url.as_str());
@@ -3521,7 +3535,10 @@ async fn probe_request_sustained_mode(
     }
 
     let started = Instant::now();
-    let required_bytes = segments.max(1).saturating_mul(minimum_body_bytes);
+    let required_bytes = minimum_probe_body_bytes_for_target(
+        url.as_str(),
+        segments.max(1).saturating_mul(minimum_body_bytes),
+    );
 
     let mut request = client.get(url.as_str());
     request = request.timeout(SUSTAINED_THROUGHPUT_TIMEOUT);
@@ -5363,6 +5380,30 @@ mod tests {
         assert_eq!(
             throughput_bytes_for_target(ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET),
             Some(STRICT_THROUGHPUT_BYTES)
+        );
+        assert_eq!(
+            minimum_probe_body_bytes_for_target(
+                ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
+                LIGHT_TRANSFER_STABILITY_BYTES
+            ),
+            STRICT_THROUGHPUT_BYTES,
+            "light transfer must download at least 10 MiB from ArvanCloud"
+        );
+        assert_eq!(
+            minimum_probe_body_bytes_for_target(
+                ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
+                SUSTAINED_STREAM_SEGMENTS * SUSTAINED_STREAM_SEGMENT_BYTES
+            ),
+            STRICT_THROUGHPUT_BYTES,
+            "stream-continuity validation must also download at least 10 MiB from ArvanCloud"
+        );
+        assert_eq!(
+            minimum_probe_body_bytes_for_target(
+                STRICT_THROUGHPUT_TARGET,
+                LIGHT_TRANSFER_STABILITY_BYTES
+            ),
+            LIGHT_TRANSFER_STABILITY_BYTES,
+            "other targets keep their existing light-stage threshold"
         );
 
         let target = Url::parse(ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET)
