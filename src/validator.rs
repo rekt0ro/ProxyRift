@@ -33,7 +33,7 @@ pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
     "https://fsn1-speed.hetzner.com/100MB.bin",
 ];
-pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 2;
+pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 1;
 pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
     PRIMARY_TARGET,
     "https://example.com/",
@@ -5488,6 +5488,7 @@ mod tests {
     fn transfer_pools_balance_named_and_international_hosts() {
         assert_eq!(STRICT_THROUGHPUT_TARGETS.len(), 4);
         assert_eq!(LIGHT_TRANSFER_STABILITY_TARGETS.len(), 4);
+        assert_eq!(LIGHT_TRANSFER_MINIMUM_TARGETS, 1);
 
         for target in [
             ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
