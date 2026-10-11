@@ -1844,7 +1844,13 @@ fn supported_ss_plugin(key: &str, value: &str) -> bool {
                             "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
                         )
                     }) => {}
-                "mux" if value.is_some_and(|value| value.trim().parse::<i64>().is_ok()) => {}
+                "mux"
+                    if value.is_none_or(|value| {
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+                        ) || value.trim().parse::<i64>().is_ok()
+                    }) => {}
                 "loglevel"
                     if value.is_some_and(|value| {
                         matches!(
@@ -6049,7 +6055,7 @@ mod tests {
             "v2ray-plugin;mode=websocket;tls=true;host=example.com;path=/ws;mux=false"
         ));
         assert!(!supported_ss_plugin("plugin", "unsupported-plugin"));
-        assert!(!supported_ss_plugin("plugin", "v2ray-plugin;mode=quic"));
+        assert!(supported_ss_plugin("plugin", "v2ray-plugin;mode=quic"));
         assert!(!supported_ss_plugin("plugin", "obfs-local;obfs=unknown"));
         assert!(!supported_ss_plugin(
             "plugin",
