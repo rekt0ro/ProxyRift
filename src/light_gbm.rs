@@ -599,6 +599,15 @@ fn load_training(path: &str) -> Result<TrainingData, String> {
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+        // Backend inference semantics changed; mixing older rows would bias the
+        // model because their stored backend may not match current inference features.
+        if value
+            .get("feature_extraction_version")
+            .and_then(Value::as_u64)
+            != Some(FEATURE_EXTRACTION_VERSION)
+        {
+            continue;
+        }
         let Some(label) = value.get("label").and_then(Value::as_object) else {
             continue;
         };
