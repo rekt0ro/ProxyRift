@@ -41,31 +41,101 @@ count_configs() {
   fi
 }
 
+read_json_value() {
+  local file="$1"
+  local filter="$2"
+  local fallback="$3"
+  local value
+
+  if [ ! -s "$file" ]; then
+    printf '%s' "$fallback"
+    return
+  fi
+
+  value="$(jq -r "$filter | if . == null then \"\" else tostring end" "$file" 2>/dev/null)" || value=""
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+  else
+    printf '%s' "$fallback"
+  fi
+}
+
 format_lightgbm_status() {
   local target="$1"
+  local accepted
   local raw_status
-  raw_status="$(jq -r --arg target "$target" '.model_report.targets[$target] | if .accepted == true then (.reason // "promoted") else (.reason // "not evaluated") end' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'not evaluated')"
+
+  accepted="$(read_json_value "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" ".model_report.targets.${target}.accepted" "unknown")"
+  raw_status="$(read_json_value "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" ".model_report.targets.${target}.reason" "not_evaluated")"
+
+  if [ "$accepted" = "true" ]; then
+    case "$raw_status" in
+      promoted_after_temporal_validation) printf 'Promoted after temporal validation' ;;
+      *) printf 'Accepted: %s' "${raw_status//_/ }" ;;
+    esac
+    return
+  fi
+
+  if [ "$accepted" != "false" ]; then
+    printf 'Not evaluated'
+    return
+  fi
 
   case "$raw_status" in
-    promoted)
-      printf 'Promoted'
+    model_did_not_beat_unseen_candidate_baseline)
+      printf 'Did not beat unseen-candidate baseline'
       ;;
-    promoted_after_temporal_validation)
-      printf 'Promoted after temporal validation'
+    top_20pct_below_unseen_candidate_baseline)
+      printf 'Top-20%% pass rate below unseen-candidate baseline'
       ;;
-    model_did_not_beat_temporal_baseline)
-      printf 'Did not beat temporal baseline'
+    neither_weighting_strategy_passed_temporal_holdout)
+      printf 'Neither weighting strategy passed temporal holdout'
       ;;
-    top_20pct_below_random_selection_baseline)
-      printf 'Top-20%% pass rate below random baseline'
+    "insufficient labelled data"*)
+      printf 'Not promoted: insufficient labelled data'
       ;;
-    'not evaluated')
+    "insufficient distinct observation timestamps"*)
+      printf 'Not promoted: insufficient distinct timestamps'
+      ;;
+    "unseen-candidate temporal holdout lacks representative classes"*)
+      printf 'Not promoted: unseen-candidate holdout lacks class balance'
+      ;;
+    not_evaluated)
       printf 'Not evaluated'
       ;;
     *)
       local readable="${raw_status//_/ }"
       printf '%s' "${readable^}"
       ;;
+  esac
+}
+
+format_recency_strategy() {
+  local target="$1"
+  local strategy
+  strategy="$(read_json_value "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" ".model_report.targets.${target}.recency_weighting_experiment.selected_strategy" "not_evaluated")"
+  case "$strategy" in
+    recency_weighted) printf 'Recency-weighted' ;;
+    unweighted) printf 'Unweighted' ;;
+    none) printf 'Neither variant passed promotion gates' ;;
+    *) printf 'Not evaluated' ;;
+  esac
+}
+
+format_yes_no() {
+  case "$1" in
+    true) printf 'Yes' ;;
+    false) printf 'No' ;;
+    *) printf 'n/a' ;;
+  esac
+}
+
+format_ranking_strategy() {
+  case "$1" in
+    end_to_end) printf 'End-to-end model' ;;
+    stage_blend_fallback) printf 'Stage-model blend fallback' ;;
+    neutral_default) printf 'Neutral 0.5-score fallback' ;;
+    *) printf 'Not evaluated' ;;
   esac
 }
 
@@ -87,76 +157,122 @@ transfer_passed="unknown"
 stream_tested="unknown"
 stream_passed="unknown"
 published="unknown"
-lightgbm_trained="unknown"
-lightgbm_training_rows="0"
-lightgbm_feature_count="0"
-lightgbm_scored="0"
-lightgbm_strict_status="not evaluated"
-lightgbm_strict_brier="n/a"
-lightgbm_strict_baseline="n/a"
-lightgbm_strict_holdout="0"
-lightgbm_strict_top20="n/a"
-lightgbm_strict_holdout_rate="n/a"
-lightgbm_transfer_status="not evaluated"
-lightgbm_transfer_brier="n/a"
-lightgbm_transfer_baseline="n/a"
-lightgbm_transfer_holdout="0"
-lightgbm_transfer_top20="n/a"
-lightgbm_transfer_holdout_rate="n/a"
-lightgbm_stream_status="not evaluated"
-lightgbm_stream_brier="n/a"
-lightgbm_stream_baseline="n/a"
-lightgbm_stream_holdout="0"
-lightgbm_stream_top20="n/a"
-lightgbm_stream_holdout_rate="n/a"
-ml_rows="0"
-ml_strict_passes="0"
-ml_transfer_tests="0"
-ml_transfer_passes="0"
-ml_strict_rate="0.0"
-if [ -s "subscriptions/light-training.jsonl" ]; then
-  ml_stats="$(jq -s '
-    {
-      rows: length,
-      strict_passes: (map(select(.label.strict_pass == true)) | length),
-      transfer_tests: (map(select(.label.transfer_tested == true)) | length),
-      transfer_passes: (map(select(.label.transfer_tested == true and .label.transfer_pass == true)) | length)
-    }' subscriptions/light-training.jsonl 2>/dev/null || true)"
-  if [ -n "$ml_stats" ]; then
-    ml_rows="$(jq -r '.rows // 0' <<< "$ml_stats")"
-    ml_feature_count="$(head -n 1 subscriptions/light-training.jsonl | jq -r '.features | length' 2>/dev/null || printf '0')"
-    ml_strict_passes="$(jq -r '.strict_passes // 0' <<< "$ml_stats")"
-    ml_transfer_tests="$(jq -r '.transfer_tests // 0' <<< "$ml_stats")"
-    ml_transfer_passes="$(jq -r '.transfer_passes // 0' <<< "$ml_stats")"
-    if [ "$ml_rows" -gt 0 ]; then
-      ml_strict_rate="$(awk -v passes="$ml_strict_passes" -v rows="$ml_rows" 'BEGIN { printf "%.1f", (passes / rows) * 100 }')"
-    fi
+
+score_file="$PROXYRIFT_TMP_DIR/lightgbm-scores.json"
+lightgbm_model_state="Not evaluated"
+lightgbm_ranking_strategy="Not evaluated"
+lightgbm_training_rows="n/a"
+lightgbm_model_feature_count="n/a"
+lightgbm_scored="n/a"
+lightgbm_promoted_targets="n/a"
+lightgbm_validation_scheme="n/a"
+lightgbm_baseline_type="n/a"
+lightgbm_min_brier_improvement="n/a"
+lightgbm_min_top20_lift="n/a"
+
+declare -A lightgbm_target_status=()
+declare -A lightgbm_target_brier=()
+declare -A lightgbm_target_baseline=()
+declare -A lightgbm_target_holdout=()
+declare -A lightgbm_target_top20_rate=()
+declare -A lightgbm_target_holdout_rate=()
+declare -A lightgbm_target_labelled=()
+declare -A lightgbm_target_pass_rows=()
+declare -A lightgbm_target_fail_rows=()
+declare -A lightgbm_target_train=()
+declare -A lightgbm_target_train_pass=()
+declare -A lightgbm_target_train_fail=()
+declare -A lightgbm_target_holdout_pass=()
+declare -A lightgbm_target_holdout_fail=()
+declare -A lightgbm_target_recency_strategy=()
+declare -A lightgbm_target_unweighted_accepted=()
+declare -A lightgbm_target_weighted_accepted=()
+declare -A lightgbm_target_unweighted_brier=()
+declare -A lightgbm_target_weighted_brier=()
+declare -A lightgbm_target_unweighted_top20=()
+declare -A lightgbm_target_weighted_top20=()
+declare -A lightgbm_target_half_life=()
+declare -A lightgbm_target_min_weight=()
+
+if [ -s "$score_file" ]; then
+  trained="$(read_json_value "$score_file" '.trained' 'unknown')"
+  if [ "$trained" = "true" ]; then
+    lightgbm_model_state="Model-based ranking active"
+  elif [ "$trained" = "false" ]; then
+    lightgbm_model_state="Neutral fallback active"
   fi
+
+  lightgbm_training_rows="$(read_json_value "$score_file" '.training_rows' 'n/a')"
+  lightgbm_model_feature_count="$(read_json_value "$score_file" '.model_report.model_feature_count' "$(read_json_value "$score_file" '.feature_count' 'n/a')")"
+  lightgbm_scored="$(read_json_value "$score_file" '(.scores // {}) | length' 'n/a')"
+  lightgbm_promoted_targets="$(read_json_value "$score_file" '[.model_report.targets[]? | select(.accepted == true)] | length' 'n/a')"
+  lightgbm_validation_scheme="$(read_json_value "$score_file" '.model_report.validation' 'n/a')"
+  lightgbm_baseline_type="$(read_json_value "$score_file" '.model_report.baseline' 'n/a')"
+  lightgbm_min_brier_improvement="$(read_json_value "$score_file" '.model_report.promotion_minimum_relative_brier_improvement' 'n/a')"
+  lightgbm_min_top20_lift="$(read_json_value "$score_file" '.model_report.promotion_top_20pct_lift_minimum' 'n/a')"
+  lightgbm_ranking_strategy="$(format_ranking_strategy "$(read_json_value "$score_file" '.model_report.ranking_strategy' 'not_evaluated')")"
+
+  for target in strict transfer stream end_to_end; do
+    lightgbm_target_status["$target"]="$(format_lightgbm_status "$target")"
+    lightgbm_target_brier["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.model_brier" 'n/a')"
+    lightgbm_target_baseline["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.baseline_brier" 'n/a')"
+    lightgbm_target_holdout["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.holdout_rows" 'n/a')"
+    lightgbm_target_top20_rate["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.model_top_20pct_pass_rate" 'n/a')"
+    lightgbm_target_holdout_rate["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.holdout_pass_rate" 'n/a')"
+    lightgbm_target_labelled["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.labelled_rows" 'n/a')"
+    lightgbm_target_pass_rows["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.pass_rows" 'n/a')"
+    lightgbm_target_fail_rows["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.fail_rows" 'n/a')"
+    lightgbm_target_train["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.train_rows" 'n/a')"
+    lightgbm_target_train_pass["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.train_pass_rows" 'n/a')"
+    lightgbm_target_train_fail["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.train_fail_rows" 'n/a')"
+    lightgbm_target_holdout_pass["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.holdout_pass_rows" 'n/a')"
+    lightgbm_target_holdout_fail["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.holdout_fail_rows" 'n/a')"
+    lightgbm_target_recency_strategy["$target"]="$(format_recency_strategy "$target")"
+    lightgbm_target_unweighted_accepted["$target"]="$(format_yes_no "$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.unweighted_accepted" 'n/a')")"
+    lightgbm_target_weighted_accepted["$target"]="$(format_yes_no "$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.weighted_accepted" 'n/a')")"
+    lightgbm_target_unweighted_brier["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.unweighted_brier" 'n/a')"
+    lightgbm_target_weighted_brier["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.weighted_brier" 'n/a')"
+    lightgbm_target_unweighted_top20["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.unweighted_top_20pct_pass_rate" 'n/a')"
+    lightgbm_target_weighted_top20["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.weighted_top_20pct_pass_rate" 'n/a')"
+    lightgbm_target_half_life["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.half_life_days" 'n/a')"
+    lightgbm_target_min_weight["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.minimum_sample_weight" 'n/a')"
+  done
 fi
-if [ -s "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" ]; then
-  lightgbm_trained="$(jq -r 'if .trained == true then "✅ Promoted" else "⚪ Baseline-only" end' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'unknown')"
-  lightgbm_training_rows="$(jq -r '.training_rows // 0' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
-  lightgbm_feature_count="$(jq -r '.feature_count // 0' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
-  lightgbm_scored="$(jq -r '(.scores // {}) | length' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
-  lightgbm_strict_status="$(format_lightgbm_status strict)"
-  lightgbm_strict_brier="$(jq -r '.model_report.targets.strict.model_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_strict_baseline="$(jq -r '.model_report.targets.strict.baseline_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_strict_holdout="$(jq -r '.model_report.targets.strict.holdout_rows // 0' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
-  lightgbm_strict_top20="$(jq -r '.model_report.targets.strict.model_top_20pct_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_strict_holdout_rate="$(jq -r '.model_report.targets.strict.holdout_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_transfer_status="$(format_lightgbm_status transfer)"
-  lightgbm_transfer_brier="$(jq -r '.model_report.targets.transfer.model_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_transfer_baseline="$(jq -r '.model_report.targets.transfer.baseline_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_transfer_holdout="$(jq -r '.model_report.targets.transfer.holdout_rows // 0' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
-  lightgbm_transfer_top20="$(jq -r '.model_report.targets.transfer.model_top_20pct_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_transfer_holdout_rate="$(jq -r '.model_report.targets.transfer.holdout_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_stream_status="$(format_lightgbm_status stream)"
-  lightgbm_stream_brier="$(jq -r '.model_report.targets.stream.model_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_stream_baseline="$(jq -r '.model_report.targets.stream.baseline_brier // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_stream_holdout="$(jq -r '.model_report.targets.stream.holdout_rows // 0' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf '0')"
-  lightgbm_stream_top20="$(jq -r '.model_report.targets.stream.model_top_20pct_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
-  lightgbm_stream_holdout_rate="$(jq -r '.model_report.targets.stream.holdout_pass_rate // "n/a"' "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" 2>/dev/null || printf 'n/a')"
+
+ml_rows="n/a"
+ml_new_rows="n/a"
+ml_unique_runs="n/a"
+ml_unique_candidates="n/a"
+ml_strict_passes="n/a"
+ml_strict_failures="n/a"
+ml_transfer_tests="n/a"
+ml_transfer_passes="n/a"
+ml_transfer_failures="n/a"
+ml_stream_tests="n/a"
+ml_stream_passes="n/a"
+ml_stream_failures="n/a"
+ml_strict_ready="n/a"
+ml_end_to_end_ready="n/a"
+
+if [ -s "subscriptions/light-training-stats.json" ]; then
+  stats_file="subscriptions/light-training-stats.json"
+  ml_rows="$(read_json_value "$stats_file" '.dataset.rows' 'n/a')"
+  ml_new_rows="$(read_json_value "$stats_file" '.dataset.new_rows' 'n/a')"
+  ml_unique_runs="$(read_json_value "$stats_file" '.dataset.unique_runs' 'n/a')"
+  ml_unique_candidates="$(read_json_value "$stats_file" '.dataset.unique_candidates' 'n/a')"
+  ml_strict_passes="$(read_json_value "$stats_file" '.dataset.strict_passes' 'n/a')"
+  ml_strict_failures="$(read_json_value "$stats_file" '.dataset.strict_failures' 'n/a')"
+  ml_transfer_tests="$(read_json_value "$stats_file" '.dataset.transfer_tests' 'n/a')"
+  ml_transfer_passes="$(read_json_value "$stats_file" '.dataset.transfer_passes' 'n/a')"
+  ml_transfer_failures="$(read_json_value "$stats_file" '.dataset.transfer_failures' 'n/a')"
+  ml_stream_tests="$(read_json_value "$stats_file" '.dataset.stream_tests' 'n/a')"
+  ml_stream_passes="$(read_json_value "$stats_file" '.dataset.stream_passes' 'n/a')"
+  ml_stream_failures="$(read_json_value "$stats_file" '.dataset.stream_failures' 'n/a')"
+  ml_strict_ready="$(read_json_value "$stats_file" '.readiness.strict_model_ready' 'n/a')"
+  ml_end_to_end_ready="$(read_json_value "$stats_file" '.readiness.end_to_end_model_ready' 'n/a')"
 fi
+
+
 if [ -s "$PROXYRIFT_TMP_DIR/light-stats.json" ]; then
   input_candidates="$(jq -r '.input_candidates // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   security_rejected="$(jq -r '.security_rejected // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
@@ -388,27 +504,59 @@ light_delta_display="$(format_delta "$light_elapsed" "$previous_light_elapsed")"
   echo
   echo "## LightGBM ranking"
   echo
-  echo "| Model | Training rows | Features | Candidates scored |"
-  echo "|---|---:|---:|---:|"
-  echo "| $lightgbm_trained | $lightgbm_training_rows | $lightgbm_feature_count | $lightgbm_scored |"
+  echo "| Ranking state | Active strategy | Training rows used | Model features | Candidates scored | Targets promoted |"
+  echo "|---|---|---:|---:|---:|---:|"
+  echo "| $lightgbm_model_state | $lightgbm_ranking_strategy | $lightgbm_training_rows | $lightgbm_model_feature_count | $lightgbm_scored | $lightgbm_promoted_targets / 4 |"
   echo
-  echo "| Target | Promotion decision | Holdout Brier | Baseline Brier | Top 20% pass rate | Holdout pass rate | Holdout rows |"
+  echo "Validation: $lightgbm_validation_scheme; baseline: $lightgbm_baseline_type; minimum relative Brier improvement: $lightgbm_min_brier_improvement; minimum top-20% lift: $lightgbm_min_top20_lift."
+  echo
+  echo "| Target | Promotion decision | Holdout Brier | Baseline Brier | Top-20% pass rate | Holdout pass rate | Holdout rows |"
   echo "|---|---|---:|---:|---:|---:|---:|"
-  echo "| Strict validation | $lightgbm_strict_status | $lightgbm_strict_brier | $lightgbm_strict_baseline | $lightgbm_strict_top20 | $lightgbm_strict_holdout_rate | $lightgbm_strict_holdout |"
-  echo "| Transfer (10 MiB) | $lightgbm_transfer_status | $lightgbm_transfer_brier | $lightgbm_transfer_baseline | $lightgbm_transfer_top20 | $lightgbm_transfer_holdout_rate | $lightgbm_transfer_holdout |"
-  echo "| Stream stability | $lightgbm_stream_status | $lightgbm_stream_brier | $lightgbm_stream_baseline | $lightgbm_stream_top20 | $lightgbm_stream_holdout_rate | $lightgbm_stream_holdout |"
+  echo "| Strict validation | ${lightgbm_target_status[strict]} | ${lightgbm_target_brier[strict]} | ${lightgbm_target_baseline[strict]} | ${lightgbm_target_top20_rate[strict]} | ${lightgbm_target_holdout_rate[strict]} | ${lightgbm_target_holdout[strict]} |"
+  echo "| Transfer (10 MiB total) | ${lightgbm_target_status[transfer]} | ${lightgbm_target_brier[transfer]} | ${lightgbm_target_baseline[transfer]} | ${lightgbm_target_top20_rate[transfer]} | ${lightgbm_target_holdout_rate[transfer]} | ${lightgbm_target_holdout[transfer]} |"
+  echo "| Stream stability | ${lightgbm_target_status[stream]} | ${lightgbm_target_brier[stream]} | ${lightgbm_target_baseline[stream]} | ${lightgbm_target_top20_rate[stream]} | ${lightgbm_target_holdout_rate[stream]} | ${lightgbm_target_holdout[stream]} |"
+  echo "| End-to-end | ${lightgbm_target_status[end_to_end]} | ${lightgbm_target_brier[end_to_end]} | ${lightgbm_target_baseline[end_to_end]} | ${lightgbm_target_top20_rate[end_to_end]} | ${lightgbm_target_holdout_rate[end_to_end]} | ${lightgbm_target_holdout[end_to_end]} |"
   echo
-  echo "A target is promoted only if its time-ordered Brier score improves by at least 0.5% over the training-prevalence baseline and its top 20% selection pass rate is no worse than holdout-wide prevalence. Otherwise that target is excluded from the ranking blend."
+  echo "A target is included only if it passes temporal unseen-candidate holdout gates. The active ranking strategy above identifies whether this run used the end-to-end model, an accepted-stage blend, or neutral fallback scoring."
   echo
   echo "<details>"
-  echo "<summary>Training dataset health</summary>"
+  echo "<summary>Target training and holdout sample details</summary>"
   echo
-  echo "| Metric | Result |"
+  echo "| Target | Labelled rows (pass/fail) | Training rows (pass/fail) | Holdout rows (pass/fail) |"
+  echo "|---|---:|---:|---:|"
+  echo "| Strict validation | ${lightgbm_target_labelled[strict]} (${lightgbm_target_pass_rows[strict]}/${lightgbm_target_fail_rows[strict]}) | ${lightgbm_target_train[strict]} (${lightgbm_target_train_pass[strict]}/${lightgbm_target_train_fail[strict]}) | ${lightgbm_target_holdout[strict]} (${lightgbm_target_holdout_pass[strict]}/${lightgbm_target_holdout_fail[strict]}) |"
+  echo "| Transfer | ${lightgbm_target_labelled[transfer]} (${lightgbm_target_pass_rows[transfer]}/${lightgbm_target_fail_rows[transfer]}) | ${lightgbm_target_train[transfer]} (${lightgbm_target_train_pass[transfer]}/${lightgbm_target_train_fail[transfer]}) | ${lightgbm_target_holdout[transfer]} (${lightgbm_target_holdout_pass[transfer]}/${lightgbm_target_holdout_fail[transfer]}) |"
+  echo "| Stream stability | ${lightgbm_target_labelled[stream]} (${lightgbm_target_pass_rows[stream]}/${lightgbm_target_fail_rows[stream]}) | ${lightgbm_target_train[stream]} (${lightgbm_target_train_pass[stream]}/${lightgbm_target_train_fail[stream]}) | ${lightgbm_target_holdout[stream]} (${lightgbm_target_holdout_pass[stream]}/${lightgbm_target_holdout_fail[stream]}) |"
+  echo "| End-to-end | ${lightgbm_target_labelled[end_to_end]} (${lightgbm_target_pass_rows[end_to_end]}/${lightgbm_target_fail_rows[end_to_end]}) | ${lightgbm_target_train[end_to_end]} (${lightgbm_target_train_pass[end_to_end]}/${lightgbm_target_train_fail[end_to_end]}) | ${lightgbm_target_holdout[end_to_end]} (${lightgbm_target_holdout_pass[end_to_end]}/${lightgbm_target_holdout_fail[end_to_end]}) |"
+  echo "</details>"
+  echo
+  echo "<details>"
+  echo "<summary>Recency-weighting experiment by target</summary>"
+  echo
+  echo "Weights use each target's reported half-life and minimum weight. A weighted variant is selected only when it passes promotion gates and either the unweighted variant fails or the weighted variant beats it; otherwise a passing unweighted variant is preferred."
+  echo
+  echo "| Target | Selected strategy | Unweighted passed gates | Weighted passed gates | Unweighted Brier | Weighted Brier | Unweighted top-20% pass rate | Weighted top-20% pass rate | Half-life days | Minimum weight |"
+  echo "|---|---|---|---|---:|---:|---:|---:|---:|---:|"
+  echo "| Strict validation | ${lightgbm_target_recency_strategy[strict]} | ${lightgbm_target_unweighted_accepted[strict]} | ${lightgbm_target_weighted_accepted[strict]} | ${lightgbm_target_unweighted_brier[strict]} | ${lightgbm_target_weighted_brier[strict]} | ${lightgbm_target_unweighted_top20[strict]} | ${lightgbm_target_weighted_top20[strict]} | ${lightgbm_target_half_life[strict]} | ${lightgbm_target_min_weight[strict]} |"
+  echo "| Transfer | ${lightgbm_target_recency_strategy[transfer]} | ${lightgbm_target_unweighted_accepted[transfer]} | ${lightgbm_target_weighted_accepted[transfer]} | ${lightgbm_target_unweighted_brier[transfer]} | ${lightgbm_target_weighted_brier[transfer]} | ${lightgbm_target_unweighted_top20[transfer]} | ${lightgbm_target_weighted_top20[transfer]} | ${lightgbm_target_half_life[transfer]} | ${lightgbm_target_min_weight[transfer]} |"
+  echo "| Stream stability | ${lightgbm_target_recency_strategy[stream]} | ${lightgbm_target_unweighted_accepted[stream]} | ${lightgbm_target_weighted_accepted[stream]} | ${lightgbm_target_unweighted_brier[stream]} | ${lightgbm_target_weighted_brier[stream]} | ${lightgbm_target_unweighted_top20[stream]} | ${lightgbm_target_weighted_top20[stream]} | ${lightgbm_target_half_life[stream]} | ${lightgbm_target_min_weight[stream]} |"
+  echo "| End-to-end | ${lightgbm_target_recency_strategy[end_to_end]} | ${lightgbm_target_unweighted_accepted[end_to_end]} | ${lightgbm_target_weighted_accepted[end_to_end]} | ${lightgbm_target_unweighted_brier[end_to_end]} | ${lightgbm_target_weighted_brier[end_to_end]} | ${lightgbm_target_unweighted_top20[end_to_end]} | ${lightgbm_target_weighted_top20[end_to_end]} | ${lightgbm_target_half_life[end_to_end]} | ${lightgbm_target_min_weight[end_to_end]} |"
+  echo "</details>"
+  echo
+  echo "<details>"
+  echo "<summary>Persisted training dataset health after this run</summary>"
+  echo
+  echo "| Dataset metric | Current persisted dataset |"
   echo "|---|---:|"
-  echo "| Dataset rows | $ml_rows |"
-  echo "| Strict passes | $ml_strict_passes / $ml_rows ($ml_strict_rate%) |"
-  echo "| Transfer labels passed | $ml_transfer_passes / $ml_transfer_tests |"
-  echo "| Stream continuity passed | $stream_passed / $stream_tested |"
+  echo "| Dataset rows (14-day retention) | $ml_rows |"
+  echo "| New rows persisted this run | $ml_new_rows |"
+  echo "| Distinct runs | $ml_unique_runs |"
+  echo "| Distinct candidates | $ml_unique_candidates |"
+  echo "| Strict pass / fail labels | $ml_strict_passes / $ml_strict_failures |"
+  echo "| Transfer tests / passes / failures | $ml_transfer_tests / $ml_transfer_passes / $ml_transfer_failures |"
+  echo "| Stream tests / passes / failures | $ml_stream_tests / $ml_stream_passes / $ml_stream_failures |"
+  echo "| Strict model data readiness | $ml_strict_ready |"
+  echo "| End-to-end model data readiness | $ml_end_to_end_ready |"
   echo "</details>"
   echo
   echo "## Validation cores"
