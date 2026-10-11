@@ -72,6 +72,9 @@ jobs:
       - name: Test update run summary formatting
         run: bash scripts/update/test_write_run_summary.sh
 
+      - name: Test LightGBM report verification and artifact sanitization
+        run: bash scripts/update/test_lightgbm_report.sh
+
       - name: Install native LightGBM runtime
         env:
           GH_TOKEN: ${{ github.token }}

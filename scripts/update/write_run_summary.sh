@@ -133,9 +133,72 @@ format_yes_no() {
 format_ranking_strategy() {
   case "$1" in
     end_to_end) printf 'End-to-end model' ;;
-    stage_blend_fallback) printf 'Stage-model blend fallback' ;;
-    neutral_default) printf 'Neutral 0.5-score fallback' ;;
+    stage_blend_fallback) printf 'Stage-model blend' ;;
+    neutral_default) printf 'Neutral fallback' ;;
     *) printf 'Not evaluated' ;;
+  esac
+}
+
+format_validation_scheme() {
+  case "$1" in
+    walk_forward_time_split) printf 'Walk-forward temporal split' ;;
+    *) local readable="${1//_/ }"; printf '%s' "${readable^}" ;;
+  esac
+}
+
+format_baseline() {
+  case "$1" in
+    training_prevalence_brier) printf 'Training-prevalence Brier score' ;;
+    *) local readable="${1//_/ }"; printf '%s' "${readable^}" ;;
+  esac
+}
+
+format_decimal() {
+  local value="$1"
+  if [[ "$value" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+    awk -v value="$value" 'BEGIN { printf "%.5f", value }'
+  else
+    printf '%s' "$value"
+  fi
+}
+
+format_percentage() {
+  local value="$1"
+  if [[ "$value" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+    awk -v value="$value" 'BEGIN { printf "%.1f%%", value * 100 }'
+  else
+    printf '%s' "$value"
+  fi
+}
+
+format_compact_number() {
+  local value="$1"
+  if [[ "$value" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+    awk -v value="$value" 'BEGIN { if (value == int(value)) printf "%d", value; else printf "%g", value }'
+  else
+    printf '%s' "$value"
+  fi
+}
+
+format_count() {
+  local value="$1"
+  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$value"
+    return
+  fi
+  local grouped=""
+  while (( ${#value} > 3 )); do
+    grouped=",${value: -3}$grouped"
+    value="${value:0:${#value}-3}"
+  done
+  printf '%s%s' "$value" "$grouped"
+}
+
+format_readiness() {
+  case "$1" in
+    true) printf 'Ready' ;;
+    false) printf 'Not ready' ;;
+    *) printf 'Not reported' ;;
   esac
 }
 
@@ -445,14 +508,20 @@ total_delta_display="$(format_delta "$pipeline_elapsed" "$previous_total_elapsed
 collect_delta_display="$(format_delta "$collect_elapsed" "$previous_collect_elapsed")"
 light_delta_display="$(format_delta "$light_elapsed" "$previous_light_elapsed")"
 
+summary_output_file="$PROXYRIFT_TMP_DIR/run-summary.md"
+mkdir -p "$(dirname "$summary_output_file")"
 {
   echo "# ProxyRift Update"
   echo
-  echo "## Run status"
+  echo "**Overall status:** $overall_status"
   echo
-  echo "| Workflow | Collection & validation | Generation | Publish |"
-  echo "|---|---|---|---|"
-  echo "| $overall_status | $collection_status | $generation_status | $publish_status |"
+  echo "## Pipeline status"
+  echo
+  echo "| Stage | Result |"
+  echo "|---|---|"
+  echo "| Discovery and validation | $collection_status |"
+  echo "| Subscription generation | $generation_status |"
+  echo "| Publishing | $publish_status |"
   echo
   echo "## Runtime"
   echo
@@ -460,110 +529,63 @@ light_delta_display="$(format_delta "$light_elapsed" "$previous_light_elapsed")"
     echo "| Stage | This run | Previous (#$previous_run_number) | Change |"
     echo "|---|---:|---:|---:|"
     echo "| Total pipeline | $current_total_display | $previous_total_display | $total_delta_display |"
-    echo "| Collection & transport | $current_collect_display | $previous_collect_display | $collect_delta_display |"
+    echo "| Collection and transport | $current_collect_display | $previous_collect_display | $collect_delta_display |"
     echo "| Light validation | $current_light_display | $previous_light_display | $light_delta_display |"
   else
     echo "| Stage | This run |"
     echo "|---|---:|"
     echo "| Total pipeline | $current_total_display |"
-    echo "| Collection & transport | $current_collect_display |"
+    echo "| Collection and transport | $current_collect_display |"
     echo "| Light validation | $current_light_display |"
     echo
-    echo "_No preceding completed update run was found for comparison._"
+    echo "_No previous completed update run was found for comparison._"
   fi
   echo
-  echo "## Published outputs"
+  echo "## Published subscriptions"
   echo
-  echo "| Subscription | Config entries | Formats |"
-  echo "|---|---:|---|"
-  echo "| All | $all_count | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |"
-  echo "| Light | $light_count | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |"
-  echo
-  echo "## Light selection"
-  echo
-  echo "| Input candidates | Strict attempts | Strictly verified | Selection target | Published by validator |"
-  echo "|---:|---:|---:|---:|---:|"
-  echo "| $input_candidates | $strict_attempts | $strict_verified | $selection_target | $published |"
-  echo
-  echo "<details>"
-  echo "<summary>Light validation and transport-test details</summary>"
-  echo
-  echo "| Metric | Count |"
+  echo "| Subscription | Configs published |"
   echo "|---|---:|"
-  echo "| TLS bypass rejected | $security_rejected |"
-  echo "| Strict selectable | $strict_selectable |"
-  echo "| 1 MiB selectable | $stability_selectable |"
-  echo "| 10 MiB selectable | $transfer_selectable |"
-  echo "| Stream selectable | $stream_selectable |"
-  echo "| Selection shortfall | $selection_shortfall |"
-  echo "| 10 MiB tested | $transfer_tested |"
-  echo "| 10 MiB passed | $transfer_passed |"
-  echo "| Stream continuity tested | $stream_tested |"
-  echo "| Stream continuity passed | $stream_passed |"
-  echo "</details>"
+  echo "| All | $(format_count "$all_count") |"
+  echo "| Light | $(format_count "$light_count") |"
   echo
-  echo "## LightGBM ranking"
+  echo "## Light validation"
   echo
-  echo "| Ranking state | Active strategy | Training rows used | Model features | Candidates scored | Targets promoted |"
-  echo "|---|---|---:|---:|---:|---:|"
-  echo "| $lightgbm_model_state | $lightgbm_ranking_strategy | $lightgbm_training_rows | $lightgbm_model_feature_count | $lightgbm_scored | $lightgbm_promoted_targets / 4 |"
-  echo
-  echo "Validation: $lightgbm_validation_scheme; baseline: $lightgbm_baseline_type; minimum relative Brier improvement: $lightgbm_min_brier_improvement; minimum top-20% lift: $lightgbm_min_top20_lift."
-  echo
-  echo "| Target | Promotion decision | Holdout Brier | Baseline Brier | Top-20% pass rate | Holdout pass rate | Holdout rows |"
-  echo "|---|---|---:|---:|---:|---:|---:|"
-  echo "| Strict validation | ${lightgbm_target_status[strict]} | ${lightgbm_target_brier[strict]} | ${lightgbm_target_baseline[strict]} | ${lightgbm_target_top20_rate[strict]} | ${lightgbm_target_holdout_rate[strict]} | ${lightgbm_target_holdout[strict]} |"
-  echo "| Transfer (10 MiB total) | ${lightgbm_target_status[transfer]} | ${lightgbm_target_brier[transfer]} | ${lightgbm_target_baseline[transfer]} | ${lightgbm_target_top20_rate[transfer]} | ${lightgbm_target_holdout_rate[transfer]} | ${lightgbm_target_holdout[transfer]} |"
-  echo "| Stream stability | ${lightgbm_target_status[stream]} | ${lightgbm_target_brier[stream]} | ${lightgbm_target_baseline[stream]} | ${lightgbm_target_top20_rate[stream]} | ${lightgbm_target_holdout_rate[stream]} | ${lightgbm_target_holdout[stream]} |"
-  echo "| End-to-end | ${lightgbm_target_status[end_to_end]} | ${lightgbm_target_brier[end_to_end]} | ${lightgbm_target_baseline[end_to_end]} | ${lightgbm_target_top20_rate[end_to_end]} | ${lightgbm_target_holdout_rate[end_to_end]} | ${lightgbm_target_holdout[end_to_end]} |"
-  echo
-  echo "A target is included only if it passes temporal unseen-candidate holdout gates. The active ranking strategy above identifies whether this run used the end-to-end model, an accepted-stage blend, or neutral fallback scoring."
-  echo
-  echo "<details>"
-  echo "<summary>Target training and holdout sample details</summary>"
-  echo
-  echo "| Target | Labelled rows (pass/fail) | Training rows (pass/fail) | Holdout rows (pass/fail) |"
-  echo "|---|---:|---:|---:|"
-  echo "| Strict validation | ${lightgbm_target_labelled[strict]} (${lightgbm_target_pass_rows[strict]}/${lightgbm_target_fail_rows[strict]}) | ${lightgbm_target_train[strict]} (${lightgbm_target_train_pass[strict]}/${lightgbm_target_train_fail[strict]}) | ${lightgbm_target_holdout[strict]} (${lightgbm_target_holdout_pass[strict]}/${lightgbm_target_holdout_fail[strict]}) |"
-  echo "| Transfer | ${lightgbm_target_labelled[transfer]} (${lightgbm_target_pass_rows[transfer]}/${lightgbm_target_fail_rows[transfer]}) | ${lightgbm_target_train[transfer]} (${lightgbm_target_train_pass[transfer]}/${lightgbm_target_train_fail[transfer]}) | ${lightgbm_target_holdout[transfer]} (${lightgbm_target_holdout_pass[transfer]}/${lightgbm_target_holdout_fail[transfer]}) |"
-  echo "| Stream stability | ${lightgbm_target_labelled[stream]} (${lightgbm_target_pass_rows[stream]}/${lightgbm_target_fail_rows[stream]}) | ${lightgbm_target_train[stream]} (${lightgbm_target_train_pass[stream]}/${lightgbm_target_train_fail[stream]}) | ${lightgbm_target_holdout[stream]} (${lightgbm_target_holdout_pass[stream]}/${lightgbm_target_holdout_fail[stream]}) |"
-  echo "| End-to-end | ${lightgbm_target_labelled[end_to_end]} (${lightgbm_target_pass_rows[end_to_end]}/${lightgbm_target_fail_rows[end_to_end]}) | ${lightgbm_target_train[end_to_end]} (${lightgbm_target_train_pass[end_to_end]}/${lightgbm_target_train_fail[end_to_end]}) | ${lightgbm_target_holdout[end_to_end]} (${lightgbm_target_holdout_pass[end_to_end]}/${lightgbm_target_holdout_fail[end_to_end]}) |"
-  echo "</details>"
-  echo
-  echo "<details>"
-  echo "<summary>Recency-weighting experiment by target</summary>"
-  echo
-  echo "Weights use each target's reported half-life and minimum weight. A weighted variant is selected only when it passes promotion gates and either the unweighted variant fails or the weighted variant beats it; otherwise a passing unweighted variant is preferred."
-  echo
-  echo "| Target | Selected strategy | Unweighted passed gates | Weighted passed gates | Unweighted Brier | Weighted Brier | Unweighted top-20% pass rate | Weighted top-20% pass rate | Half-life days | Minimum weight |"
-  echo "|---|---|---|---|---:|---:|---:|---:|---:|---:|"
-  echo "| Strict validation | ${lightgbm_target_recency_strategy[strict]} | ${lightgbm_target_unweighted_accepted[strict]} | ${lightgbm_target_weighted_accepted[strict]} | ${lightgbm_target_unweighted_brier[strict]} | ${lightgbm_target_weighted_brier[strict]} | ${lightgbm_target_unweighted_top20[strict]} | ${lightgbm_target_weighted_top20[strict]} | ${lightgbm_target_half_life[strict]} | ${lightgbm_target_min_weight[strict]} |"
-  echo "| Transfer | ${lightgbm_target_recency_strategy[transfer]} | ${lightgbm_target_unweighted_accepted[transfer]} | ${lightgbm_target_weighted_accepted[transfer]} | ${lightgbm_target_unweighted_brier[transfer]} | ${lightgbm_target_weighted_brier[transfer]} | ${lightgbm_target_unweighted_top20[transfer]} | ${lightgbm_target_weighted_top20[transfer]} | ${lightgbm_target_half_life[transfer]} | ${lightgbm_target_min_weight[transfer]} |"
-  echo "| Stream stability | ${lightgbm_target_recency_strategy[stream]} | ${lightgbm_target_unweighted_accepted[stream]} | ${lightgbm_target_weighted_accepted[stream]} | ${lightgbm_target_unweighted_brier[stream]} | ${lightgbm_target_weighted_brier[stream]} | ${lightgbm_target_unweighted_top20[stream]} | ${lightgbm_target_weighted_top20[stream]} | ${lightgbm_target_half_life[stream]} | ${lightgbm_target_min_weight[stream]} |"
-  echo "| End-to-end | ${lightgbm_target_recency_strategy[end_to_end]} | ${lightgbm_target_unweighted_accepted[end_to_end]} | ${lightgbm_target_weighted_accepted[end_to_end]} | ${lightgbm_target_unweighted_brier[end_to_end]} | ${lightgbm_target_weighted_brier[end_to_end]} | ${lightgbm_target_unweighted_top20[end_to_end]} | ${lightgbm_target_weighted_top20[end_to_end]} | ${lightgbm_target_half_life[end_to_end]} | ${lightgbm_target_min_weight[end_to_end]} |"
-  echo "</details>"
-  echo
-  echo "<details>"
-  echo "<summary>Persisted training dataset health after this run</summary>"
-  echo
-  echo "| Dataset metric | Current persisted dataset |"
+  echo "| Check | Result |"
   echo "|---|---:|"
-  echo "| Dataset rows (14-day retention) | $ml_rows |"
-  echo "| New rows persisted this run | $ml_new_rows |"
-  echo "| Distinct runs | $ml_unique_runs |"
-  echo "| Distinct candidates | $ml_unique_candidates |"
-  echo "| Strict pass / fail labels | $ml_strict_passes / $ml_strict_failures |"
-  echo "| Transfer tests / passes / failures | $ml_transfer_tests / $ml_transfer_passes / $ml_transfer_failures |"
-  echo "| Stream tests / passes / failures | $ml_stream_tests / $ml_stream_passes / $ml_stream_failures |"
-  echo "| Strict model data readiness | $ml_strict_ready |"
-  echo "| End-to-end model data readiness | $ml_end_to_end_ready |"
-  echo "</details>"
+  echo "| Candidates considered | $(format_count "$input_candidates") |"
+  echo "| Strict validation | $(format_count "$strict_verified") of $(format_count "$strict_attempts") passed |"
+  echo "| 10 MiB transfer | $(format_count "$transfer_passed") of $(format_count "$transfer_tested") passed |"
+  echo "| Sustained stream | $(format_count "$stream_passed") of $(format_count "$stream_tested") passed |"
+  echo "| Light configs published | $(format_count "$published") of $(format_count "$selection_target") target |"
   echo
-  echo "## Validation cores"
+  echo "## LightGBM"
+  echo
+  echo "**Ranking:** $lightgbm_model_state — $lightgbm_ranking_strategy ($(format_count "$lightgbm_promoted_targets") of 4 targets accepted)."
+  echo
+  echo "**Training:** $(format_count "$lightgbm_training_rows") rows · $(format_count "$lightgbm_model_feature_count") features · Candidates scored: $(format_count "$lightgbm_scored")."
+  echo
+  echo "**Evaluation:** $(format_validation_scheme "$lightgbm_validation_scheme") · Baseline: $(format_baseline "$lightgbm_baseline_type")."
+  echo
+  echo "| Target | Decision | Brier score (model / baseline) | Top-20% pass / holdout rate |"
+  echo "|---|---|---:|---:|"
+  echo "| Strict validation | ${lightgbm_target_status[strict]} | $(format_decimal "${lightgbm_target_brier[strict]}") / $(format_decimal "${lightgbm_target_baseline[strict]}") | $(format_percentage "${lightgbm_target_top20_rate[strict]}") / $(format_percentage "${lightgbm_target_holdout_rate[strict]}") |"
+  echo "| Transfer (10 MiB) | ${lightgbm_target_status[transfer]} | $(format_decimal "${lightgbm_target_brier[transfer]}") / $(format_decimal "${lightgbm_target_baseline[transfer]}") | $(format_percentage "${lightgbm_target_top20_rate[transfer]}") / $(format_percentage "${lightgbm_target_holdout_rate[transfer]}") |"
+  echo "| Stream stability | ${lightgbm_target_status[stream]} | $(format_decimal "${lightgbm_target_brier[stream]}") / $(format_decimal "${lightgbm_target_baseline[stream]}") | $(format_percentage "${lightgbm_target_top20_rate[stream]}") / $(format_percentage "${lightgbm_target_holdout_rate[stream]}") |"
+  echo "| End-to-end | ${lightgbm_target_status[end_to_end]} | $(format_decimal "${lightgbm_target_brier[end_to_end]}") / $(format_decimal "${lightgbm_target_baseline[end_to_end]}") | $(format_percentage "${lightgbm_target_top20_rate[end_to_end]}") / $(format_percentage "${lightgbm_target_holdout_rate[end_to_end]}") |"
+  if [ "${lightgbm_target_recency_strategy[strict]}" != "Not evaluated" ]; then
+    echo
+    echo "**Recency weighting:** Strict validation — ${lightgbm_target_recency_strategy[strict]} · Brier $(format_decimal "${lightgbm_target_unweighted_brier[strict]}") → $(format_decimal "${lightgbm_target_weighted_brier[strict]}") · Top-20% pass rate $(format_percentage "${lightgbm_target_unweighted_top20[strict]}") → $(format_percentage "${lightgbm_target_weighted_top20[strict]}") · $(format_compact_number "${lightgbm_target_half_life[strict]}")-day half-life, minimum weight ${lightgbm_target_min_weight[strict]}."
+  fi
+  echo
+  echo "**Training data:** $(format_count "$ml_rows") rows ($(format_count "$ml_new_rows") new this run) · $(format_count "$ml_unique_candidates") unique candidates · $(format_count "$ml_unique_runs") runs. Strict model: $(format_readiness "$ml_strict_ready") · End-to-end model: $(format_readiness "$ml_end_to_end_ready")."
+  echo
+  echo "<details>"
+  echo "<summary>Validation tool versions</summary>"
   echo
   echo "| Xray | sing-box |"
   echo "|---|---|"
   echo "| $xray_summary_version | $singbox_summary_version |"
+  echo "</details>"
   echo
   echo "_Generated by the ProxyRift update workflow._"
-} >> "$GITHUB_STEP_SUMMARY"
+} | tee "$summary_output_file" >> "$GITHUB_STEP_SUMMARY"

@@ -143,27 +143,29 @@ chmod +x "$tmp/bin/gh"
   bash "$repo_root/scripts/update/write_run_summary.sh"
 )
 
+cmp -s "$tmp/summary.md" "$work/proxyrift/run-summary.md"
 
-grep -Fq '| All | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
-grep -Fq '| Light | 1 | TXT (.txt), Base64, Clash/Mihomo YAML, sing-box JSON |' "$tmp/summary.md"
-grep -Fq '| 15000 | 317 | 300 | 200 | 200 |' "$tmp/summary.md"
-grep -Fq '| Model-based ranking active | Stage-model blend fallback | 50000 | 66 | 1 | 1 / 4 |' "$tmp/summary.md"
-grep -Fq '| Strict validation | Promoted after temporal validation | 0.10 | 0.15 | 0.80 | 0.60 | 500 |' "$tmp/summary.md"
-grep -Fq '| Transfer (10 MiB total) | Did not beat unseen-candidate baseline |' "$tmp/summary.md"
-grep -Fq '| Stream stability | Top-20% pass rate below unseen-candidate baseline |' "$tmp/summary.md"
-grep -Fq '| End-to-end | Not promoted: insufficient labelled data |' "$tmp/summary.md"
-grep -Fq '| Strict validation | Recency-weighted | Yes | Yes | 0.13 | 0.10 | 0.70 | 0.80 | 3.0 | 0.1 |' "$tmp/summary.md"
-grep -Fq '| Dataset rows (14-day retention) | 50000 |' "$tmp/summary.md"
-grep -Fq '| New rows persisted this run | 278 |' "$tmp/summary.md"
-grep -Fq '| Strict pass / fail labels | 47051 / 2949 |' "$tmp/summary.md"
-grep -Fq '| Stream tests / passes / failures | 18782 / 18058 / 724 |' "$tmp/summary.md"
-grep -Fq '| End-to-end model data readiness | false |' "$tmp/summary.md"
-grep -Fq '| End-to-end | 6708 (0/6708) | n/a (n/a/n/a) | n/a (n/a/n/a) |' "$tmp/summary.md"
 
-if grep -Eq 'model_did_not_beat_temporal_baseline|top_20pct_below_random_selection_baseline|Transfer \(10 MiB\) \|' "$tmp/summary.md"; then
-  echo "[ERROR] Summary contains an obsolete target label or legacy LightGBM reason." >&2
+grep -Fq '| All | 1 |' "$tmp/summary.md"
+grep -Fq '| Light | 1 |' "$tmp/summary.md"
+grep -Fq '| Candidates considered | 15,000 |' "$tmp/summary.md"
+grep -Fq '| Strict validation | 300 of 317 passed |' "$tmp/summary.md"
+grep -Fq '| 10 MiB transfer | 211 of 232 passed |' "$tmp/summary.md"
+grep -Fq '| Light configs published | 200 of 200 target |' "$tmp/summary.md"
+grep -Fq '**Ranking:** Model-based ranking active — Stage-model blend (1 of 4 targets accepted).' "$tmp/summary.md"
+grep -Fq '**Training:** 50,000 rows · 66 features · Candidates scored: 1.' "$tmp/summary.md"
+grep -Fq '**Evaluation:** Walk-forward temporal split · Baseline: Training-prevalence Brier score.' "$tmp/summary.md"
+grep -Fq '| Strict validation | Promoted after temporal validation | 0.10000 / 0.15000 | 80.0% / 60.0% |' "$tmp/summary.md"
+grep -Fq '| Transfer (10 MiB) | Did not beat unseen-candidate baseline | 0.22000 / 0.20000 | 70.0% / 75.0% |' "$tmp/summary.md"
+grep -Fq '| Stream stability | Top-20% pass rate below unseen-candidate baseline | 0.20000 / 0.19000 | 70.0% / 80.0% |' "$tmp/summary.md"
+grep -Fq '| End-to-end | Not promoted: insufficient labelled data | n/a / n/a | n/a / n/a |' "$tmp/summary.md"
+grep -Fq '**Recency weighting:** Strict validation — Recency-weighted · Brier 0.13000 → 0.10000 · Top-20% pass rate 70.0% → 80.0% · 3-day half-life, minimum weight 0.1.' "$tmp/summary.md"
+grep -Fq '**Training data:** 50,000 rows (278 new this run) · 4,044 unique candidates · 177 runs. Strict model: Ready · End-to-end model: Not ready.' "$tmp/summary.md"
+
+if grep -Eq 'walk_forward_time_split|training_prevalence_brier|model_did_not_beat_temporal_baseline|top_20pct_below_random_selection_baseline|\| Transfer \(10 MiB total\)' "$tmp/summary.md"; then
+  echo "[ERROR] Summary contains raw internal identifiers or a legacy target label." >&2
   exit 1
 fi
 
-echo "[OK] Update summary reports current LightGBM targets, ranking strategy, recency selection, and persisted dataset stats."
+echo "[OK] Update summary uses concise human-readable LightGBM and publication metrics."
 

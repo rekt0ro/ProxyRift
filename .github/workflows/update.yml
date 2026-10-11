@@ -228,6 +228,28 @@ jobs:
           SINGBOX_VERSION: ${{ steps.validation-cores.outputs.singbox_version }}
         run: bash scripts/update/write_run_summary.sh
 
+      - name: "🔎 Verify LightGBM summary against run report"
+        if: always() && steps.build_light.outcome == 'success'
+        env:
+          PROXYRIFT_TMP_DIR: ${{ runner.temp }}/proxyrift
+        run: bash scripts/update/verify_lightgbm_summary.sh "$PROXYRIFT_TMP_DIR/run-summary.md" "$PROXYRIFT_TMP_DIR/lightgbm-scores.json"
+
+      - name: "🧾 Prepare sanitized LightGBM evaluation artifact"
+        if: always()
+        env:
+          PROXYRIFT_TMP_DIR: ${{ runner.temp }}/proxyrift
+          LIGHTGBM_ARTIFACT_PATH: ${{ runner.temp }}/lightgbm-evaluation.json
+        run: bash scripts/update/write_lightgbm_artifact.sh "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "$LIGHTGBM_ARTIFACT_PATH"
+
+      - name: "📎 Upload LightGBM evaluation artifact"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lightgbm-evaluation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lightgbm-evaluation.json
+          if-no-files-found: error
+          retention-days: 14
+
   cleanup:
     name: "🧹 Cleanup Caches"
     needs: collect
