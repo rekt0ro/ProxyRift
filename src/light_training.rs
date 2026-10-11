@@ -441,9 +441,6 @@ impl TrainingRow {
             "stream_pass".to_string(),
             self.stream_pass.map(Value::from).unwrap_or(Value::Null),
         );
-        // Version 2 labels the sustained 9 MiB continuation, not the old 3 MiB
-        // standalone stream probe. Older records are preserved but excluded
-        // from the current stream model target.
         label.insert("stream_validation_version".to_string(), Value::from(2));
         root.insert("label".to_string(), Value::Object(label));
 

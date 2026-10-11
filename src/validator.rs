@@ -3336,10 +3336,6 @@ pub(crate) fn throughput_bytes_for_target(url: &str) -> Option<usize> {
 }
 
 pub(crate) fn minimum_probe_body_bytes_for_target(url: &str, configured_minimum: usize) -> usize {
-    // The named mirrors still require a real 10 MiB throughput probe in the
-    // transfer gate (via throughput_bytes_for_target). Do not silently turn
-    // the cheaper 1 MiB stability or 3 MiB continuity probes into 10 MiB
-    // downloads; each stage must enforce its own configured payload size.
     if (url == ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
         || url == MOBINHOST_SPEEDTEST_100MB_TARGET)
         && configured_minimum >= STRICT_THROUGHPUT_BYTES
@@ -5440,7 +5436,6 @@ mod tests {
             assert!(STRICT_THROUGHPUT_TARGETS.contains(&target));
             assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(&target));
 
-            // The dedicated 10 MiB gate retains its full payload requirement.
             assert_eq!(
                 throughput_bytes_for_target(target),
                 Some(STRICT_THROUGHPUT_BYTES)
@@ -5450,8 +5445,6 @@ mod tests {
                 STRICT_THROUGHPUT_BYTES
             );
 
-            // Earlier stability and continuity gates must not secretly repeat
-            // the entire 10 MiB transfer for each candidate and each mirror.
             assert_eq!(
                 minimum_probe_body_bytes_for_target(target, LIGHT_TRANSFER_STABILITY_BYTES),
                 LIGHT_TRANSFER_STABILITY_BYTES,
