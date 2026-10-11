@@ -1949,9 +1949,20 @@ mod tests {
             }
         }
         rows.push(serde_json::to_string(&stored_row(200, "same-candidate", true)).unwrap());
+        let mut legacy = stored_row(250, "legacy-features", true);
+        legacy
+            .as_object_mut()
+            .expect("legacy row object")
+            .remove("feature_extraction_version");
+        rows.push(serde_json::to_string(&legacy).unwrap());
         fs::write(&path, rows.join("\n") + "\n").expect("write training data");
 
         let data = load_training(&path).expect("load training data");
+        assert!(
+            data.examples
+                .iter()
+                .all(|row| row.candidate_fingerprint != candidate_fingerprint("legacy-features"))
+        );
         assert!(data
             .examples
             .iter()
