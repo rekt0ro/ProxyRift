@@ -20,18 +20,18 @@ pub const STRICT_THROUGHPUT_TARGET: &str = "https://speed.cloudflare.com/__down?
 pub const ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET: &str =
     "https://mirror.arvancloud.ir/ubuntu/dists/noble-security/Contents-amd64.gz";
 pub const STRICT_THROUGHPUT_TARGETS: &[&str] = &[
+    ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
     STRICT_THROUGHPUT_TARGET,
     "https://fsn1-speed.hetzner.com/100MB.bin",
     "https://cdn.truefilesize.com/test/test-10mb.bin",
     "http://speedtest.tele2.net/10MB.zip",
-    ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
 ];
 pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
+    ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
     STRICT_THROUGHPUT_TARGET,
     "https://fsn1-speed.hetzner.com/100MB.bin",
     "https://cdn.truefilesize.com/test/test-10mb.bin",
     "http://speedtest.tele2.net/10MB.zip",
-    ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
 ];
 pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 2;
 pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
