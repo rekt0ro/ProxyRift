@@ -1829,14 +1829,26 @@ fn supported_ss_plugin(key: &str, value: &str) -> bool {
             },
             "v2ray-plugin" => match key.as_str() {
                 "mode"
-                    if value
-                        .is_some_and(|value| value.trim().eq_ignore_ascii_case("websocket")) => {}
+                    if value.is_some_and(|value| {
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "websocket" | "quic"
+                        )
+                    }) => {}
                 "host" | "path" if value.is_some() => {}
-                "tls" | "mux"
+                "tls"
                     if value.is_none_or(|value| {
                         matches!(
                             value.trim().to_ascii_lowercase().as_str(),
                             "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+                        )
+                    }) => {}
+                "mux" if value.is_some_and(|value| value.trim().parse::<i64>().is_ok()) => {}
+                "loglevel"
+                    if value.is_some_and(|value| {
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "debug" | "info" | "warning" | "error" | "none"
                         )
                     }) => {}
                 _ => return false,
@@ -6428,6 +6440,26 @@ mod tests {
             "secret-option",
         ] {
             assert!(!serialized.contains(secret));
+        }
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_supported_v2ray_plugin_client_options() {
+        for plugin in [
+            "v2ray-plugin;mode=quic;host=example.com",
+            "v2ray-plugin;mode=websocket;mux=8;host=example.com",
+            "v2ray-plugin;mode=websocket;loglevel=warning;tls;path=/ws",
+        ] {
+            let config = format!(
+                "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:443/?plugin={}",
+                urlencoding(plugin)
+            );
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{plugin}"
+            );
+            assert!(is_cheaply_supported_config(&config), "{plugin}");
         }
     }
 
