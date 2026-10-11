@@ -1863,7 +1863,7 @@ mod tests {
         append_limited_chunk, assign_config_names, decode_base64_variants, extract_configs,
         normalize_config, parse_source_redirect, push_light_candidate, safe_source_client,
         safe_source_redirect, select_all_candidates, split_concatenated_configs,
-        tcp_endpoint_groups, transport_probe_key, trim_config, MAX_SOURCE_BYTES,
+        tcp_endpoint_groups, transport_probe_key, trim_config, wireguard_key, MAX_SOURCE_BYTES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -1948,6 +1948,17 @@ mod tests {
         assert!(super::is_quic_transport_config(&vmess_quic));
         assert!(super::needs_deferred_transport_validation(&vmess_quic));
         assert!(transport_probe_key(&vmess_quic).is_none());
+    }
+
+    #[test]
+    fn wireguard_keys_with_unescaped_plus_survive_transport_probe_query_parsing() {
+        let key = STANDARD.encode([0xfb_u8; 32]);
+        assert!(key.contains('+'));
+
+        let config = format!("wg://192.0.2.1:51820?privatekey={key}&publickey={key}");
+
+        assert_eq!(wireguard_key(&config, &["privatekey"]), Some([0xfb_u8; 32]));
+        assert_eq!(wireguard_key(&config, &["publickey"]), Some([0xfb_u8; 32]));
     }
 
     #[test]
@@ -3494,6 +3505,7 @@ impl EntropySource for OsEntropy {
 }
 
 fn decode_key_32(encoded: &str) -> Option<[u8; 32]> {
+    let encoded = encoded.replace(' ', "+");
     let encoded = encoded.trim();
 
     if encoded.is_empty() {
