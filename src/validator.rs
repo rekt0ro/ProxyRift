@@ -1824,19 +1824,38 @@ fn supported_ss_plugin(key: &str, value: &str) -> bool {
                     if value.is_some_and(|value| {
                         matches!(value.trim().to_ascii_lowercase().as_str(), "http" | "tls")
                     }) => {}
-                "obfs-host" if value.is_some() => {}
+                "obfs-host" | "obfs-uri" if value.is_some() => {}
+                "fast-open" | "mptcp" if value.is_none() => {}
                 _ => return false,
             },
             "v2ray-plugin" => match key.as_str() {
                 "mode"
-                    if value
-                        .is_some_and(|value| value.trim().eq_ignore_ascii_case("websocket")) => {}
+                    if value.is_some_and(|value| {
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "websocket" | "quic"
+                        )
+                    }) => {}
                 "host" | "path" if value.is_some() => {}
-                "tls" | "mux"
+                "tls"
                     if value.is_none_or(|value| {
                         matches!(
                             value.trim().to_ascii_lowercase().as_str(),
                             "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+                        )
+                    }) => {}
+                "mux"
+                    if value.is_none_or(|value| {
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+                        ) || value.trim().parse::<i64>().is_ok()
+                    }) => {}
+                "loglevel"
+                    if value.is_some_and(|value| {
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "debug" | "info" | "warning" | "error" | "none"
                         )
                     }) => {}
                 _ => return false,
@@ -6036,7 +6055,7 @@ mod tests {
             "v2ray-plugin;mode=websocket;tls=true;host=example.com;path=/ws;mux=false"
         ));
         assert!(!supported_ss_plugin("plugin", "unsupported-plugin"));
-        assert!(!supported_ss_plugin("plugin", "v2ray-plugin;mode=quic"));
+        assert!(supported_ss_plugin("plugin", "v2ray-plugin;mode=quic"));
         assert!(!supported_ss_plugin("plugin", "obfs-local;obfs=unknown"));
         assert!(!supported_ss_plugin(
             "plugin",
@@ -6428,6 +6447,45 @@ mod tests {
             "secret-option",
         ] {
             assert!(!serialized.contains(secret));
+        }
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_supported_v2ray_plugin_client_options() {
+        for plugin in [
+            "v2ray-plugin;mode=quic;host=example.com",
+            "v2ray-plugin;mode=websocket;mux=8;host=example.com",
+            "v2ray-plugin;mode=websocket;loglevel=warning;tls;path=/ws",
+        ] {
+            let config = format!(
+                "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:443/?plugin={}",
+                urlencoding(plugin)
+            );
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{plugin}"
+            );
+            assert!(is_cheaply_supported_config(&config), "{plugin}");
+        }
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_supported_simple_obfs_client_options() {
+        for plugin in [
+            "obfs-local;obfs=http;obfs-host=example.com;obfs-uri=/index.html",
+            "obfs-local;obfs=tls;obfs-host=example.com;fast-open;mptcp",
+        ] {
+            let config = format!(
+                "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:443/?plugin={}",
+                urlencoding(plugin)
+            );
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{plugin}"
+            );
+            assert!(is_cheaply_supported_config(&config), "{plugin}");
         }
     }
 
