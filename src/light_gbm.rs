@@ -532,13 +532,13 @@ fn temporal_reason_label(reason: &str) -> String {
         }
         "model_did_not_beat_unseen_candidate_baseline" => {
             "Model did not beat unseen-candidate baseline".to_string()
-        },
+        }
         "top_20pct_below_random_selection_baseline" => {
             "Top-20% below random selection baseline".to_string()
         }
         "top_20pct_below_unseen_candidate_baseline" => {
             "Top-20% below unseen-candidate random-selection baseline".to_string()
-        },
+        }
         other => {
             let mut readable = other.replace('_', " ");
             if let Some(first) = readable.get_mut(..1) {
@@ -599,8 +599,6 @@ fn load_training(path: &str) -> Result<TrainingData, String> {
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        // Backend inference semantics changed; mixing older rows would bias the
-        // model because their stored backend may not match current inference features.
         if value
             .get("feature_extraction_version")
             .and_then(Value::as_u64)
@@ -1078,9 +1076,8 @@ fn train_target_model(
         result.report["holdout_unique_candidates"] = Value::from(holdout.len() as u64);
         result.report["holdout_eligible_unseen_rows"] =
             Value::from(eligible_unseen_holdout_rows as u64);
-        result.report["holdout_repeated_observations_excluded"] = Value::from(
-            eligible_unseen_holdout_rows.saturating_sub(holdout.len()) as u64,
-        );
+        result.report["holdout_repeated_observations_excluded"] =
+            Value::from(eligible_unseen_holdout_rows.saturating_sub(holdout.len()) as u64);
         return Ok(result);
     }
 
@@ -1296,7 +1293,6 @@ struct ConfigFeatures {
     reality_enabled: bool,
 }
 
-/// Classify a proxy using the same rules as the validator backend selector.
 pub fn backend_for_config(config: &str) -> &'static str {
     let Ok(url) = url::Url::parse(config.split('#').next().unwrap_or(config)) else {
         return "sing-box";
@@ -1311,7 +1307,6 @@ pub fn backend_for_config(config: &str) -> &'static str {
             .unwrap_or_default()
     };
     let has_query_key = |names: &[&str]| {
-        // Match the validator: parameter presence matters even when its value is empty.
         url.query_pairs()
             .any(|(key, _)| names.iter().any(|name| key.eq_ignore_ascii_case(name)))
     };
@@ -1961,11 +1956,10 @@ mod tests {
         fs::write(&path, rows.join("\n") + "\n").expect("write training data");
 
         let data = load_training(&path).expect("load training data");
-        assert!(
-            data.examples
-                .iter()
-                .all(|row| row.candidate_fingerprint != candidate_fingerprint("legacy-features"))
-        );
+        assert!(data
+            .examples
+            .iter()
+            .all(|row| row.candidate_fingerprint != candidate_fingerprint("legacy-features")));
         assert!(data
             .examples
             .iter()
@@ -2010,8 +2004,7 @@ mod tests {
             (&known_after_cutoff, false),
             (&seen_by_an_unlabelled_stage, false),
         ];
-        let previously_seen_candidates =
-            std::collections::HashSet::from(["known".to_string()]);
+        let previously_seen_candidates = std::collections::HashSet::from(["known".to_string()]);
         let first_observed_at = std::collections::HashMap::from([
             ("known".to_string(), 1),
             ("new-a".to_string(), 10),

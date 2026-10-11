@@ -2066,7 +2066,7 @@ async fn run_transfer_gate_consumer(
                 state.quarantined = true;
             }
         }
-        let preferred_iranian_index = [
+        let preferred_named_target_index = [
             proxyrift::validator::ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
             proxyrift::validator::MOBINHOST_SPEEDTEST_100MB_TARGET,
         ]
@@ -2079,7 +2079,7 @@ async fn run_transfer_gate_consumer(
                 .then_some(index)
         });
         let Some(target_index) =
-            preferred_iranian_index.or_else(|| select_transfer_target(&target_states))
+            preferred_named_target_index.or_else(|| select_transfer_target(&target_states))
         else {
             println!(
                 "[WARN] ⛔ [10 MiB] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",

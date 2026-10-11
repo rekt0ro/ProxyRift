@@ -3315,12 +3315,8 @@ pub(crate) fn throughput_bytes_for_target(url: &str) -> Option<usize> {
     }
 }
 
-pub(crate) fn minimum_probe_body_bytes_for_target(
-    url: &str,
-    configured_minimum: usize,
-) -> usize {
-    if url == ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
-        || url == MOBINHOST_SPEEDTEST_100MB_TARGET
+pub(crate) fn minimum_probe_body_bytes_for_target(url: &str, configured_minimum: usize) -> usize {
+    if url == ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET || url == MOBINHOST_SPEEDTEST_100MB_TARGET
     {
         configured_minimum.max(STRICT_THROUGHPUT_BYTES)
     } else {
@@ -3439,9 +3435,8 @@ async fn probe_request_with_minimum_mode(
     }
 
     let started = Instant::now();
-    let minimum_body_bytes = minimum_body_bytes.map(|minimum| {
-        minimum_probe_body_bytes_for_target(url.as_str(), minimum)
-    });
+    let minimum_body_bytes =
+        minimum_body_bytes.map(|minimum| minimum_probe_body_bytes_for_target(url.as_str(), minimum));
     let response_limit =
         minimum_body_bytes.unwrap_or_else(|| response_limit_for_target(url.as_str()));
     let mut request = client.get(url.as_str());
@@ -5374,7 +5369,7 @@ mod tests {
     }
 
     #[test]
-    fn iranian_transfer_targets_use_the_strict_transfer_threshold() {
+    fn named_transfer_targets_use_the_strict_transfer_threshold() {
         for target in [
             ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
             MOBINHOST_SPEEDTEST_100MB_TARGET,
@@ -5399,7 +5394,7 @@ mod tests {
                 "stream-continuity validation must also download at least 10 MiB from {target}"
             );
 
-            let parsed = Url::parse(target).expect("Iranian transfer target should parse");
+            let parsed = Url::parse(target).expect("transfer target should parse");
             assert!(!valid_probe_body(
                 &parsed,
                 &vec![0_u8; STRICT_THROUGHPUT_BYTES - 1]
@@ -5421,7 +5416,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_pools_balance_two_iranian_and_two_international_hosts() {
+    fn transfer_pools_balance_named_and_international_hosts() {
         assert_eq!(STRICT_THROUGHPUT_TARGETS.len(), 4);
         assert_eq!(LIGHT_TRANSFER_STABILITY_TARGETS.len(), 4);
 

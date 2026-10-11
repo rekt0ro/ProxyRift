@@ -734,8 +734,7 @@ mod tests {
     #[test]
     fn rejects_rows_with_stale_feature_extraction_version() {
         let mut value = row("stale-features", 1_000, true, None).to_value();
-        value["feature_extraction_version"] =
-            Value::from(FEATURE_EXTRACTION_VERSION - 1);
+        value["feature_extraction_version"] = Value::from(FEATURE_EXTRACTION_VERSION - 1);
 
         assert!(!super::valid_stored_row(&value));
     }
