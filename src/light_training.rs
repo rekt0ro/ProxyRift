@@ -257,10 +257,15 @@ fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats
             }
         }
 
-        if label
-            .and_then(|label| label.get("stream_tested"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
+        let stream_validation_version = label
+            .and_then(|label| label.get("stream_validation_version"))
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        if stream_validation_version >= 2
+            && label
+                .and_then(|label| label.get("stream_tested"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
         {
             stream_tests += 1;
             if label
@@ -736,6 +741,31 @@ mod tests {
         };
         assert!(ready.strict_model_ready());
         assert!(ready.end_to_end_model_ready());
+    }
+
+    #[test]
+    fn legacy_short_stream_results_do_not_count_toward_current_readiness() {
+        let path = temp_path();
+        let mut legacy = row("legacy-short-stream", 1_000, true, Some(true)).to_value();
+        legacy["label"]["stream_tested"] = Value::from(true);
+        legacy["label"]["stream_pass"] = Value::from(true);
+        legacy["label"]
+            .as_object_mut()
+            .expect("legacy label")
+            .remove("stream_validation_version");
+        fs::write(
+            &path,
+            serde_json::to_string(&legacy).expect("serialize legacy row") + "\n",
+        )
+        .expect("write legacy row");
+
+        let stats = persist_at(&path, &[row("current", 1_001, true, None)], 1_001)
+            .expect("persist current row");
+
+        assert_eq!(stats.rows, 2);
+        assert_eq!(stats.stream_tests, 0);
+        assert_eq!(stats.stream_passes, 0);
+        let _ = fs::remove_file(path);
     }
 
     #[test]
