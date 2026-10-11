@@ -1799,7 +1799,7 @@ async fn fill_transfer_stability_gate(
         }
 
         proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stability_tested.len(), batch.len(), 100, stability_verified.len() >= stability_target);
-            "[INFO] ✅ [1 MiB] {}/{} Passed both transfer destinations | Batch: {}s | Stable pool: {} | Transfer pipeline: active",
+            "[INFO] ✅ [1 MiB] {}/{} Passed the initial transfer probe | Batch: {}s | Stable pool: {} | Transfer pipeline: active",
             batch_passed,
             batch.len(),
             batch_elapsed,
