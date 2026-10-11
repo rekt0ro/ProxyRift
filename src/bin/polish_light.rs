@@ -2066,7 +2066,17 @@ async fn run_transfer_gate_consumer(
                 state.quarantined = true;
             }
         }
-        let Some(target_index) = select_transfer_target(&target_states) else {
+        let arvan_target_index = proxyrift::validator::STRICT_THROUGHPUT_TARGETS
+            .iter()
+            .position(|target| {
+                *target == proxyrift::validator::ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
+            });
+        let preferred_arvan_index = arvan_target_index.filter(|&index| {
+            target_tested_candidates[index].is_empty() && !target_states[index].quarantined
+        });
+        let Some(target_index) =
+            preferred_arvan_index.or_else(|| select_transfer_target(&target_states))
+        else {
             println!(
                 "[WARN] ⛔ [10 MiB] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
                 transfer_tested.len(),
