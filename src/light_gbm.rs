@@ -1028,7 +1028,7 @@ fn train_target_model(
         || negative < target.minimum_training_class_rows()
         || unique_candidates < target.minimum_unique_candidates()
     {
-        return Ok(TargetResult::unavailable(
+        let mut result = TargetResult::unavailable(
             target,
             format!(
                 "insufficient labelled data (rows={}, pass={}, fail={}, unique_candidates={})",
@@ -1037,7 +1037,12 @@ fn train_target_model(
                 negative,
                 unique_candidates
             ),
-        ));
+        );
+        result.report["labelled_rows"] = Value::from(rows.len() as u64);
+        result.report["pass_rows"] = Value::from(positive as u64);
+        result.report["fail_rows"] = Value::from(negative as u64);
+        result.report["unique_candidates"] = Value::from(unique_candidates as u64);
+        return Ok(result);
     }
 
     let mut timestamps = rows
@@ -1047,14 +1052,20 @@ fn train_target_model(
     timestamps.sort_unstable();
     timestamps.dedup();
     if timestamps.len() < target.minimum_timestamps() {
-        return Ok(TargetResult::unavailable(
+        let mut result = TargetResult::unavailable(
             target,
             format!(
                 "insufficient distinct observation timestamps (found={}, required={})",
                 timestamps.len(),
                 target.minimum_timestamps()
             ),
-        ));
+        );
+        result.report["labelled_rows"] = Value::from(rows.len() as u64);
+        result.report["pass_rows"] = Value::from(positive as u64);
+        result.report["fail_rows"] = Value::from(negative as u64);
+        result.report["unique_candidates"] = Value::from(unique_candidates as u64);
+        result.report["distinct_timestamps"] = Value::from(timestamps.len() as u64);
+        return Ok(result);
     }
     let holdout_start_index = (timestamps.len()
         * (HOLDOUT_FRACTION_DENOMINATOR - HOLDOUT_FRACTION_NUMERATOR))
@@ -1109,8 +1120,16 @@ fn train_target_model(
         );
         result.report["evaluation_strategy"] =
             Value::from("temporal_unseen_candidates_first_observation");
+        result.report["labelled_rows"] = Value::from(rows.len() as u64);
+        result.report["pass_rows"] = Value::from(positive as u64);
+        result.report["fail_rows"] = Value::from(negative as u64);
+        result.report["unique_candidates"] = Value::from(unique_candidates as u64);
         result.report["train_rows"] = Value::from(training.len() as u64);
+        result.report["train_pass_rows"] = Value::from(training_positive as u64);
+        result.report["train_fail_rows"] = Value::from(training_negative as u64);
         result.report["holdout_rows"] = Value::from(holdout.len() as u64);
+        result.report["holdout_pass_rows"] = Value::from(holdout_positive as u64);
+        result.report["holdout_fail_rows"] = Value::from(holdout_negative as u64);
         result.report["holdout_unique_candidates"] = Value::from(holdout.len() as u64);
         result.report["holdout_eligible_unseen_rows"] =
             Value::from(eligible_unseen_holdout_rows as u64);
