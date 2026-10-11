@@ -2181,7 +2181,12 @@ mod tests {
             rows.push(serde_json::to_string(&repeated).unwrap());
             if index == 0 {
                 rows.push(
-                    serde_json::to_string(&stored_row(base_timestamp + 100, "other-candidate", false)).unwrap(),
+                    serde_json::to_string(&stored_row(
+                        base_timestamp + 100,
+                        "other-candidate",
+                        false,
+                    ))
+                    .unwrap(),
                 );
             }
         }
