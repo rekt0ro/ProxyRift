@@ -69,13 +69,10 @@ const STABILITY_TARGET_SAFETY_FACTOR: f64 = 1.15;
 const STABILITY_TARGET_MIN_RESERVE: usize = 24;
 const STABILITY_COMPLETION_GRACE_REMAINING: usize = 24;
 const STABILITY_COMPLETION_BATCH_SIZE: usize = 8;
-const STREAM_CONTINUITY_TEST_LIMIT: usize = 240;
 const STREAM_CONTINUITY_RESERVE_PERCENT: usize = 5;
 const STREAM_CONTINUITY_RESERVE_MAX: usize = 16;
-const STREAM_CONTINUITY_BATCH_SIZE: usize = 24;
 const STREAM_CONTINUITY_WORKERS: usize = 24;
-const STREAM_START_TRANSFER_THRESHOLD: usize = 96;
-const STREAM_CONTINUITY_SEGMENTS: usize = 3;
+const STREAM_CONTINUITY_SEGMENTS: usize = 9;
 const STREAM_CONTINUITY_SEGMENT_BYTES: usize = 1_048_576;
 const STREAM_CONTINUITY_MAX_IDLE_SECS: u64 = 4;
 const FINAL_TRANSFER_TIMEOUT_SECS: f64 = 15.0;
@@ -89,9 +86,6 @@ const HISTORICAL_LIGHT_COHORTS: usize = 2;
 const PREVIOUS_COHORT_MIN_PERCENT: usize = 20;
 const OLDER_COHORT_MIN_PERCENT: usize = 10;
 const MIN_COHORT_RETENTION_COUNT: usize = 4;
-
-type StreamTaskResult = Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String>;
-type StreamTask = tokio::task::JoinHandle<StreamTaskResult>;
 
 fn final_publication_limit(selection_target: usize) -> usize {
     selection_target
@@ -1252,40 +1246,52 @@ async fn validate_light_transfer_batch(
         }
     }
 
+    // The first 1 MiB has already passed. Require the remaining 9 MiB to
+    // arrive as a sustained stream before a candidate can enter sub-light.
+    let targets = [target];
     let request_timeout = std::time::Duration::from_secs_f64(FINAL_TRANSFER_TIMEOUT_SECS);
+    let max_idle_gap = std::time::Duration::from_secs(STREAM_CONTINUITY_MAX_IDLE_SECS);
+    let transfer_workers = workers.clamp(1, STREAM_CONTINUITY_WORKERS);
 
     let mut singbox_validation_candidates = singbox_candidates;
     singbox_validation_candidates.extend(fallback_candidates.iter().cloned());
-    let xray_validation_candidates = xray_candidates;
 
     let singbox_future = async {
         if singbox_validation_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            proxyrift::singbox::validate_candidates_with_target_pool_once(
+            validate_singbox_target_pool_once_with_sustained_stream(
                 singbox,
                 &singbox_validation_candidates,
-                target,
-                workers,
+                &targets,
+                transfer_workers,
                 request_timeout,
                 FINAL_TRANSFER_LATENCY_LIMIT_MS,
+                STREAM_CONTINUITY_SEGMENTS,
+                STREAM_CONTINUITY_SEGMENT_BYTES,
+                max_idle_gap,
+                1,
             )
             .await
         }
     };
 
     let xray_future = async {
-        if xray_validation_candidates.is_empty() {
+        if xray_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            proxyrift::validator::validate_candidates_with_target_pool_once(
+            validate_candidates_with_target_pool_once_with_sustained_stream(
                 xray,
-                &xray_validation_candidates,
-                target,
-                workers,
-                1000,
+                &xray_candidates,
+                &targets,
+                transfer_workers,
+                FINAL_TRANSFER_BATCH_SIZE,
                 FINAL_TRANSFER_TIMEOUT_SECS,
                 FINAL_TRANSFER_LATENCY_LIMIT_MS,
+                STREAM_CONTINUITY_SEGMENTS,
+                STREAM_CONTINUITY_SEGMENT_BYTES,
+                max_idle_gap,
+                1,
             )
             .await
         }
@@ -1296,7 +1302,7 @@ async fn validate_light_transfer_batch(
     let singbox_metadata = match singbox_result {
         Ok(metadata) => metadata,
         Err(error) => {
-            println!("[WARN] ⚠️ Sing-box validation failed for this batch; preserving Xray results: {error}");
+            println!("[WARN] ⚠️ Sing-box sustained transfer failed for this batch; preserving Xray results: {error}");
             HashMap::new()
         }
     };
@@ -1304,7 +1310,7 @@ async fn validate_light_transfer_batch(
     let mut xray_metadata = match xray_result {
         Ok(metadata) => metadata,
         Err(error) => {
-            println!("[WARN] ⚠️ Xray validation failed for this batch; preserving sing-box results: {error}");
+            println!("[WARN] ⚠️ Xray sustained transfer failed for this batch; preserving sing-box results: {error}");
             HashMap::new()
         }
     };
@@ -1315,20 +1321,24 @@ async fn validate_light_transfer_batch(
         .collect::<Vec<_>>();
 
     if !fallback_retry.is_empty() {
-        match proxyrift::validator::validate_candidates_with_target_once(
+        match validate_candidates_with_target_pool_once_with_sustained_stream(
             xray,
             &fallback_retry,
-            target,
-            workers,
-            1000,
+            &targets,
+            transfer_workers,
+            FINAL_TRANSFER_BATCH_SIZE,
             FINAL_TRANSFER_TIMEOUT_SECS,
             FINAL_TRANSFER_LATENCY_LIMIT_MS,
+            STREAM_CONTINUITY_SEGMENTS,
+            STREAM_CONTINUITY_SEGMENT_BYTES,
+            max_idle_gap,
+            1,
         )
         .await
         {
             Ok(fallback_xray) => xray_metadata.extend(fallback_xray),
             Err(error) => println!(
-                "[WARN] ⚠️ Xray fallback validation failed for {} candidates: {error}",
+                "[WARN] ⚠️ Xray sustained fallback failed for {} candidates: {error}",
                 fallback_retry.len()
             ),
         }
@@ -1421,106 +1431,6 @@ async fn validate_light_transfer_stability_batch(
             FINAL_TRANSFER_TIMEOUT_SECS,
             STABILITY_TRANSFER_MAX_LATENCY_MS,
             LIGHT_TRANSFER_STABILITY_BYTES,
-            LIGHT_TRANSFER_MINIMUM_TARGETS,
-        )
-        .await?;
-        xray_metadata.extend(fallback_xray);
-    }
-
-    Ok(merge_light_metadata(xray_metadata, singbox_metadata))
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn validate_light_stream_continuity_batch(
-    xray: &str,
-    singbox: &str,
-    candidates: &[String],
-    workers: usize,
-) -> Result<HashMap<String, ProxyMetrics>, String> {
-    if candidates.is_empty() {
-        return Ok(HashMap::new());
-    }
-
-    let mut singbox_candidates = Vec::new();
-    let mut xray_candidates = Vec::new();
-    let mut fallback_candidates = Vec::new();
-
-    for config in candidates {
-        match light_backend(config) {
-            LightBackend::SingBox => singbox_candidates.push(config.clone()),
-            LightBackend::Xray => xray_candidates.push(config.clone()),
-            LightBackend::Fallback => fallback_candidates.push(config.clone()),
-        }
-    }
-
-    let request_timeout = std::time::Duration::from_secs_f64(FINAL_TRANSFER_TIMEOUT_SECS);
-    let max_idle_gap = std::time::Duration::from_secs(STREAM_CONTINUITY_MAX_IDLE_SECS);
-
-    let mut singbox_validation_candidates = singbox_candidates;
-    singbox_validation_candidates.extend(fallback_candidates.iter().cloned());
-
-    let singbox_future = async {
-        if singbox_validation_candidates.is_empty() {
-            Ok(HashMap::new())
-        } else {
-            validate_singbox_target_pool_once_with_sustained_stream(
-                singbox,
-                &singbox_validation_candidates,
-                LIGHT_TRANSFER_STABILITY_TARGETS,
-                workers.clamp(1, STREAM_CONTINUITY_WORKERS),
-                request_timeout,
-                FINAL_TRANSFER_LATENCY_LIMIT_MS,
-                STREAM_CONTINUITY_SEGMENTS,
-                STREAM_CONTINUITY_SEGMENT_BYTES,
-                max_idle_gap,
-                LIGHT_TRANSFER_MINIMUM_TARGETS,
-            )
-            .await
-        }
-    };
-
-    let xray_future = async {
-        if xray_candidates.is_empty() {
-            Ok(HashMap::new())
-        } else {
-            validate_candidates_with_target_pool_once_with_sustained_stream(
-                xray,
-                &xray_candidates,
-                LIGHT_TRANSFER_STABILITY_TARGETS,
-                workers.clamp(1, STREAM_CONTINUITY_WORKERS),
-                STREAM_CONTINUITY_BATCH_SIZE,
-                FINAL_TRANSFER_TIMEOUT_SECS,
-                FINAL_TRANSFER_LATENCY_LIMIT_MS,
-                STREAM_CONTINUITY_SEGMENTS,
-                STREAM_CONTINUITY_SEGMENT_BYTES,
-                max_idle_gap,
-                LIGHT_TRANSFER_MINIMUM_TARGETS,
-            )
-            .await
-        }
-    };
-
-    let (singbox_result, xray_result) = tokio::join!(singbox_future, xray_future);
-    let singbox_metadata = singbox_result?;
-    let mut xray_metadata = xray_result?;
-
-    let fallback_retry = fallback_candidates
-        .into_iter()
-        .filter(|config| !singbox_metadata.contains_key(config))
-        .collect::<Vec<_>>();
-
-    if !fallback_retry.is_empty() {
-        let fallback_xray = validate_candidates_with_target_pool_once_with_sustained_stream(
-            xray,
-            &fallback_retry,
-            LIGHT_TRANSFER_STABILITY_TARGETS,
-            workers.clamp(1, STREAM_CONTINUITY_WORKERS),
-            STREAM_CONTINUITY_BATCH_SIZE,
-            FINAL_TRANSFER_TIMEOUT_SECS,
-            FINAL_TRANSFER_LATENCY_LIMIT_MS,
-            STREAM_CONTINUITY_SEGMENTS,
-            STREAM_CONTINUITY_SEGMENT_BYTES,
-            max_idle_gap,
             LIGHT_TRANSFER_MINIMUM_TARGETS,
         )
         .await?;
@@ -1901,116 +1811,18 @@ async fn fill_transfer_stability_gate(
     ))
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn fill_stream_continuity_gate(
-    xray: &str,
-    singbox: &str,
+fn mirror_sustained_stream_results(
+    transfer_tested: &HashSet<String>,
     transfer_verified: &HashMap<String, ProxyMetrics>,
-    stream_verified: &mut HashMap<String, ProxyMetrics>,
     stream_tested: &mut HashSet<String>,
-    global_positions: &HashMap<String, usize>,
-    history: &HashMap<String, HistoryEntry>,
-    cohort_generations: &HashMap<String, usize>,
-    selection_limit: usize,
-    max_per_endpoint: usize,
-    max_per_family: usize,
-) -> Result<usize, String> {
-    if transfer_verified.is_empty() {
-        return Ok(0);
-    }
-
-    let test_limit = STREAM_CONTINUITY_TEST_LIMIT.min(transfer_verified.len());
-    let already_selectable = stream_selection_count(
-        stream_verified,
-        cohort_generations,
-        global_positions,
-        history,
-        selection_limit,
-        max_per_endpoint,
-        max_per_family,
-    );
-    if already_selectable >= selection_limit {
-        return Ok(stream_verified.len());
-    }
-
-    loop {
-        if stream_tested.len() >= test_limit {
-            println!(
-                "[INFO] 🎯 [Stream] Continuity test limit reached | Passed: {} | Tested: {} | Limit: {}",
-                stream_verified.len(),
-                stream_tested.len(),
-                test_limit
-            );
-            return Ok(stream_verified.len());
-        }
-
-        let mut ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
-        sort_ranked(&mut ranked, transfer_verified, global_positions, history);
-
-        let untested = ranked
-            .into_iter()
-            .filter(|config| !stream_tested.contains(config))
-            .collect::<Vec<_>>();
-        if untested.is_empty() {
-            return Ok(stream_verified.len());
-        }
-
-        let remaining_budget = test_limit.saturating_sub(stream_tested.len());
-        let batch_limit = remaining_budget.clamp(1, STREAM_CONTINUITY_BATCH_SIZE);
-        let batch = diversify_recheck_candidates(&untested, batch_limit, RECHECK_FAMILY_DIVERSITY);
-        if batch.is_empty() {
-            return Ok(stream_verified.len());
-        }
-
-        stream_tested.extend(batch.iter().cloned());
-        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stream_tested.len(), batch.len(), STREAM_CONTINUITY_BATCH_SIZE * 4, stream_tested.len() >= test_limit);
-            "[INFO] 📥 [Stream] Continuity pool: {}/{} | Testing {} | Tested: {}/{}",
-            stream_verified.len(),
-            test_limit,
-            batch.len(),
-            stream_tested.len(),
-            test_limit
-        );
-
-        let batch_started = Instant::now();
-        let metadata = validate_light_stream_continuity_batch(
-            xray,
-            singbox,
-            &batch,
-            STREAM_CONTINUITY_WORKERS,
-        )
-        .await?;
-        let batch_passed = metadata.len();
-        stream_verified.extend(metadata);
-
-        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stream_tested.len(), batch.len(), STREAM_CONTINUITY_BATCH_SIZE * 4, stream_tested.len() >= test_limit);
-            "[INFO] ✅ [Stream] {}/{} Passed continuity | Stream pool: {} | Batch: {}s",
-            batch_passed,
-            batch.len(),
-            stream_verified.len(),
-            batch_started.elapsed().as_secs()
-        );
-
-        let selectable = stream_selection_count(
-            stream_verified,
-            cohort_generations,
-            global_positions,
-            history,
-            selection_limit,
-            max_per_endpoint,
-            max_per_family,
-        );
-        if selectable >= selection_limit {
-            println!(
-                "[INFO] 🎯 [Stream] Output quota is fillable | Selectable: {}/{} | Tested: {} | Passed: {} | Stopping additional continuity probes",
-                selectable,
-                selection_limit,
-                stream_tested.len(),
-                stream_verified.len()
-            );
-            return Ok(stream_verified.len());
-        }
-    }
+    stream_verified: &mut HashMap<String, ProxyMetrics>,
+) -> usize {
+    // The transfer pass is the sustained 9 MiB continuation after the
+    // mandatory 1 MiB stability stage. Reuse its outcomes instead of
+    // issuing a duplicate, independent stream download.
+    stream_tested.clone_from(transfer_tested);
+    stream_verified.clone_from(transfer_verified);
+    stream_verified.len()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2591,6 +2403,7 @@ fn stage_selectable_count(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn stream_selection_count(
     stream_verified: &HashMap<String, ProxyMetrics>,
     cohort_generations: &HashMap<String, usize>,
@@ -3158,70 +2971,6 @@ async fn validate_light_batch(
     Ok(verified)
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn run_stream_continuity_snapshot(
-    xray: String,
-    singbox: String,
-    transfer_verified: HashMap<String, ProxyMetrics>,
-    global_positions: HashMap<String, usize>,
-    history: HashMap<String, HistoryEntry>,
-    existing_stream_verified: HashMap<String, ProxyMetrics>,
-    existing_stream_tested: HashSet<String>,
-    cohort_generations: HashMap<String, usize>,
-    selection_limit: usize,
-    max_per_endpoint: usize,
-    max_per_family: usize,
-) -> Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String> {
-    let mut stream_verified = existing_stream_verified;
-    let mut stream_tested = existing_stream_tested;
-
-    fill_stream_continuity_gate(
-        &xray,
-        &singbox,
-        &transfer_verified,
-        &mut stream_verified,
-        &mut stream_tested,
-        &global_positions,
-        &history,
-        &cohort_generations,
-        selection_limit,
-        max_per_endpoint,
-        max_per_family,
-    )
-    .await?;
-
-    Ok((stream_verified, stream_tested))
-}
-
-async fn merge_finished_stream_task(
-    stream_task: &mut Option<StreamTask>,
-    stream_verified: &mut HashMap<String, ProxyMetrics>,
-    stream_tested: &mut HashSet<String>,
-) -> Result<bool, String> {
-    if !stream_task.as_ref().is_some_and(|task| task.is_finished()) {
-        return Ok(false);
-    }
-
-    let Some(handle) = stream_task.take() else {
-        return Ok(false);
-    };
-
-    match handle.await {
-        Ok(Ok((completed_stream, completed_tested))) => {
-            stream_verified.extend(completed_stream);
-            stream_tested.extend(completed_tested);
-            println!(
-                "[INFO] 🧵 [Stream] Background validation merged | Tested: {} | Passed: {}",
-                stream_tested.len(),
-                stream_verified.len()
-            );
-            Ok(true)
-        }
-        Ok(Err(error)) => Err(error),
-        Err(error) => Err(format!("stream background task failed: {error}")),
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
@@ -3393,7 +3142,6 @@ async fn main() -> Result<(), String> {
     let mut transfer_tested = HashSet::<String>::new();
     let mut stream_verified = HashMap::<String, ProxyMetrics>::new();
     let mut stream_tested = HashSet::<String>::new();
-    let mut stream_task: Option<StreamTask> = None;
 
     let discovery_seed = recheck_exploration_seed(0);
     let current_cohort = light_cohorts.first().cloned().unwrap_or_default();
@@ -3428,30 +3176,6 @@ async fn main() -> Result<(), String> {
     );
 
     loop {
-        if let Some(handle) = stream_task.take() {
-            if handle.is_finished() {
-                match handle.await {
-                    Ok(Ok((completed_stream, completed_tested))) => {
-                        stream_verified.extend(completed_stream);
-                        stream_tested.extend(completed_tested);
-                        println!(
-                            "[INFO] 🧵 [Stream] Background batch merged | Tested: {} | Passed: {}",
-                            stream_tested.len(),
-                            stream_verified.len()
-                        );
-                    }
-                    Ok(Err(error)) => {
-                        println!("[WARN] ⚠️ [Stream] Background validation failed | {error}");
-                    }
-                    Err(error) => {
-                        println!("[WARN] ⚠️ [Stream] Background task failed | {error}");
-                    }
-                }
-            } else {
-                stream_task = Some(handle);
-            }
-        }
-
         let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
             &mut transfer_ranked,
@@ -3723,6 +3447,12 @@ async fn main() -> Result<(), String> {
                 max_per_family,
             )
             .await?;
+            mirror_sustained_stream_results(
+                &transfer_tested,
+                &transfer_verified,
+                &mut stream_tested,
+                &mut stream_verified,
+            );
 
             let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
             sort_ranked(
@@ -3738,59 +3468,6 @@ async fn main() -> Result<(), String> {
                 max_per_family,
             )
             .len();
-
-            let _ = merge_finished_stream_task(
-                &mut stream_task,
-                &mut stream_verified,
-                &mut stream_tested,
-            )
-            .await?;
-
-            if transfer_selected >= STREAM_START_TRANSFER_THRESHOLD
-                && stream_task.is_none()
-                && stream_tested.len() < STREAM_CONTINUITY_TEST_LIMIT.min(transfer_verified.len())
-                && stream_selection_count(
-                    &stream_verified,
-                    &cohort_generations,
-                    &global_positions,
-                    &history,
-                    selection_limit,
-                    max_per_endpoint,
-                    max_per_family,
-                ) < selection_limit
-            {
-                let transfer_snapshot = transfer_verified.clone();
-                let positions_snapshot = global_positions.clone();
-                let history_snapshot = history.clone();
-                let stream_verified_snapshot = stream_verified.clone();
-                let stream_tested_snapshot = stream_tested.clone();
-                let cohort_generations_snapshot = cohort_generations.clone();
-                let xray_snapshot = xray.clone();
-                let singbox_snapshot = singbox.clone();
-
-                println!(
-                    "[INFO] 🧵 [Stream] Starting background continuity validation | Transfer pool: {} | Already tested: {}",
-                    transfer_selected,
-                    stream_tested.len()
-                );
-
-                stream_task = Some(tokio::spawn(async move {
-                    run_stream_continuity_snapshot(
-                        xray_snapshot,
-                        singbox_snapshot,
-                        transfer_snapshot,
-                        positions_snapshot,
-                        history_snapshot,
-                        stream_verified_snapshot,
-                        stream_tested_snapshot,
-                        cohort_generations_snapshot,
-                        selection_limit,
-                        max_per_endpoint,
-                        max_per_family,
-                    )
-                    .await
-                }));
-            }
 
             let publishable_selected = select_verified_configs(
                 &stream_verified.keys().cloned().collect::<Vec<_>>(),
@@ -3809,21 +3486,17 @@ async fn main() -> Result<(), String> {
                 stream_verified.len(),
                 stream_tested.len(),
                 publishable_selected,
-                stream_task.is_some(),
             );
             if last_funnel_snapshot != Some(funnel_snapshot) {
                 println!(
-                    "[INFO] 📈 [Light adaptive funnel] Strict: {} | 1 MiB: {}/{} | 10 MiB: {}/{} | Stream: {}/{} | Publishable: {}/{} | Background: {}",
+                    "[INFO] 📈 [Light adaptive funnel] Strict: {} | 1 MiB: {}/{} | 9 MiB sustained: {}/{} | Sub-light-ready: {}/{}",
                     final_metadata.len(),
                     stability_verified.len(),
                     stability_tested.len(),
                     transfer_verified.len(),
                     transfer_tested.len(),
-                    stream_verified.len(),
-                    stream_tested.len(),
                     publishable_selected,
-                    selection_limit,
-                    stream_task.is_some()
+                    selection_limit
                 );
                 last_funnel_snapshot = Some(funnel_snapshot);
             }
@@ -3922,22 +3595,6 @@ async fn main() -> Result<(), String> {
         }
     }
 
-    if let Some(handle) = stream_task.take() {
-        match handle.await {
-            Ok(Ok((completed_stream, completed_tested))) => {
-                stream_verified.extend(completed_stream);
-                stream_tested.extend(completed_tested);
-                println!(
-                    "[INFO] 🧵 [Stream] Background validation merged before final gate | Tested: {} | Passed: {}",
-                    stream_tested.len(),
-                    stream_verified.len()
-                );
-            }
-            Ok(Err(error)) => return Err(error),
-            Err(error) => return Err(format!("stream background task failed: {error}")),
-        }
-    }
-
     sort_ranked(
         &mut final_verified,
         &final_metadata,
@@ -3961,20 +3618,12 @@ async fn main() -> Result<(), String> {
     )
     .await?;
 
-    let stream_selected = fill_stream_continuity_gate(
-        &xray,
-        &singbox,
+    let stream_selected = mirror_sustained_stream_results(
+        &transfer_tested,
         &transfer_verified,
-        &mut stream_verified,
         &mut stream_tested,
-        &global_positions,
-        &history,
-        &cohort_generations,
-        selection_limit,
-        max_per_endpoint,
-        max_per_family,
-    )
-    .await?;
+        &mut stream_verified,
+    );
 
     let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
     sort_ranked(
@@ -4126,6 +3775,14 @@ async fn main() -> Result<(), String> {
         selected.len()
     );
 
+    let mut full_path_tested = transfer_tested.clone();
+    full_path_tested.extend(
+        stability_tested
+            .iter()
+            .filter(|config| !stability_verified.contains_key(*config))
+            .cloned(),
+    );
+
     persist_light_result(
         &output,
         &selected,
@@ -4134,10 +3791,10 @@ async fn main() -> Result<(), String> {
         &final_attempts,
         &final_metadata,
         &global_metadata,
+        &full_path_tested,
+        &transfer_verified,
         &transfer_tested,
         &transfer_verified,
-        &stream_tested,
-        &stream_verified,
     )?;
     println!(
         "[INFO] ✅ [Light] Published {} configs | Discovery: {} | Strict attempts: {} | Strictly verified: {} | Transfer tested: {} | Transfer passes: {}",
@@ -4158,7 +3815,7 @@ mod tests {
         adaptive_stability_target, adaptive_strict_validation_target, adaptive_transfer_test_limit,
         adjust_discovery_batch_for_yield, adjust_transfer_workers, final_publication_limit,
         has_disabled_tls_verification, history_fingerprint, light_backend, light_training_features,
-        merge_light_metadata, normalize_light_config, observation_fingerprint,
+        merge_light_metadata, mirror_sustained_stream_results, normalize_light_config, observation_fingerprint,
         rank_discovery_candidates, recheck_exploration_limit, select_recheck_candidates,
         select_stability_test_batch, select_transfer_target, select_verified_configs,
         select_verified_configs_with_cohort_floor, selection_additional_potential_count,
@@ -4167,11 +3824,58 @@ mod tests {
         strict_validation_target, transfer_target_batch_limit, transfer_validation_target,
         update_transfer_target_state, AdaptiveStrictValidationInputs, LightBackend, LightGbmScores,
         ProxyMetrics, TransferConcurrencyState, TransferTargetState,
-        FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, MAX_DISCOVERY_CANDIDATES,
+        FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES,
+        MAX_DISCOVERY_CANDIDATES, STREAM_CONTINUITY_SEGMENT_BYTES, STREAM_CONTINUITY_SEGMENTS,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn staged_light_transfer_requires_ten_mib_before_publication() {
+        const MIB: usize = 1_048_576;
+        assert_eq!(LIGHT_TRANSFER_STABILITY_BYTES, MIB);
+        assert_eq!(STREAM_CONTINUITY_SEGMENTS, 9);
+        assert_eq!(STREAM_CONTINUITY_SEGMENT_BYTES, MIB);
+        assert_eq!(
+            LIGHT_TRANSFER_STABILITY_BYTES
+                + STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
+            10 * MIB
+        );
+    }
+
+    #[test]
+    fn publishable_stream_results_match_the_sustained_transfer_gate() {
+        let passing = "vless://ok@example.net:443".to_string();
+        let failed = "vless://failed@example.org:443".to_string();
+        let metrics = ProxyMetrics {
+            successes: 1,
+            attempts: 1,
+            median_ms: 10.0,
+            min_ms: 10.0,
+            jitter_ms: 0.0,
+            throughput_kbps: 1000.0,
+        };
+        let transfer_tested = HashSet::from([passing.clone(), failed.clone()]);
+        let transfer_verified = HashMap::from([(passing.clone(), metrics)]);
+        let mut stream_tested = HashSet::new();
+        let mut stream_verified = HashMap::new();
+
+        let passed = mirror_sustained_stream_results(
+            &transfer_tested,
+            &transfer_verified,
+            &mut stream_tested,
+            &mut stream_verified,
+        );
+
+        assert_eq!(passed, 1);
+        assert_eq!(stream_tested, transfer_tested);
+        assert_eq!(
+            stream_verified.keys().cloned().collect::<HashSet<_>>(),
+            HashSet::from([passing])
+        );
+        assert!(!stream_verified.contains_key(&failed));
+    }
 
     #[test]
     fn discovery_batch_expands_when_selectable_yield_stalls() {
