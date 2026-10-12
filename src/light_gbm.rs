@@ -2087,7 +2087,8 @@ mod tests {
         backend_for_config, candidate_fingerprint, config_feature_vector,
         first_unseen_holdout_indices, history_feature_vector, load_training, parse_config_features,
         port_bucket, recency_weight, target_label_history, temporal_cutoff, top_quintile_pass_rate,
-        ModelTarget, TrainingExample, HISTORY_FEATURE_COUNT, MIN_RECENCY_WEIGHT, MODEL_FEATURE_COUNT,
+        ModelTarget, TrainingExample, HISTORY_FEATURE_COUNT, MIN_RECENCY_WEIGHT,
+        MODEL_FEATURE_COUNT,
     };
     use base64::Engine as _;
     use serde_json::{json, Map, Value};
