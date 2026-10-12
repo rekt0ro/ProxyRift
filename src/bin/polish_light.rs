@@ -1988,7 +1988,6 @@ async fn run_transfer_gate_consumer(
         }
 
         transfer_tested.extend(batch.iter().cloned());
-        transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
 
         target_tested_candidates[target_index].extend(batch.iter().cloned());
 
