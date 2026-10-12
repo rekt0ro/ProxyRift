@@ -27,7 +27,13 @@ cat > "$work/proxyrift/light-stats.json" <<'JSON'
   "transfer_passed": 211,
   "stream_continuity_tested": 211,
   "stream_continuity_passed": 209,
-  "published": 200
+  "published": 200,
+  "historical_subscription_revisions": 8,
+  "recent_family_keys": 400,
+  "fresh_family_target_percent": 70,
+  "score_independent_exploration_percent": 15,
+  "published_from_fresh_families": 140,
+  "published_from_recent_families": 60
 }
 JSON
 
@@ -155,6 +161,11 @@ cmp -s "$tmp/summary.md" "$work/proxyrift/run-summary.md"
 grep -Fq '| All | 1 |' "$tmp/summary.md"
 grep -Fq '| Light | 1 |' "$tmp/summary.md"
 grep -Fq '| Candidates considered | 15,000 |' "$tmp/summary.md"
+grep -Fq '| Recent subscription revisions considered | 8 |' "$tmp/summary.md"
+grep -Fq '| Recent family keys | 400 |' "$tmp/summary.md"
+grep -Fq '| Configs from fresh families | 140 of 200 (70.0%; target: 70%) |' "$tmp/summary.md"
+grep -Fq '| Configs from recent families | 60 |' "$tmp/summary.md"
+grep -Fq '| Score-independent discovery exploration | 15% |' "$tmp/summary.md"
 grep -Fq '| Strict validation | 300 of 317 passed |' "$tmp/summary.md"
 grep -Fq '| 10 MiB transfer | 211 of 232 passed |' "$tmp/summary.md"
 grep -Fq '| Light configs published | 200 of 200 target |' "$tmp/summary.md"
