@@ -54,7 +54,7 @@ jq -S '
 mv "$tmp_file" "$output_file"
 trap - EXIT
 
-if jq -e 'has("scores") or any(.model_report | paths(scalars) as $p | ($p[-1] | tostring | test("candidate|config|uri|url"; "i")))' "$output_file" >/dev/null; then
+if jq -e 'has("scores") or any(.. | objects | keys[]?; test("^(candidate_id|config_id|config|uri|url)$"; "i"))' "$output_file" >/dev/null; then
   printf '[ERROR] Sanitized LightGBM artifact unexpectedly contains raw score or candidate fields.\n' >&2
   exit 1
 fi
