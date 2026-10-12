@@ -38,7 +38,7 @@ cat > "$work/proxyrift/lightgbm-scores.json" <<'JSON'
   "feature_count": 66,
   "scores": {"candidate": 0.1},
   "model_report": {
-    "validation": "walk_forward_time_split",
+    "validation": "single_temporal_holdout_unseen_candidates_first_observation",
     "baseline": "training_prevalence_brier",
     "ranking_strategy": "stage_blend_fallback",
     "model_feature_count": 66,
@@ -53,6 +53,12 @@ cat > "$work/proxyrift/lightgbm-scores.json" <<'JSON'
         "model_brier": 0.10, "baseline_brier": 0.15,
         "model_top_20pct_pass_rate": 0.80, "holdout_pass_rate": 0.60,
         "recency_weighting_experiment": {
+          "selection_evaluation_strategy": "inner_temporal_holdout_unseen_candidates_first_observation",
+          "selection_available": true,
+          "selection_reason": "recency_weighted_passed_inner_selection_gate",
+          "selection_training_rows": 30000, "selection_holdout_rows": 600,
+          "selection_holdout_pass_rows": 420, "selection_holdout_fail_rows": 180,
+          "selection_baseline_brier": 0.15,
           "half_life_days": 3.0, "minimum_sample_weight": 0.1,
           "unweighted_brier": 0.13, "weighted_brier": 0.10,
           "unweighted_accepted": true, "weighted_accepted": true,
@@ -154,12 +160,12 @@ grep -Fq '| 10 MiB transfer | 211 of 232 passed |' "$tmp/summary.md"
 grep -Fq '| Light configs published | 200 of 200 target |' "$tmp/summary.md"
 grep -Fq '**Ranking:** Model-based ranking active — Stage-model blend (1 of 4 targets accepted).' "$tmp/summary.md"
 grep -Fq '**Training:** 50,000 rows · 66 features · Candidates scored: 1.' "$tmp/summary.md"
-grep -Fq '**Evaluation:** Walk-forward temporal split · Baseline: Training-prevalence Brier score.' "$tmp/summary.md"
+grep -Fq '**Evaluation:** Single temporal holdout on unseen candidates (first observations) · Baseline: Training-prevalence Brier score.' "$tmp/summary.md"
 grep -Fq '| Strict validation | Promoted after temporal validation | 0.10000 / 0.15000 | 80.0% / 60.0% |' "$tmp/summary.md"
 grep -Fq '| Transfer (10 MiB) | Did not beat unseen-candidate baseline | 0.22000 / 0.20000 | 70.0% / 75.0% |' "$tmp/summary.md"
 grep -Fq '| Stream stability | Top-20% pass rate below unseen-candidate baseline | 0.20000 / 0.19000 | 70.0% / 80.0% |' "$tmp/summary.md"
 grep -Fq '| End-to-end | Not promoted: insufficient labelled data | n/a / n/a | n/a / n/a |' "$tmp/summary.md"
-grep -Fq '**Recency weighting:** Strict validation — Recency-weighted · Brier 0.13000 → 0.10000 · Top-20% pass rate 70.0% → 80.0% · 3-day half-life, minimum weight 0.1.' "$tmp/summary.md"
+grep -Fq '**Recency strategy selection:** Strict validation — Recency-weighted · Inner holdout Brier (unweighted → weighted) 0.13000 → 0.10000 · Inner holdout Top-20% pass rate 70.0% → 80.0% · 3-day half-life, minimum weight 0.1.' "$tmp/summary.md"
 grep -Fq '**Training data:** 50,000 rows (278 new this run) · 4,044 unique candidates · 177 runs. Strict model: Ready · End-to-end model: Not ready.' "$tmp/summary.md"
 
 if grep -Eq 'walk_forward_time_split|training_prevalence_brier|model_did_not_beat_temporal_baseline|top_20pct_below_random_selection_baseline|\| Transfer \(10 MiB total\)' "$tmp/summary.md"; then
