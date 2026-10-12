@@ -804,8 +804,8 @@ fn historical_prior_score(features: &[f64]) -> f64 {
     let exact_observations = denormalized_log(features[history], 50_000.0);
     let family_observations = denormalized_log(features[history + 4], 50_000.0);
     let exact_weight = exact_observations / (exact_observations + 8.0);
-    let family_weight = family_observations / (family_observations + 20.0)
-        * features[history + 12].clamp(0.0, 1.0);
+    let family_weight =
+        family_observations / (family_observations + 20.0) * features[history + 12].clamp(0.0, 1.0);
     let total_weight = exact_weight + family_weight;
 
     if total_weight <= 0.0 {
@@ -827,7 +827,8 @@ fn historical_prior_score(features: &[f64]) -> f64 {
             - 0.04 * (features[history + 9].clamp(0.0, 1.0) - 0.5)
             - 0.02 * (features[history + 10].clamp(0.0, 1.0) - 0.5));
 
-    (DEFAULT_SCORE + confidence * (observed_quality - DEFAULT_SCORE)
+    (DEFAULT_SCORE
+        + confidence * (observed_quality - DEFAULT_SCORE)
         + confidence * performance_adjustment)
         .clamp(MIN_SCORE, MAX_SCORE)
 }
@@ -2144,8 +2145,8 @@ mod tests {
         backend_for_config, candidate_fingerprint, config_feature_vector, denormalized_log,
         first_unseen_holdout_indices, historical_prior_has_signal, historical_prior_score,
         history_feature_vector, load_training, parse_config_features, port_bucket, recency_weight,
-        target_label_history, temporal_cutoff, top_quintile_pass_rate, ModelTarget, TrainingExample,
-        HISTORY_FEATURE_COUNT, MIN_RECENCY_WEIGHT, MODEL_FEATURE_COUNT,
+        target_label_history, temporal_cutoff, top_quintile_pass_rate, ModelTarget,
+        TrainingExample, HISTORY_FEATURE_COUNT, MIN_RECENCY_WEIGHT, MODEL_FEATURE_COUNT,
     };
     use base64::Engine as _;
     use serde_json::{json, Map, Value};
