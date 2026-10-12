@@ -96,7 +96,7 @@ impl LightGbmScores {
             .map(|row| row.speed_kbps.ln())
             .collect::<Vec<_>>();
         let median_log_speed = median(&speed_logs).unwrap_or_else(|| 10_000.0_f64.ln());
-        let feature_rows = build_speed_training_features(&observations, median_log_speed);
+        let feature_rows = build_speed_training_features(&observations, 10_000.0_f64.ln());
         let (accepted, mut report) = evaluate_speed_regressor(&observations, &feature_rows, now);
 
         let mut booster = None;
