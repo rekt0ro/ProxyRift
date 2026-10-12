@@ -1269,7 +1269,7 @@ fn train_target_model(
                 .len()
                 .saturating_sub(selection_holdout_positive);
             let minimum_selection_holdout_class_rows =
-                target.minimum_holdout_class_rows().min(50).max(25);
+                target.minimum_holdout_class_rows().clamp(25, 50);
             let selection_data_is_representative = selection_training.len()
                 >= target.minimum_rows() / 2
                 && selection_train_positive >= target.minimum_training_class_rows()
@@ -1349,10 +1349,8 @@ fn train_target_model(
                     "recency_weighted"
                 } else if selection_unweighted.accepted {
                     "unweighted"
-                } else if !selection_weighted.accepted {
-                    "unweighted_default_no_variant_passed_selection_gate"
                 } else {
-                    "unweighted"
+                    "unweighted_default_no_variant_passed_selection_gate"
                 };
                 let selection_reason = if use_weighted {
                     "recency_weighted_passed_inner_selection_gate"
