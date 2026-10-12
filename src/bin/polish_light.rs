@@ -6,15 +6,15 @@ use proxyrift::light_training::{
 };
 use proxyrift::singbox::{
     validate_candidates_with_consumer_targets as validate_singbox_consumer_targets,
-    validate_candidates_with_target_once as validate_singbox_target_once,
     validate_candidates_with_ordered_target_pool_once_with_minimum_body as validate_singbox_target_pool_once_with_minimum_body,
+    validate_candidates_with_target_once as validate_singbox_target_once,
     validate_candidates_with_target_pool_once_with_sustained_stream as validate_singbox_target_pool_once_with_sustained_stream,
 };
 use proxyrift::validator::{
     endpoint, is_light_consumer_compatible, read_lines, target_is_rate_limited,
     target_rate_limit_events, validate_candidates_with_consumer_targets,
-    validate_candidates_with_target_once,
     validate_candidates_with_ordered_target_pool_once_with_minimum_body,
+    validate_candidates_with_target_once,
     validate_candidates_with_target_pool_once_with_sustained_stream, write_lines, ProxyMetrics,
     LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_MINIMUM_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES,
     LIGHT_TRANSFER_STABILITY_TARGETS, PRIMARY_TARGET,
@@ -2719,8 +2719,7 @@ fn write_light_validation_report(
     transfer_verified: &HashMap<String, ProxyMetrics>,
     light_gbm_scores: &LightGbmScores,
 ) -> Result<String, String> {
-    let output_dir =
-        env::var("PROXYRIFT_TMP_DIR").unwrap_or_else(|_| "/tmp/proxyrift".to_string());
+    let output_dir = env::var("PROXYRIFT_TMP_DIR").unwrap_or_else(|_| "/tmp/proxyrift".to_string());
     std::fs::create_dir_all(&output_dir)
         .map_err(|error| format!("failed to create Light validation report directory: {error}"))?;
 
@@ -3210,8 +3209,12 @@ async fn main() -> Result<(), String> {
         light_cohorts.len(),
         RECHECK_EXPLORATION_PERCENT
     );
-    let discovery_candidates =
-        rank_discovery_candidates(&candidates, &light_gbm_scores, discovery_seed, &recent_families);
+    let discovery_candidates = rank_discovery_candidates(
+        &candidates,
+        &light_gbm_scores,
+        discovery_seed,
+        &recent_families,
+    );
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
     let mut stagnant_waves = 0usize;
@@ -3876,12 +3879,12 @@ mod tests {
         adaptive_stability_target, adaptive_strict_validation_target, adaptive_transfer_test_limit,
         adjust_discovery_batch_for_yield, adjust_transfer_workers, final_publication_limit,
         has_disabled_tls_verification, history_fingerprint, light_backend, light_training_features,
-        singbox_qualified_metadata, mirror_sustained_stream_results, normalize_light_config,
-        observation_fingerprint, rank_discovery_candidates, recheck_exploration_limit,
-        select_recheck_candidates, select_stability_test_batch, select_transfer_target,
-        select_verified_configs, select_verified_configs_with_freshness_quota,
-        selection_additional_potential_count, selection_eligible_count, selection_potential_count,
-        selection_rejection_counts, should_quarantine_transfer_target, stream_selection_count,
+        mirror_sustained_stream_results, normalize_light_config, observation_fingerprint,
+        rank_discovery_candidates, recheck_exploration_limit, select_recheck_candidates,
+        select_stability_test_batch, select_transfer_target, select_verified_configs,
+        select_verified_configs_with_freshness_quota, selection_additional_potential_count,
+        selection_eligible_count, selection_potential_count, selection_rejection_counts,
+        should_quarantine_transfer_target, singbox_qualified_metadata, stream_selection_count,
         strict_validation_batch_limit, strict_validation_target, transfer_target_batch_limit,
         transfer_validation_target, update_transfer_target_state, AdaptiveStrictValidationInputs,
         LightBackend, LightGbmScores, ProxyMetrics, TransferConcurrencyState, TransferTargetState,
@@ -3916,7 +3919,7 @@ mod tests {
             min_ms: 10.0,
             jitter_ms: 0.0,
             throughput_kbps: 1000.0,
-                    successful_targets: Vec::new(),
+            successful_targets: Vec::new(),
         };
         let transfer_tested = HashSet::from([passing.clone(), failed.clone()]);
         let transfer_verified = HashMap::from([(passing.clone(), metrics)]);
@@ -4413,12 +4416,8 @@ mod tests {
             .map(|config| super::family_key(config))
             .collect::<HashSet<_>>();
 
-        let ranked = rank_discovery_candidates(
-            &configs,
-            &LightGbmScores::default(),
-            123,
-            &recent_families,
-        );
+        let ranked =
+            rank_discovery_candidates(&configs, &LightGbmScores::default(), 123, &recent_families);
 
         assert_eq!(ranked.len(), configs.len());
         assert!(ranked[..fresh.len()]
@@ -4433,11 +4432,8 @@ mod tests {
             .collect::<Vec<_>>();
         let positions = HashMap::from([(configs[77].clone(), 0usize), (configs[0].clone(), 1usize)]);
 
-        let ranked = super::rank_strict_recheck_candidates(
-            &configs,
-            &LightGbmScores::default(),
-            &positions,
-        );
+        let ranked =
+            super::rank_strict_recheck_candidates(&configs, &LightGbmScores::default(), &positions);
 
         assert_eq!(ranked[0], configs[77]);
     }
