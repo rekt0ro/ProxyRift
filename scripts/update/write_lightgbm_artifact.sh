@@ -19,14 +19,23 @@ fi
 tmp_file="$(mktemp "${output_file}.tmp.XXXXXX")"
 trap 'rm -f "$tmp_file"' EXIT
 jq -S '
+  def optional_field($name): if has($name) then .[$name] else null end;
   def recency_summary:
     if type == "object" then {
+      selection_evaluation_strategy: (.selection_evaluation_strategy // null),
+      selection_available: optional_field("selection_available"),
+      selection_reason: (.selection_reason // null),
+      selection_training_rows: (.selection_training_rows // null),
+      selection_holdout_rows: (.selection_holdout_rows // null),
+      selection_holdout_pass_rows: (.selection_holdout_pass_rows // null),
+      selection_holdout_fail_rows: (.selection_holdout_fail_rows // null),
+      selection_baseline_brier: (.selection_baseline_brier // null),
       half_life_days: (.half_life_days // null),
       minimum_sample_weight: (.minimum_sample_weight // null),
       unweighted_brier: (.unweighted_brier // null),
       weighted_brier: (.weighted_brier // null),
-      unweighted_accepted: (.unweighted_accepted // null),
-      weighted_accepted: (.weighted_accepted // null),
+      unweighted_accepted: optional_field("unweighted_accepted"),
+      weighted_accepted: optional_field("weighted_accepted"),
       unweighted_top_20pct_pass_rate: (.unweighted_top_20pct_pass_rate // null),
       weighted_top_20pct_pass_rate: (.weighted_top_20pct_pass_rate // null),
       selected_strategy: (.selected_strategy // null)
@@ -51,7 +60,7 @@ jq -S '
       targets: (
         (.model_report.targets // {}) | with_entries(
           .value |= {
-            accepted: (.accepted // null),
+            accepted: optional_field("accepted"),
             reason: (.reason // null),
             labelled_rows: (.labelled_rows // null),
             pass_rows: (.pass_rows // null),
@@ -72,6 +81,7 @@ jq -S '
             model_top_20pct_pass_rate: (.model_top_20pct_pass_rate // null),
             holdout_pass_rate: (.holdout_pass_rate // null),
             top_20pct_lift: (.top_20pct_lift // null),
+            top_20pct_non_degrading: optional_field("top_20pct_non_degrading"),
             recency_weighting_experiment: (.recency_weighting_experiment | recency_summary)
           }
         )
