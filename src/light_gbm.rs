@@ -408,7 +408,7 @@ fn load_speed_observations(path: &str) -> Result<Vec<SpeedObservation>, String> 
             finite_positive(row.get("stream_duration_ms")),
         ) else {
             continue;
-        }
+        };
         if observed_at > now
             || now.saturating_sub(observed_at) >= 3 * 24 * 60 * 60
             || duration_ms > 15_000.0
