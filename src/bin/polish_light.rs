@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::env;
 use std::process::Command;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -1666,8 +1666,8 @@ async fn fill_transfer_stability_gate(
     global_positions: &HashMap<String, usize>,
     history: &HashMap<String, HistoryEntry>,
     selection_limit: usize,
-    transfer_tested: usize,
-    transfer_passed: usize,
+    transfer_tested: Arc<AtomicUsize>,
+    transfer_passed: Arc<AtomicUsize>,
     max_per_endpoint: usize,
     max_per_family: usize,
 ) -> Result<(usize, HashMap<String, ProxyMetrics>, HashSet<String>), String> {
@@ -1685,8 +1685,8 @@ async fn fill_transfer_stability_gate(
 
         let stability_target = adaptive_stability_target(
             selection_limit,
-            transfer_tested,
-            transfer_passed,
+            transfer_tested.load(Ordering::Relaxed),
+            transfer_passed.load(Ordering::Relaxed),
             final_verified.len(),
         );
 
@@ -1828,6 +1828,8 @@ async fn run_transfer_gate_consumer(
     selection_limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
+    transfer_tested_count: Arc<AtomicUsize>,
+    transfer_passed_count: Arc<AtomicUsize>,
     transfer_done: Arc<AtomicBool>,
 ) -> Result<usize, String> {
     let transfer_target = transfer_validation_target(selection_limit);
@@ -1988,6 +1990,7 @@ async fn run_transfer_gate_consumer(
         }
 
         transfer_tested.extend(batch.iter().cloned());
+        transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
 
         target_tested_candidates[target_index].extend(batch.iter().cloned());
 
@@ -2016,6 +2019,8 @@ async fn run_transfer_gate_consumer(
         let batch_elapsed = batch_started.elapsed().as_secs();
         let batch_passed = metadata.len();
         transfer_verified.extend(metadata);
+        transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
+        transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
         let rate_limits = target_rate_limit_events(target)
             .saturating_sub(rate_limits_before)
@@ -2073,6 +2078,8 @@ async fn run_transfer_gate_consumer(
                 );
             }
         }
+        transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
+        transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
         let (previous_workers, previous_clean_batches) =
             target_concurrency[target_index].observe(rate_limits, batch.len());
@@ -2172,6 +2179,8 @@ async fn fill_transfer_gate(
     }
 
     let transfer_done = Arc::new(AtomicBool::new(false));
+    let transfer_tested_count = Arc::new(AtomicUsize::new(transfer_tested.len()));
+    let transfer_passed_count = Arc::new(AtomicUsize::new(transfer_verified.len()));
     let (stability_sender, stability_receiver) = tokio::sync::mpsc::unbounded_channel();
 
     let stability_future = fill_transfer_stability_gate(
@@ -2186,8 +2195,8 @@ async fn fill_transfer_gate(
         global_positions,
         history,
         selection_limit,
-        transfer_tested.len(),
-        transfer_verified.len(),
+        transfer_tested_count.clone(),
+        transfer_passed_count.clone(),
         max_per_endpoint,
         max_per_family,
     );
@@ -2205,6 +2214,8 @@ async fn fill_transfer_gate(
         selection_limit,
         max_per_endpoint,
         max_per_family,
+        transfer_tested_count,
+        transfer_passed_count,
         transfer_done.clone(),
     );
 
