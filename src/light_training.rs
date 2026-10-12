@@ -11,9 +11,9 @@ pub const FEATURE_COUNT: usize = 19;
 
 const MAX_ROWS: usize = 50_000;
 const RETENTION_SECS: u64 = 3 * 24 * 60 * 60;
-const MIN_ROWS_FOR_SPEED_MODEL: usize = 40;
-const MIN_UNIQUE_RUNS_FOR_SPEED_MODEL: usize = 3;
-const MIN_UNIQUE_CANDIDATES_FOR_SPEED_MODEL: usize = 25;
+const MIN_ROWS_FOR_SPEED_MODEL: usize = 60;
+const MIN_UNIQUE_RUNS_FOR_SPEED_MODEL: usize = 6;
+const MIN_UNIQUE_CANDIDATES_FOR_SPEED_MODEL: usize = 40;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DatasetStats {
@@ -701,14 +701,14 @@ mod tests {
     #[test]
     fn readiness_uses_speed_sample_coverage_not_negative_labels() {
         let mut stats = super::DatasetStats::default();
-        stats.rows = 39;
+        stats.rows = 59;
         stats.unique_runs = 10;
         stats.unique_candidates = 40;
         assert!(!stats.speed_model_ready());
 
-        stats.rows = 40;
-        stats.unique_runs = 3;
-        stats.unique_candidates = 25;
+        stats.rows = 60;
+        stats.unique_runs = 6;
+        stats.unique_candidates = 40;
         assert!(stats.speed_model_ready());
         assert!(stats.strict_model_ready());
         assert!(stats.end_to_end_model_ready());
