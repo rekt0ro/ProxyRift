@@ -302,15 +302,21 @@ fn sort_targets_by_performance(targets: &mut [Url]) {
         .cloned()
         .map(|target| {
             let rate_limited = target_is_rate_limited(target.as_str());
-            (rate_limited, target_performance_score(target.as_str()), target)
+            (
+                rate_limited,
+                target_performance_score(target.as_str()),
+                target,
+            )
         })
         .collect::<Vec<_>>();
-    ranked.sort_by(|(left_limited, left_score, left_target), (right_limited, right_score, right_target)| {
-        left_limited
-            .cmp(right_limited)
-            .then_with(|| right_score.total_cmp(left_score))
-            .then_with(|| left_target.host_str().cmp(&right_target.host_str()))
-    });
+    ranked.sort_by(
+        |(left_limited, left_score, left_target), (right_limited, right_score, right_target)| {
+            left_limited
+                .cmp(right_limited)
+                .then_with(|| right_score.total_cmp(left_score))
+                .then_with(|| left_target.host_str().cmp(&right_target.host_str()))
+        },
+    );
     for (slot, (_, _, target)) in targets.iter_mut().zip(ranked) {
         *slot = target;
     }
@@ -5366,9 +5372,9 @@ mod tests {
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&HETZNER_SPEEDTEST_100MB_TARGET));
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&TELE2_SPEEDTEST_100MB_TARGET));
-        assert!(!STRICT_THROUGHPUT_TARGETS.iter().any(|target| {
-            target.contains("arvancloud") || target.contains("mobinhost")
-        }));
+        assert!(!STRICT_THROUGHPUT_TARGETS
+            .iter()
+            .any(|target| { target.contains("arvancloud") || target.contains("mobinhost") }));
         assert!(STRICT_THROUGHPUT_TARGETS
             .iter()
             .all(|target| is_throughput_target(target)));
@@ -5698,23 +5704,42 @@ mod tests {
     fn transfer_payload_size_is_scoped_to_each_validation_stage() {
         let stream_bytes = SUSTAINED_STREAM_SEGMENTS * SUSTAINED_STREAM_SEGMENT_BYTES;
         assert_eq!(STRICT_THROUGHPUT_TARGETS.len(), 4);
-        let hosts = STRICT_THROUGHPUT_TARGETS.iter()
+        let hosts = STRICT_THROUGHPUT_TARGETS
+            .iter()
             .map(|target| Url::parse(target).unwrap().host_str().unwrap().to_string())
             .collect::<HashSet<_>>();
         assert_eq!(hosts.len(), 4);
         for target in STRICT_THROUGHPUT_TARGETS {
             assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(target));
-            assert_eq!(throughput_bytes_for_target(target), Some(STRICT_THROUGHPUT_BYTES));
-            assert_eq!(minimum_probe_body_bytes_for_target(target, STRICT_THROUGHPUT_BYTES), STRICT_THROUGHPUT_BYTES);
-            assert_eq!(minimum_probe_body_bytes_for_target(target, LIGHT_TRANSFER_STABILITY_BYTES), LIGHT_TRANSFER_STABILITY_BYTES);
-            assert_eq!(minimum_probe_body_bytes_for_target(target, stream_bytes), stream_bytes);
+            assert_eq!(
+                throughput_bytes_for_target(target),
+                Some(STRICT_THROUGHPUT_BYTES)
+            );
+            assert_eq!(
+                minimum_probe_body_bytes_for_target(target, STRICT_THROUGHPUT_BYTES),
+                STRICT_THROUGHPUT_BYTES
+            );
+            assert_eq!(
+                minimum_probe_body_bytes_for_target(target, LIGHT_TRANSFER_STABILITY_BYTES),
+                LIGHT_TRANSFER_STABILITY_BYTES
+            );
+            assert_eq!(
+                minimum_probe_body_bytes_for_target(target, stream_bytes),
+                stream_bytes
+            );
             let parsed = Url::parse(target).expect("external throughput target should parse");
-            assert!(!valid_probe_body(&parsed, &vec![0_u8; STRICT_THROUGHPUT_BYTES - 1]));
-            assert!(valid_probe_body(&parsed, &vec![0_u8; STRICT_THROUGHPUT_BYTES]));
+            assert!(!valid_probe_body(
+                &parsed,
+                &vec![0_u8; STRICT_THROUGHPUT_BYTES - 1]
+            ));
+            assert!(valid_probe_body(
+                &parsed,
+                &vec![0_u8; STRICT_THROUGHPUT_BYTES]
+            ));
         }
-        assert!(!STRICT_THROUGHPUT_TARGETS.iter().any(|target| {
-            target.contains("arvancloud") || target.contains("mobinhost")
-        }));
+        assert!(!STRICT_THROUGHPUT_TARGETS
+            .iter()
+            .any(|target| { target.contains("arvancloud") || target.contains("mobinhost") }));
     }
 
     #[test]
