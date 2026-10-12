@@ -316,7 +316,7 @@ fn sort_targets_by_performance(targets: &mut [Url]) {
     }
 }
 
-fn fn initial_target_pool_probe_chunk_size(maximum: usize, performance_score: f64) -> usize {
+fn initial_target_pool_probe_chunk_size(maximum: usize, performance_score: f64) -> usize {
     let maximum = maximum.max(1);
     if performance_score >= TARGET_POOL_FAST_SCORE_THRESHOLD {
         maximum
@@ -5731,7 +5731,6 @@ mod tests {
         }
     }
 
-    #[test]
     #[test]
     fn throughput_probe_accepts_at_least_10_mib() {
         let target = Url::parse(STRICT_THROUGHPUT_TARGET).expect("throughput target should parse");
