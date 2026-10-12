@@ -227,7 +227,8 @@ fn main() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_vmess_payload, ensure_complete_light_render, output_path, rename_subscription_configs,
+        decode_vmess_payload, ensure_complete_light_render, output_path,
+        rename_subscription_configs,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
