@@ -3600,9 +3600,7 @@ async fn main() -> Result<(), String> {
                 strict_pool_ready_logged = true;
             }
 
-            if downstream_gate.is_none()
-                && final_verified.len() > downstream_gate_candidate_count
-            {
+            if downstream_gate.is_none() && final_verified.len() > downstream_gate_candidate_count {
                 downstream_gate = Some(spawn_transfer_gate(TransferGateRequest {
                     xray: xray.clone(),
                     singbox: singbox.clone(),
