@@ -167,7 +167,7 @@ fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats
 
     let mut new_rows = 0usize;
     for row in rows {
-        if row.observed_at.saturating_add(RETENTION_SECS) < now
+        if row.observed_at.saturating_add(RETENTION_SECS) <= now
             || !row.strict_pass
             || row.strict_checks == 0
             || !row.transfer_tested
