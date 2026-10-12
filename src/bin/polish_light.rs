@@ -58,7 +58,7 @@ const FINAL_TRANSFER_INITIAL_WORKERS: usize = 10;
 const FINAL_TRANSFER_MIN_WORKERS: usize = 2;
 const FINAL_TRANSFER_QUEUE_MULTIPLIER: usize = 3;
 const FINAL_TRANSFER_CLEAN_BATCHES_TO_RAMP: usize = 2;
-const FINAL_TRANSFER_TEST_LIMIT: usize = 320;
+const FINAL_TRANSFER_TEST_LIMIT: usize = 450;
 const STABILITY_TRANSFER_TEST_LIMIT: usize = 450;
 const STABILITY_TRANSFER_BATCH_SIZE: usize = 32;
 const STABILITY_TRANSFER_WORKERS: usize = 16;
@@ -486,6 +486,16 @@ fn adaptive_transfer_test_limit(
     transfer_tested
         .saturating_add(additional_budget)
         .min(FINAL_TRANSFER_TEST_LIMIT)
+}
+
+fn discovery_downstream_progressed(
+    transfer_selected_before: usize,
+    transfer_selected: usize,
+    publishable_selected_before: usize,
+    publishable_selected: usize,
+) -> bool {
+    transfer_selected > transfer_selected_before
+        || publishable_selected > publishable_selected_before
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3311,7 +3321,6 @@ async fn main() -> Result<(), String> {
         let batch_end = batch_start + discovery_batch_size;
         let transfer_selected_before = transfer_selected;
         let publishable_selected_before = publishable_selected;
-        let transfer_tested_before = transfer_tested.len();
         let strict_selectable_before = select_verified_configs(
             &final_verified,
             final_verified.len(),
@@ -3611,9 +3620,12 @@ async fn main() -> Result<(), String> {
             );
             discovery_batch_floor = next_batch;
 
-            let progressed = transfer_selected > transfer_selected_before
-                || publishable_selected > publishable_selected_before
-                || transfer_tested.len() > transfer_tested_before;
+            let progressed = discovery_downstream_progressed(
+                transfer_selected_before,
+                transfer_selected,
+                publishable_selected_before,
+                publishable_selected,
+            );
 
             if strict_selected.len() >= selection_limit {
                 if progressed {
@@ -3891,19 +3903,20 @@ mod tests {
     use super::{
         adaptive_discovery_batch_size, adaptive_recheck_limit, adaptive_stability_pool_target,
         adaptive_stability_target, adaptive_strict_validation_target, adaptive_transfer_test_limit,
-        adjust_discovery_batch_for_yield, adjust_transfer_workers, final_publication_limit,
-        has_disabled_tls_verification, history_fingerprint, light_backend, light_training_features,
-        mirror_sustained_stream_results, normalize_light_config, observation_fingerprint,
-        rank_discovery_candidates, recheck_exploration_limit, select_recheck_candidates,
-        select_stability_test_batch, select_transfer_target, select_verified_configs,
-        select_verified_configs_with_freshness_quota, selection_additional_potential_count,
-        selection_eligible_count, selection_potential_count, selection_rejection_counts,
-        should_quarantine_transfer_target, singbox_qualified_metadata, stream_selection_count,
-        strict_validation_batch_limit, strict_validation_target, transfer_target_batch_limit,
-        transfer_validation_target, update_transfer_target_state, AdaptiveStrictValidationInputs,
-        LightBackend, LightGbmScores, ProxyMetrics, TransferConcurrencyState, TransferTargetState,
-        FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES,
-        MAX_DISCOVERY_CANDIDATES, STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
+        adjust_discovery_batch_for_yield, adjust_transfer_workers, discovery_downstream_progressed,
+        final_publication_limit, has_disabled_tls_verification, history_fingerprint, light_backend,
+        light_training_features, mirror_sustained_stream_results, normalize_light_config,
+        observation_fingerprint, rank_discovery_candidates, recheck_exploration_limit,
+        select_recheck_candidates, select_stability_test_batch, select_transfer_target,
+        select_verified_configs, select_verified_configs_with_freshness_quota,
+        selection_additional_potential_count, selection_eligible_count, selection_potential_count,
+        selection_rejection_counts, should_quarantine_transfer_target, singbox_qualified_metadata,
+        stream_selection_count, strict_validation_batch_limit, strict_validation_target,
+        transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
+        AdaptiveStrictValidationInputs, LightBackend, LightGbmScores, ProxyMetrics,
+        TransferConcurrencyState, TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS,
+        FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES, MAX_DISCOVERY_CANDIDATES,
+        STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -4475,9 +4488,22 @@ mod tests {
     }
 
     #[test]
-    fn adaptive_transfer_budget_respects_hard_limit_and_candidate_headroom() {
-        assert_eq!(adaptive_transfer_test_limit(200, 0, 300, 240, 50), 320);
+    fn adaptive_transfer_budget_respects_candidate_headroom() {
+        assert_eq!(adaptive_transfer_test_limit(200, 0, 300, 240, 50), 350);
         assert_eq!(adaptive_transfer_test_limit(200, 190, 300, 240, 3), 303);
+    }
+
+    #[test]
+    fn adaptive_transfer_budget_expands_for_observed_low_yield() {
+        assert_eq!(adaptive_transfer_test_limit(210, 180, 313, 180, 100), 376);
+        assert_eq!(adaptive_transfer_test_limit(200, 0, 400, 150, 100), 450);
+    }
+
+    #[test]
+    fn discovery_stagnation_requires_downstream_output_growth() {
+        assert!(!discovery_downstream_progressed(180, 180, 180, 180));
+        assert!(discovery_downstream_progressed(180, 181, 180, 180));
+        assert!(discovery_downstream_progressed(180, 180, 180, 181));
     }
 
     #[test]
