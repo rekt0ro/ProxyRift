@@ -6,95 +6,57 @@ output_file="${2:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/lightgbm-evaluation.json}"
 mkdir -p "$(dirname "$output_file")"
 
 if [[ ! -s "$score_file" ]]; then
-  jq -n '{schema_version: 1, available: false, reason: "LightGBM score report was not produced"}' > "$output_file"
+  jq -n '{schema_version: 2, available: false, reason: "LightGBM speed-regression report was not produced"}' > "$output_file"
   printf '[INFO] LightGBM report unavailable; wrote an availability marker.\n'
   exit 0
 fi
 
-if ! jq -e 'type == "object" and (.model_report | type == "object")' "$score_file" >/dev/null; then
-  printf '[ERROR] LightGBM score report has an invalid structure.\n' >&2
+if ! jq -e 'type == "object" and .version == 5 and (.model_report | type == "object") and .feature_count == 61 and .model_report.target == "log(stream_throughput_kbps)"' "$score_file" >/dev/null; then
+  printf '[ERROR] LightGBM score report has an invalid stream-speed regression schema.\n' >&2
   exit 1
 fi
 
 tmp_file="$(mktemp "${output_file}.tmp.XXXXXX")"
 trap 'rm -f "$tmp_file"' EXIT
 jq -S '
-  def optional_field($name): if has($name) then .[$name] else null end;
-  def recency_summary:
-    if type == "object" then {
-      selection_evaluation_strategy: (.selection_evaluation_strategy // null),
-      selection_available: optional_field("selection_available"),
-      selection_reason: (.selection_reason // null),
-      selection_training_rows: (.selection_training_rows // null),
-      selection_holdout_rows: (.selection_holdout_rows // null),
-      selection_holdout_pass_rows: (.selection_holdout_pass_rows // null),
-      selection_holdout_fail_rows: (.selection_holdout_fail_rows // null),
-      selection_baseline_brier: (.selection_baseline_brier // null),
-      half_life_days: (.half_life_days // null),
-      minimum_sample_weight: (.minimum_sample_weight // null),
-      unweighted_brier: (.unweighted_brier // null),
-      weighted_brier: (.weighted_brier // null),
-      unweighted_accepted: optional_field("unweighted_accepted"),
-      weighted_accepted: optional_field("weighted_accepted"),
-      unweighted_top_20pct_pass_rate: (.unweighted_top_20pct_pass_rate // null),
-      weighted_top_20pct_pass_rate: (.weighted_top_20pct_pass_rate // null),
-      selected_strategy: (.selected_strategy // null)
-    } else null end;
   {
-    schema_version: 1,
+    schema_version: 2,
     available: true,
-    version: (.version // null),
+    model_version: .version,
     trained: (.trained // false),
     training_rows: (.training_rows // null),
-    feature_count: (.model_report.model_feature_count // .feature_count // null),
+    feature_count: .feature_count,
     scored_candidates: ((.scores // {}) | length),
     model_report: {
+      model: (.model_report.model // null),
       validation: (.model_report.validation // null),
       baseline: (.model_report.baseline // null),
       ranking_strategy: (.model_report.ranking_strategy // null),
-      composite_weights: (.model_report.composite_weights // null),
-      promotion_minimum_relative_brier_improvement: (.model_report.promotion_minimum_relative_brier_improvement // null),
-      promotion_top_20pct_lift_minimum: (.model_report.promotion_top_20pct_lift_minimum // null),
-      history_features: (.model_report.history_features // null),
-      model_feature_count: (.model_report.model_feature_count // .feature_count // null),
-      targets: (
-        (.model_report.targets // {}) | with_entries(
-          .value |= {
-            accepted: optional_field("accepted"),
-            reason: (.reason // null),
-            labelled_rows: (.labelled_rows // null),
-            pass_rows: (.pass_rows // null),
-            fail_rows: (.fail_rows // null),
-            unique_candidates: (.unique_candidates // null),
-            distinct_timestamps: (.distinct_timestamps // null),
-            evaluation_strategy: (.evaluation_strategy // null),
-            train_rows: (.train_rows // null),
-            train_pass_rows: (.train_pass_rows // null),
-            train_fail_rows: (.train_fail_rows // null),
-            holdout_rows: (.holdout_rows // null),
-            holdout_pass_rows: (.holdout_pass_rows // null),
-            holdout_fail_rows: (.holdout_fail_rows // null),
-            holdout_unique_candidates: (.holdout_unique_candidates // null),
-            holdout_eligible_unseen_rows: (.holdout_eligible_unseen_rows // null),
-            model_brier: (.model_brier // null),
-            baseline_brier: (.baseline_brier // null),
-            model_top_20pct_pass_rate: (.model_top_20pct_pass_rate // null),
-            holdout_pass_rate: (.holdout_pass_rate // null),
-            top_20pct_lift: (.top_20pct_lift // null),
-            top_20pct_non_degrading: optional_field("top_20pct_non_degrading"),
-            recency_weighting_experiment: (.recency_weighting_experiment | recency_summary)
-          }
-        )
-      )
+      target: (.model_report.target // null),
+      target_unit: (.model_report.target_unit // null),
+      accepted: (.model_report.accepted // false),
+      reason: (.model_report.reason // null),
+      cutoff_timestamp: (.model_report.cutoff_timestamp // null),
+      speed_samples: (.model_report.speed_samples // null),
+      unique_candidates: (.model_report.unique_candidates // null),
+      unique_timestamps: (.model_report.unique_timestamps // null),
+      train_rows: (.model_report.train_rows // null),
+      holdout_rows: (.model_report.holdout_rows // null),
+      baseline_log_mae: (.model_report.baseline_log_mae // null),
+      model_log_mae: (.model_report.model_log_mae // null),
+      relative_mae_improvement: (.model_report.relative_mae_improvement // null),
+      top_20pct_speed_lift: (.model_report.top_20pct_speed_lift // null),
+      minimum_relative_mae_improvement: (.model_report.minimum_relative_mae_improvement // null),
+      minimum_top_20pct_speed_lift: (.model_report.minimum_top_20pct_speed_lift // null)
     }
   }
 ' "$score_file" > "$tmp_file"
 mv "$tmp_file" "$output_file"
 trap - EXIT
 
-if jq -e 'has("scores") or any(.model_report.targets[]?; has("predictions") or has("scores"))' "$output_file" >/dev/null; then
-  printf '[ERROR] Sanitized LightGBM artifact unexpectedly contains candidate scores.\n' >&2
+if jq -e 'has("scores") or any(.model_report | paths(scalars) as $p | ($p[-1] | tostring | test("candidate|config|uri|url"; "i")))' "$output_file" >/dev/null; then
+  printf '[ERROR] Sanitized LightGBM artifact unexpectedly contains raw score or candidate fields.\n' >&2
   exit 1
 fi
 
-printf '[OK] Wrote sanitized LightGBM evaluation report to %s\n' "$output_file"
+printf '[OK] Wrote sanitized LightGBM speed-regression report to %s\n' "$output_file"
