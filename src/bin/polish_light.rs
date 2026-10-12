@@ -1028,6 +1028,27 @@ fn sort_ranked(
     });
 }
 
+fn sort_by_measured_stream_speed(
+    configs: &mut [String],
+    metrics: &HashMap<String, ProxyMetrics>,
+) {
+    configs.sort_unstable_by(|left, right| {
+        let left_metrics = metrics.get(left);
+        let right_metrics = metrics.get(right);
+        let left_speed = left_metrics.map(|value| value.throughput_kbps).unwrap_or(0.0);
+        let right_speed = right_metrics.map(|value| value.throughput_kbps).unwrap_or(0.0);
+        let left_duration = left_metrics.map(|value| value.median_ms).unwrap_or(f64::INFINITY);
+        let right_duration = right_metrics.map(|value| value.median_ms).unwrap_or(f64::INFINITY);
+        let left_jitter = left_metrics.map(|value| value.jitter_ms).unwrap_or(f64::INFINITY);
+        let right_jitter = right_metrics.map(|value| value.jitter_ms).unwrap_or(f64::INFINITY);
+        right_speed
+            .total_cmp(&left_speed)
+            .then_with(|| left_duration.total_cmp(&right_duration))
+            .then_with(|| left_jitter.total_cmp(&right_jitter))
+            .then_with(|| left.cmp(right))
+    });
+}
+
 fn rank_discovery_candidates(
     candidates: &[String],
     light_gbm_scores: &LightGbmScores,
@@ -4054,12 +4075,8 @@ async fn main() -> Result<(), String> {
     );
 
     let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
-    sort_ranked(
-        &mut stream_ranked,
-        &stream_verified,
-        &global_positions,
-        &history,
-    );
+    // Once fully validated, actual sustained-stream throughput outranks historical priors.
+    sort_by_measured_stream_speed(&mut stream_ranked, &stream_verified);
     let publication_limit = final_publication_limit(selection_limit);
     let (selected, selected_new_count) = select_verified_configs_with_repeat_cap(
         &stream_ranked,
@@ -4296,6 +4313,32 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn final_stream_ranking_prefers_measured_throughput_over_history() {
+        let mut metrics = HashMap::new();
+        metrics.insert("slow".to_string(), ProxyMetrics {
+            throughput_kbps: 7_000.0,
+            median_ms: 4_000.0,
+            jitter_ms: 20.0,
+            ..ProxyMetrics::default()
+        });
+        metrics.insert("fast".to_string(), ProxyMetrics {
+            throughput_kbps: 22_000.0,
+            median_ms: 8_000.0,
+            jitter_ms: 100.0,
+            ..ProxyMetrics::default()
+        });
+        metrics.insert("fastest".to_string(), ProxyMetrics {
+            throughput_kbps: 35_000.0,
+            median_ms: 9_000.0,
+            jitter_ms: 200.0,
+            ..ProxyMetrics::default()
+        });
+        let mut configs = vec!["slow".to_string(), "fast".to_string(), "fastest".to_string()];
+        sort_by_measured_stream_speed(&mut configs, &metrics);
+        assert_eq!(configs, vec!["fastest", "fast", "slow"]);
+    }
 
     #[test]
     fn recently_revalidated_candidates_are_limited_to_twenty_percent_of_test_order() {
