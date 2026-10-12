@@ -296,7 +296,6 @@ pub fn write_readiness_report(path: &str, stats: &DatasetStats) -> Result<(), St
             "new_speed_samples": stats.new_rows,
             "unique_runs": stats.unique_runs,
             "unique_candidates": stats.unique_candidates,
-            "median_stream_throughput_kbps": null,
             "strict_passes": stats.strict_passes,
             "transfer_passes": stats.transfer_passes,
             "stream_passes": stats.stream_passes,
@@ -700,7 +699,7 @@ mod tests {
     #[test]
     fn rejects_non_finite_or_incomplete_stream_metrics() {
         let mut invalid = row("bad", 1_000).to_value();
-        invalid["stream_duration_ms"] = Value::from(f64::NAN);
+        invalid["stream_duration_ms"] = Value::from(0.0);
         assert!(!valid_stored_row(&invalid));
 
         let mut invalid = row("incomplete", 1_000).to_value();
