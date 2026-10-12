@@ -17,7 +17,7 @@ cat > "$score_file" <<'JSON'
   "feature_count": 66,
   "scores": {"vless://private-candidate@example.invalid:443": 0.75},
   "model_report": {
-    "validation": "walk_forward_time_split",
+    "validation": "single_temporal_holdout_unseen_candidates_first_observation",
     "baseline": "training_prevalence_brier",
     "ranking_strategy": "stage_blend_fallback",
     "model_feature_count": 66,
@@ -30,6 +30,14 @@ cat > "$score_file" <<'JSON'
         "model_top_20pct_pass_rate": 0.9,
         "holdout_pass_rate": 0.8,
         "recency_weighting_experiment": {
+          "selection_evaluation_strategy": "inner_temporal_holdout_unseen_candidates_first_observation",
+          "selection_available": true,
+          "selection_reason": "recency_weighted_passed_inner_selection_gate",
+          "selection_training_rows": 3000,
+          "selection_holdout_rows": 400,
+          "selection_holdout_pass_rows": 320,
+          "selection_holdout_fail_rows": 80,
+          "selection_baseline_brier": 0.16,
           "half_life_days": 3,
           "minimum_sample_weight": 0.1,
           "unweighted_brier": 0.14,
@@ -70,17 +78,17 @@ JSON
 cat > "$summary_file" <<'MD'
 **Ranking:** Model-based ranking active — Stage-model blend (1 of 4 targets accepted).
 **Training:** 5,000 rows · 66 features · Candidates scored: 1.
-**Evaluation:** Walk-forward temporal split · Baseline: Training-prevalence Brier score.
+**Evaluation:** Single temporal holdout on unseen candidates (first observations) · Baseline: Training-prevalence Brier score.
 | Strict validation | Promoted after temporal validation | 0.14000 / 0.15000 | 90.0% / 80.0% |
 | Transfer (10 MiB) | Did not beat unseen-candidate baseline | 0.22000 / 0.20000 | 70.0% / 75.0% |
 | Stream stability | Top-20% pass rate below unseen-candidate baseline | 0.30000 / 0.31000 | 50.0% / 50.0% |
 | End-to-end | Not promoted: insufficient labelled data | n/a / n/a | n/a / n/a |
-**Recency weighting:** Strict validation — Recency-weighted · Brier 0.14000 → 0.13000 · Top-20% pass rate 90.0% → 91.0% · 3-day half-life, minimum weight 0.1.
+**Recency strategy selection:** Strict validation — Recency-weighted · Inner holdout Brier (unweighted → weighted) 0.14000 → 0.13000 · Inner holdout Top-20% pass rate 90.0% → 91.0% · 3-day half-life, minimum weight 0.1.
 MD
 
 bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$summary_file" "$score_file"
 bash "$repo_root/scripts/update/write_lightgbm_artifact.sh" "$score_file" "$artifact_file"
-jq -e '.available == true and .scored_candidates == 1 and (has("scores") | not) and .model_report.targets.strict.recency_weighting_experiment.selected_strategy == "recency_weighted"' "$artifact_file" >/dev/null
+jq -e '.available == true and .scored_candidates == 1 and (has("scores") | not) and .model_report.targets.strict.recency_weighting_experiment.selected_strategy == "recency_weighted" and .model_report.targets.strict.recency_weighting_experiment.selection_available == true and .model_report.targets.transfer.accepted == false and .model_report.targets.stream.recency_weighting_experiment.unweighted_accepted == false and .model_report.targets.stream.recency_weighting_experiment.weighted_accepted == false and .model_report.targets.end_to_end.accepted == false' "$artifact_file" >/dev/null
 if grep -Fq 'private-candidate' "$artifact_file"; then
   printf '[ERROR] Artifact contains a private candidate string.\n' >&2
   exit 1

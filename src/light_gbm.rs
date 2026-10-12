@@ -202,7 +202,7 @@ impl LightGbmScores {
 
         let trained = end_to_end.accepted || weight_sum > 0.0;
         let model_report = serde_json::json!({
-            "validation": "walk_forward_time_split",
+            "validation": "single_temporal_holdout_unseen_candidates_first_observation",
             "baseline": "training_prevalence_brier",
             "ranking_strategy": ranking_strategy,
             "composite_weights": {"strict": 0.50, "transfer": 0.30, "stream": 0.20},
@@ -1005,6 +1005,67 @@ fn first_unseen_holdout_indices(
         .collect()
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ValidationMetrics {
+    model_brier: f64,
+    baseline_brier: f64,
+    relative_brier_improvement: f64,
+    model_top_20pct_pass_rate: f64,
+    holdout_pass_rate: f64,
+    brier_accepted: bool,
+    ranking_accepted: bool,
+    accepted: bool,
+}
+
+fn evaluate_predictions(
+    predictions: &[f64],
+    labels: &[f32],
+    baseline_rate: f64,
+) -> ValidationMetrics {
+    let baseline_predictions = vec![baseline_rate; labels.len()];
+    let baseline_brier = brier_score(&baseline_predictions, labels);
+    let model_brier = brier_score(predictions, labels);
+    let model_top_20pct_pass_rate = top_quintile_pass_rate(predictions, labels);
+    let holdout_pass_rate = if labels.is_empty() {
+        0.0
+    } else {
+        labels.iter().map(|label| f64::from(*label)).sum::<f64>() / labels.len() as f64
+    };
+    let relative_brier_improvement = if baseline_brier > 0.0 {
+        (baseline_brier - model_brier) / baseline_brier
+    } else {
+        0.0
+    };
+    let brier_accepted = model_brier.is_finite()
+        && baseline_brier.is_finite()
+        && relative_brier_improvement >= MIN_RELATIVE_BRIER_IMPROVEMENT;
+    let ranking_accepted = model_top_20pct_pass_rate.is_finite()
+        && model_top_20pct_pass_rate + 1e-9 >= holdout_pass_rate;
+
+    ValidationMetrics {
+        model_brier,
+        baseline_brier,
+        relative_brier_improvement,
+        model_top_20pct_pass_rate,
+        holdout_pass_rate,
+        brier_accepted,
+        ranking_accepted,
+        accepted: brier_accepted && ranking_accepted,
+    }
+}
+
+fn temporal_cutoff(timestamps: &[u64]) -> Option<u64> {
+    let mut unique = timestamps.to_vec();
+    unique.sort_unstable();
+    unique.dedup();
+    if unique.len() < 2 {
+        return None;
+    }
+    let index = (unique.len() * (HOLDOUT_FRACTION_DENOMINATOR - HOLDOUT_FRACTION_NUMERATOR))
+        / HOLDOUT_FRACTION_DENOMINATOR;
+    Some(unique[index.clamp(1, unique.len() - 1)])
+}
+
 fn train_target_model(
     examples: &[TrainingExample],
     candidates: &[String],
@@ -1045,18 +1106,19 @@ fn train_target_model(
         return Ok(result);
     }
 
-    let mut timestamps = rows
+    let timestamps = rows
         .iter()
         .map(|(row, _)| row.observed_at)
         .collect::<Vec<_>>();
-    timestamps.sort_unstable();
-    timestamps.dedup();
-    if timestamps.len() < target.minimum_timestamps() {
+    let mut unique_timestamps = timestamps.clone();
+    unique_timestamps.sort_unstable();
+    unique_timestamps.dedup();
+    if unique_timestamps.len() < target.minimum_timestamps() {
         let mut result = TargetResult::unavailable(
             target,
             format!(
                 "insufficient distinct observation timestamps (found={}, required={})",
-                timestamps.len(),
+                unique_timestamps.len(),
                 target.minimum_timestamps()
             ),
         );
@@ -1064,17 +1126,16 @@ fn train_target_model(
         result.report["pass_rows"] = Value::from(positive as u64);
         result.report["fail_rows"] = Value::from(negative as u64);
         result.report["unique_candidates"] = Value::from(unique_candidates as u64);
-        result.report["distinct_timestamps"] = Value::from(timestamps.len() as u64);
+        result.report["distinct_timestamps"] = Value::from(unique_timestamps.len() as u64);
         return Ok(result);
     }
-    let holdout_start_index = (timestamps.len()
-        * (HOLDOUT_FRACTION_DENOMINATOR - HOLDOUT_FRACTION_NUMERATOR))
-        / HOLDOUT_FRACTION_DENOMINATOR;
-    let holdout_start_index = holdout_start_index.clamp(1, timestamps.len() - 1);
-    let cutoff = timestamps[holdout_start_index];
+
+    let cutoff = temporal_cutoff(&unique_timestamps)
+        .ok_or_else(|| "unable to construct final temporal holdout".to_string())?;
     let training = rows
         .iter()
         .filter(|(row, _)| row.observed_at < cutoff)
+        .copied()
         .collect::<Vec<_>>();
     let (previously_seen_candidates, first_observed_at) = target_label_history(&rows, cutoff);
     let eligible_unseen_holdout_rows = rows
@@ -1092,7 +1153,7 @@ fn train_target_model(
     );
     let holdout = holdout_indices
         .iter()
-        .map(|index| &rows[*index])
+        .map(|index| rows[*index])
         .collect::<Vec<_>>();
     let training_positive = training.iter().filter(|(_, label)| *label).count();
     let training_negative = training.len().saturating_sub(training_positive);
@@ -1119,7 +1180,7 @@ fn train_target_model(
             ),
         );
         result.report["evaluation_strategy"] =
-            Value::from("temporal_unseen_candidates_first_observation");
+            Value::from("single_temporal_holdout_unseen_candidates_first_observation");
         result.report["labelled_rows"] = Value::from(rows.len() as u64);
         result.report["pass_rows"] = Value::from(positive as u64);
         result.report["fail_rows"] = Value::from(negative as u64);
@@ -1136,6 +1197,216 @@ fn train_target_model(
         result.report["holdout_repeated_observations_excluded"] =
             Value::from(eligible_unseen_holdout_rows.saturating_sub(holdout.len()) as u64);
         return Ok(result);
+    }
+
+    let training_timestamps = training
+        .iter()
+        .map(|(row, _)| row.observed_at)
+        .collect::<Vec<_>>();
+    let mut unique_training_timestamps = training_timestamps;
+    unique_training_timestamps.sort_unstable();
+    unique_training_timestamps.dedup();
+
+    let mut use_weighted = false;
+    let mut selection_experiment = serde_json::json!({
+        "selection_evaluation_strategy": "inner_temporal_holdout_unseen_candidates_first_observation",
+        "selection_available": false,
+        "selection_reason": "insufficient distinct timestamps for independent strategy selection",
+        "selection_training_rows": null,
+        "selection_holdout_rows": null,
+        "selection_holdout_pass_rows": null,
+        "selection_holdout_fail_rows": null,
+        "selection_baseline_brier": null,
+        "unweighted_brier": null,
+        "unweighted_relative_brier_improvement": null,
+        "unweighted_top_20pct_pass_rate": null,
+        "unweighted_accepted": null,
+        "weighted_brier": null,
+        "weighted_relative_brier_improvement": null,
+        "weighted_top_20pct_pass_rate": null,
+        "weighted_accepted": null,
+        "half_life_days": 3.0,
+        "minimum_sample_weight": MIN_RECENCY_WEIGHT,
+        "selected_strategy": "unweighted_default_insufficient_selection_data"
+    });
+
+    if unique_training_timestamps.len() >= 5 {
+        if let Some(selection_cutoff) = temporal_cutoff(&unique_training_timestamps) {
+            let selection_training = training
+                .iter()
+                .filter(|(row, _)| row.observed_at < selection_cutoff)
+                .copied()
+                .collect::<Vec<_>>();
+            let (selection_seen_candidates, selection_first_observed_at) =
+                target_label_history(&training, selection_cutoff);
+            let selection_eligible_unseen_rows = training
+                .iter()
+                .filter(|(row, _)| {
+                    row.observed_at >= selection_cutoff
+                        && !selection_seen_candidates.contains(&row.candidate_fingerprint)
+                })
+                .count();
+            let selection_holdout_indices = first_unseen_holdout_indices(
+                &training,
+                selection_cutoff,
+                &selection_seen_candidates,
+                &selection_first_observed_at,
+            );
+            let selection_holdout = selection_holdout_indices
+                .iter()
+                .map(|index| training[*index])
+                .collect::<Vec<_>>();
+            let selection_train_positive = selection_training
+                .iter()
+                .filter(|(_, label)| *label)
+                .count();
+            let selection_train_negative = selection_training
+                .len()
+                .saturating_sub(selection_train_positive);
+            let selection_holdout_positive =
+                selection_holdout.iter().filter(|(_, label)| *label).count();
+            let selection_holdout_negative = selection_holdout
+                .len()
+                .saturating_sub(selection_holdout_positive);
+            let minimum_selection_holdout_class_rows =
+                target.minimum_holdout_class_rows().clamp(25, 50);
+            let selection_data_is_representative = selection_training.len()
+                >= target.minimum_rows() / 2
+                && selection_train_positive >= target.minimum_training_class_rows()
+                && selection_train_negative >= target.minimum_training_class_rows()
+                && selection_holdout.len() >= 100
+                && selection_holdout_positive >= minimum_selection_holdout_class_rows
+                && selection_holdout_negative >= minimum_selection_holdout_class_rows;
+
+            if selection_data_is_representative {
+                let selection_train_features = selection_training
+                    .iter()
+                    .map(|(row, _)| row.features.clone())
+                    .collect::<Vec<_>>();
+                let selection_train_labels = selection_training
+                    .iter()
+                    .map(|(_, label)| if *label { 1.0_f32 } else { 0.0_f32 })
+                    .collect::<Vec<_>>();
+                let selection_holdout_features = selection_holdout
+                    .iter()
+                    .map(|(row, _)| row.features.clone())
+                    .collect::<Vec<_>>();
+                let selection_holdout_labels = selection_holdout
+                    .iter()
+                    .map(|(_, label)| if *label { 1.0_f32 } else { 0.0_f32 })
+                    .collect::<Vec<_>>();
+                let selection_baseline_rate = selection_train_labels
+                    .iter()
+                    .map(|label| f64::from(*label))
+                    .sum::<f64>()
+                    / selection_train_labels.len() as f64;
+                let selection_train_as_of = selection_training
+                    .iter()
+                    .map(|(row, _)| row.observed_at)
+                    .max()
+                    .unwrap_or(selection_cutoff);
+                let selection_train_weights = selection_training
+                    .iter()
+                    .map(|(row, _)| recency_weight(row.observed_at, selection_train_as_of))
+                    .collect::<Vec<_>>();
+
+                let selection_unweighted_booster = fit_booster(
+                    &selection_train_features,
+                    &selection_train_labels,
+                    target.seed(),
+                )?;
+                let selection_unweighted_predictions =
+                    predict_booster(&selection_unweighted_booster, &selection_holdout_features)?;
+                let selection_unweighted = evaluate_predictions(
+                    &selection_unweighted_predictions,
+                    &selection_holdout_labels,
+                    selection_baseline_rate,
+                );
+
+                let selection_weighted_booster = fit_booster_with_weights(
+                    &selection_train_features,
+                    &selection_train_labels,
+                    &selection_train_weights,
+                    target.seed(),
+                )?;
+                let selection_weighted_predictions =
+                    predict_booster(&selection_weighted_booster, &selection_holdout_features)?;
+                let selection_weighted = evaluate_predictions(
+                    &selection_weighted_predictions,
+                    &selection_holdout_labels,
+                    selection_baseline_rate,
+                );
+
+                let weighted_is_better = selection_weighted.model_brier + 1e-9
+                    < selection_unweighted.model_brier
+                    || ((selection_weighted.model_brier - selection_unweighted.model_brier).abs()
+                        <= 1e-9
+                        && selection_weighted.model_top_20pct_pass_rate
+                            > selection_unweighted.model_top_20pct_pass_rate + 1e-9);
+                use_weighted = selection_weighted.accepted
+                    && (!selection_unweighted.accepted || weighted_is_better);
+                let selected_strategy = if use_weighted {
+                    "recency_weighted"
+                } else if selection_unweighted.accepted {
+                    "unweighted"
+                } else {
+                    "unweighted_default_no_variant_passed_selection_gate"
+                };
+                let selection_reason = if use_weighted {
+                    "recency_weighted_passed_inner_selection_gate"
+                } else if selection_unweighted.accepted {
+                    "unweighted_passed_inner_selection_gate"
+                } else {
+                    "neither_variant_passed_inner_selection_gate_defaulted_unweighted"
+                };
+                selection_experiment = serde_json::json!({
+                    "selection_evaluation_strategy": "inner_temporal_holdout_unseen_candidates_first_observation",
+                    "selection_available": true,
+                    "selection_reason": selection_reason,
+                    "selection_cutoff_timestamp": selection_cutoff,
+                    "selection_training_rows": selection_training.len(),
+                    "selection_holdout_rows": selection_holdout.len(),
+                    "selection_holdout_pass_rows": selection_holdout_positive,
+                    "selection_holdout_fail_rows": selection_holdout_negative,
+                    "selection_eligible_unseen_rows": selection_eligible_unseen_rows,
+                    "selection_repeated_observations_excluded": selection_eligible_unseen_rows.saturating_sub(selection_holdout.len()),
+                    "selection_baseline_brier": selection_unweighted.baseline_brier,
+                    "unweighted_brier": selection_unweighted.model_brier,
+                    "unweighted_relative_brier_improvement": selection_unweighted.relative_brier_improvement,
+                    "unweighted_top_20pct_pass_rate": selection_unweighted.model_top_20pct_pass_rate,
+                    "unweighted_accepted": selection_unweighted.accepted,
+                    "unweighted_brier_accepted": selection_unweighted.brier_accepted,
+                    "unweighted_ranking_accepted": selection_unweighted.ranking_accepted,
+                    "weighted_brier": selection_weighted.model_brier,
+                    "weighted_relative_brier_improvement": selection_weighted.relative_brier_improvement,
+                    "weighted_top_20pct_pass_rate": selection_weighted.model_top_20pct_pass_rate,
+                    "weighted_accepted": selection_weighted.accepted,
+                    "weighted_brier_accepted": selection_weighted.brier_accepted,
+                    "weighted_ranking_accepted": selection_weighted.ranking_accepted,
+                    "half_life_days": 3.0,
+                    "minimum_sample_weight": MIN_RECENCY_WEIGHT,
+                    "selected_strategy": selected_strategy
+                });
+            } else {
+                selection_experiment["selection_reason"] = Value::from(format!(
+                    "inner temporal holdout lacks representative classes (train={}/{}/{}, holdout={}/{}/{})",
+                    selection_training.len(),
+                    selection_train_positive,
+                    selection_train_negative,
+                    selection_holdout.len(),
+                    selection_holdout_positive,
+                    selection_holdout_negative
+                ));
+                selection_experiment["selection_training_rows"] =
+                    Value::from(selection_training.len() as u64);
+                selection_experiment["selection_holdout_rows"] =
+                    Value::from(selection_holdout.len() as u64);
+                selection_experiment["selection_holdout_pass_rows"] =
+                    Value::from(selection_holdout_positive as u64);
+                selection_experiment["selection_holdout_fail_rows"] =
+                    Value::from(selection_holdout_negative as u64);
+            }
+        }
     }
 
     let train_features = training
@@ -1159,8 +1430,6 @@ fn train_target_model(
         .map(|label| f64::from(*label))
         .sum::<f64>()
         / train_labels.len() as f64;
-    let baseline_brier = brier_score(&vec![baseline_rate; holdout_labels.len()], &holdout_labels);
-    let holdout_pass_rate = holdout_positive as f64 / holdout.len() as f64;
     let train_as_of = training
         .iter()
         .map(|(row, _)| row.observed_at)
@@ -1171,104 +1440,40 @@ fn train_target_model(
         .map(|(row, _)| recency_weight(row.observed_at, train_as_of))
         .collect::<Vec<_>>();
 
-    let unweighted_booster = fit_booster(&train_features, &train_labels, target.seed())?;
-    let unweighted_predictions = predict_booster(&unweighted_booster, &holdout_features)?;
-    let unweighted_brier = brier_score(&unweighted_predictions, &holdout_labels);
-    let unweighted_top_20pct_pass_rate =
-        top_quintile_pass_rate(&unweighted_predictions, &holdout_labels);
-    let unweighted_relative_improvement = if baseline_brier > 0.0 {
-        (baseline_brier - unweighted_brier) / baseline_brier
+    let selected_booster = if use_weighted {
+        fit_booster_with_weights(
+            &train_features,
+            &train_labels,
+            &train_weights,
+            target.seed(),
+        )?
     } else {
-        0.0
+        fit_booster(&train_features, &train_labels, target.seed())?
     };
-    let unweighted_brier_accepted = unweighted_brier.is_finite()
-        && baseline_brier.is_finite()
-        && unweighted_relative_improvement >= MIN_RELATIVE_BRIER_IMPROVEMENT;
-    let unweighted_ranking_accepted = unweighted_top_20pct_pass_rate.is_finite()
-        && unweighted_top_20pct_pass_rate + 1e-9 >= holdout_pass_rate;
-    let unweighted_accepted = unweighted_brier_accepted && unweighted_ranking_accepted;
-
-    let weighted_booster = fit_booster_with_weights(
-        &train_features,
-        &train_labels,
-        &train_weights,
-        target.seed(),
-    )?;
-    let weighted_predictions = predict_booster(&weighted_booster, &holdout_features)?;
-    let weighted_brier = brier_score(&weighted_predictions, &holdout_labels);
-    let weighted_top_20pct_pass_rate =
-        top_quintile_pass_rate(&weighted_predictions, &holdout_labels);
-    let weighted_relative_improvement = if baseline_brier > 0.0 {
-        (baseline_brier - weighted_brier) / baseline_brier
-    } else {
-        0.0
-    };
-    let weighted_brier_accepted = weighted_brier.is_finite()
-        && baseline_brier.is_finite()
-        && weighted_relative_improvement >= MIN_RELATIVE_BRIER_IMPROVEMENT;
-    let weighted_ranking_accepted = weighted_top_20pct_pass_rate.is_finite()
-        && weighted_top_20pct_pass_rate + 1e-9 >= holdout_pass_rate;
-    let weighted_accepted = weighted_brier_accepted && weighted_ranking_accepted;
-
-    let weighted_is_better = weighted_brier + 1e-9 < unweighted_brier
-        || ((weighted_brier - unweighted_brier).abs() <= 1e-9
-            && weighted_top_20pct_pass_rate > unweighted_top_20pct_pass_rate + 1e-9);
-    let use_weighted = weighted_accepted && (!unweighted_accepted || weighted_is_better);
-    let selected_strategy = if use_weighted {
-        "recency_weighted"
-    } else if unweighted_accepted {
-        "unweighted"
-    } else {
-        "none"
-    };
-    let (
-        model_brier,
-        relative_improvement,
-        model_top_20pct_pass_rate,
-        brier_accepted,
-        ranking_accepted,
-    ) = if use_weighted {
-        (
-            weighted_brier,
-            weighted_relative_improvement,
-            weighted_top_20pct_pass_rate,
-            weighted_brier_accepted,
-            weighted_ranking_accepted,
-        )
-    } else {
-        (
-            unweighted_brier,
-            unweighted_relative_improvement,
-            unweighted_top_20pct_pass_rate,
-            unweighted_brier_accepted,
-            unweighted_ranking_accepted,
-        )
-    };
-    let top_20pct_lift = if holdout_pass_rate > 0.0 {
-        model_top_20pct_pass_rate / holdout_pass_rate
-    } else {
-        0.0
-    };
-    let accepted = use_weighted || unweighted_accepted;
-    let reason = if !accepted && !brier_accepted {
+    let selected_predictions = predict_booster(&selected_booster, &holdout_features)?;
+    let metrics = evaluate_predictions(&selected_predictions, &holdout_labels, baseline_rate);
+    let accepted = metrics.accepted;
+    let reason = if !metrics.brier_accepted {
         "model_did_not_beat_unseen_candidate_baseline"
-    } else if !accepted && !ranking_accepted {
+    } else if !metrics.ranking_accepted {
         "top_20pct_below_unseen_candidate_baseline"
-    } else if use_weighted {
-        "recency_weighted_model_beats_unweighted_temporal_holdout"
-    } else if accepted {
-        "unweighted_model_selected_by_temporal_holdout"
     } else {
-        "neither_weighting_strategy_passed_temporal_holdout"
+        "promoted_after_independent_temporal_holdout"
+    };
+    let top_20pct_lift = if metrics.holdout_pass_rate > 0.0 {
+        metrics.model_top_20pct_pass_rate / metrics.holdout_pass_rate
+    } else {
+        0.0
     };
 
     let mut report = serde_json::json!({
         "target": target.name(),
         "accepted": accepted,
-        "evaluation_strategy": "temporal_unseen_candidates_first_observation",
+        "evaluation_strategy": "single_temporal_holdout_unseen_candidates_first_observation",
         "labelled_rows": rows.len(),
         "pass_rows": positive,
         "fail_rows": negative,
+        "unique_candidates": unique_candidates,
         "train_rows": training.len(),
         "train_pass_rows": training_positive,
         "train_fail_rows": training_negative,
@@ -1280,27 +1485,15 @@ fn train_target_model(
         "holdout_pass_rows": holdout_positive,
         "holdout_fail_rows": holdout_negative,
         "cutoff_timestamp": cutoff,
-        "model_brier": model_brier,
-        "baseline_brier": baseline_brier,
-        "relative_brier_improvement": relative_improvement,
-        "holdout_pass_rate": holdout_pass_rate,
-        "model_top_20pct_pass_rate": model_top_20pct_pass_rate,
+        "model_brier": metrics.model_brier,
+        "baseline_brier": metrics.baseline_brier,
+        "relative_brier_improvement": metrics.relative_brier_improvement,
+        "holdout_pass_rate": metrics.holdout_pass_rate,
+        "model_top_20pct_pass_rate": metrics.model_top_20pct_pass_rate,
         "top_20pct_lift": top_20pct_lift,
-        "top_20pct_non_degrading": ranking_accepted,
+        "top_20pct_non_degrading": metrics.ranking_accepted,
         "reason": reason,
-        "recency_weighting_experiment": {
-            "half_life_days": 3.0,
-            "minimum_sample_weight": MIN_RECENCY_WEIGHT,
-            "unweighted_brier": unweighted_brier,
-            "unweighted_relative_brier_improvement": unweighted_relative_improvement,
-            "unweighted_top_20pct_pass_rate": unweighted_top_20pct_pass_rate,
-            "unweighted_accepted": unweighted_accepted,
-            "weighted_brier": weighted_brier,
-            "weighted_relative_brier_improvement": weighted_relative_improvement,
-            "weighted_top_20pct_pass_rate": weighted_top_20pct_pass_rate,
-            "weighted_accepted": weighted_accepted,
-            "selected_strategy": selected_strategy
-        }
+        "recency_weighting_experiment": selection_experiment
     });
     if !accepted {
         return Ok(TargetResult {
@@ -1891,8 +2084,9 @@ mod tests {
     use super::{
         backend_for_config, candidate_fingerprint, config_feature_vector,
         first_unseen_holdout_indices, history_feature_vector, load_training, parse_config_features,
-        port_bucket, recency_weight, target_label_history, top_quintile_pass_rate, ModelTarget,
-        TrainingExample, HISTORY_FEATURE_COUNT, MIN_RECENCY_WEIGHT, MODEL_FEATURE_COUNT,
+        port_bucket, recency_weight, target_label_history, temporal_cutoff, top_quintile_pass_rate,
+        ModelTarget, TrainingExample, HISTORY_FEATURE_COUNT, MIN_RECENCY_WEIGHT,
+        MODEL_FEATURE_COUNT,
     };
     use base64::Engine as _;
     use serde_json::{json, Map, Value};
@@ -2292,6 +2486,71 @@ mod tests {
             ),
             vec![1, 3, 5]
         );
+    }
+
+    #[test]
+    fn recency_selection_holdout_precedes_the_independent_final_holdout() {
+        let examples = (1..=10)
+            .map(|timestamp| TrainingExample {
+                observed_at: timestamp,
+                candidate_fingerprint: format!("candidate-{timestamp}"),
+                features: vec![timestamp as f64],
+                strict_pass: timestamp % 2 == 0,
+                transfer_pass: None,
+                stream_pass: None,
+            })
+            .collect::<Vec<_>>();
+        let rows = examples
+            .iter()
+            .map(|row| (row, row.strict_pass))
+            .collect::<Vec<_>>();
+        let timestamps = rows
+            .iter()
+            .map(|(row, _)| row.observed_at)
+            .collect::<Vec<_>>();
+        let final_cutoff = temporal_cutoff(&timestamps).expect("final temporal cutoff");
+        let training = rows
+            .iter()
+            .filter(|(row, _)| row.observed_at < final_cutoff)
+            .copied()
+            .collect::<Vec<_>>();
+        let training_timestamps = training
+            .iter()
+            .map(|(row, _)| row.observed_at)
+            .collect::<Vec<_>>();
+        let selection_cutoff =
+            temporal_cutoff(&training_timestamps).expect("inner selection cutoff");
+
+        assert!(selection_cutoff < final_cutoff);
+        assert!(training
+            .iter()
+            .all(|(row, _)| row.observed_at < final_cutoff));
+
+        let (seen_before_selection, first_seen_in_training) =
+            target_label_history(&training, selection_cutoff);
+        let selection_indices = first_unseen_holdout_indices(
+            &training,
+            selection_cutoff,
+            &seen_before_selection,
+            &first_seen_in_training,
+        );
+        assert!(!selection_indices.is_empty());
+        assert!(selection_indices.iter().all(|index| {
+            let timestamp = training[*index].0.observed_at;
+            timestamp >= selection_cutoff && timestamp < final_cutoff
+        }));
+
+        let (seen_before_final, first_seen_overall) = target_label_history(&rows, final_cutoff);
+        let final_indices = first_unseen_holdout_indices(
+            &rows,
+            final_cutoff,
+            &seen_before_final,
+            &first_seen_overall,
+        );
+        assert!(!final_indices.is_empty());
+        assert!(final_indices
+            .iter()
+            .all(|index| rows[*index].0.observed_at >= final_cutoff));
     }
 
     #[test]

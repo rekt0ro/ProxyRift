@@ -117,6 +117,8 @@ format_recency_strategy() {
   case "$strategy" in
     recency_weighted) printf 'Recency-weighted' ;;
     unweighted) printf 'Unweighted' ;;
+    unweighted_default_insufficient_selection_data) printf 'Unweighted default (selection data insufficient)' ;;
+    unweighted_default_no_variant_passed_selection_gate) printf 'Unweighted default (neither variant passed inner selection gate)' ;;
     none) printf 'Neither variant passed promotion gates' ;;
     *) printf 'Not evaluated' ;;
   esac
@@ -141,6 +143,7 @@ format_ranking_strategy() {
 
 format_validation_scheme() {
   case "$1" in
+    single_temporal_holdout_unseen_candidates_first_observation) printf 'Single temporal holdout on unseen candidates (first observations)' ;;
     walk_forward_time_split) printf 'Walk-forward temporal split' ;;
     *) local readable="${1//_/ }"; printf '%s' "${readable^}" ;;
   esac
@@ -248,6 +251,7 @@ declare -A lightgbm_target_train_fail=()
 declare -A lightgbm_target_holdout_pass=()
 declare -A lightgbm_target_holdout_fail=()
 declare -A lightgbm_target_recency_strategy=()
+declare -A lightgbm_target_selection_available=()
 declare -A lightgbm_target_unweighted_accepted=()
 declare -A lightgbm_target_weighted_accepted=()
 declare -A lightgbm_target_unweighted_brier=()
@@ -291,6 +295,7 @@ if [ -s "$score_file" ]; then
     lightgbm_target_holdout_pass["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.holdout_pass_rows" 'n/a')"
     lightgbm_target_holdout_fail["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.holdout_fail_rows" 'n/a')"
     lightgbm_target_recency_strategy["$target"]="$(format_recency_strategy "$target")"
+    lightgbm_target_selection_available["$target"]="$(format_yes_no "$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.selection_available" 'n/a')")"
     lightgbm_target_unweighted_accepted["$target"]="$(format_yes_no "$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.unweighted_accepted" 'n/a')")"
     lightgbm_target_weighted_accepted["$target"]="$(format_yes_no "$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.weighted_accepted" 'n/a')")"
     lightgbm_target_unweighted_brier["$target"]="$(read_json_value "$score_file" ".model_report.targets.${target}.recency_weighting_experiment.unweighted_brier" 'n/a')"
@@ -574,7 +579,11 @@ mkdir -p "$(dirname "$summary_output_file")"
   echo "| End-to-end | ${lightgbm_target_status[end_to_end]} | $(format_decimal "${lightgbm_target_brier[end_to_end]}") / $(format_decimal "${lightgbm_target_baseline[end_to_end]}") | $(format_percentage "${lightgbm_target_top20_rate[end_to_end]}") / $(format_percentage "${lightgbm_target_holdout_rate[end_to_end]}") |"
   if [ "${lightgbm_target_recency_strategy[strict]}" != "Not evaluated" ]; then
     echo
-    echo "**Recency weighting:** Strict validation — ${lightgbm_target_recency_strategy[strict]} · Brier $(format_decimal "${lightgbm_target_unweighted_brier[strict]}") → $(format_decimal "${lightgbm_target_weighted_brier[strict]}") · Top-20% pass rate $(format_percentage "${lightgbm_target_unweighted_top20[strict]}") → $(format_percentage "${lightgbm_target_weighted_top20[strict]}") · $(format_compact_number "${lightgbm_target_half_life[strict]}")-day half-life, minimum weight ${lightgbm_target_min_weight[strict]}."
+    if [ "${lightgbm_target_selection_available[strict]}" = "Yes" ]; then
+      echo "**Recency strategy selection:** Strict validation — ${lightgbm_target_recency_strategy[strict]} · Inner holdout Brier (unweighted → weighted) $(format_decimal "${lightgbm_target_unweighted_brier[strict]}") → $(format_decimal "${lightgbm_target_weighted_brier[strict]}") · Inner holdout Top-20% pass rate $(format_percentage "${lightgbm_target_unweighted_top20[strict]}") → $(format_percentage "${lightgbm_target_weighted_top20[strict]}") · $(format_compact_number "${lightgbm_target_half_life[strict]}")-day half-life, minimum weight ${lightgbm_target_min_weight[strict]}."
+    else
+      echo "**Recency strategy selection:** Strict validation — ${lightgbm_target_recency_strategy[strict]} · Comparison skipped because the inner temporal holdout lacked representative data."
+    fi
   fi
   echo
   echo "**Training data:** $(format_count "$ml_rows") rows ($(format_count "$ml_new_rows") new this run) · $(format_count "$ml_unique_candidates") unique candidates · $(format_count "$ml_unique_runs") runs. Strict model: $(format_readiness "$ml_strict_ready") · End-to-end model: $(format_readiness "$ml_end_to_end_ready")."
