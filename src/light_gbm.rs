@@ -1545,7 +1545,7 @@ fn train_target_model(
         .map(|(config, score)| (config.clone(), score))
         .collect();
 
-    report["reason"] = Value::from("promoted_after_independent_temporal_holdout");
+    report["reason"] = Value::from("promoted_after_temporal_validation");
     Ok(TargetResult {
         accepted: true,
         predictions,
@@ -2489,6 +2489,72 @@ mod tests {
             ),
             vec![1, 3, 5]
         );
+    }
+
+    #[test]
+    fn recency_selection_holdout_precedes_the_independent_final_holdout() {
+        let examples = (1..=10)
+            .map(|timestamp| TrainingExample {
+                observed_at: timestamp,
+                candidate_fingerprint: format!("candidate-{timestamp}"),
+                features: vec![timestamp as f64],
+                strict_pass: timestamp % 2 == 0,
+                transfer_pass: None,
+                stream_pass: None,
+            })
+            .collect::<Vec<_>>();
+        let rows = examples
+            .iter()
+            .map(|row| (row, row.strict_pass))
+            .collect::<Vec<_>>();
+        let timestamps = rows
+            .iter()
+            .map(|(row, _)| row.observed_at)
+            .collect::<Vec<_>>();
+        let final_cutoff = temporal_cutoff(&timestamps).expect("final temporal cutoff");
+        let training = rows
+            .iter()
+            .filter(|(row, _)| row.observed_at < final_cutoff)
+            .copied()
+            .collect::<Vec<_>>();
+        let training_timestamps = training
+            .iter()
+            .map(|(row, _)| row.observed_at)
+            .collect::<Vec<_>>();
+        let selection_cutoff =
+            temporal_cutoff(&training_timestamps).expect("inner selection cutoff");
+
+        assert!(selection_cutoff < final_cutoff);
+        assert!(training
+            .iter()
+            .all(|(row, _)| row.observed_at < final_cutoff));
+
+        let (seen_before_selection, first_seen_in_training) =
+            target_label_history(&training, selection_cutoff);
+        let selection_indices = first_unseen_holdout_indices(
+            &training,
+            selection_cutoff,
+            &seen_before_selection,
+            &first_seen_in_training,
+        );
+        assert!(!selection_indices.is_empty());
+        assert!(selection_indices.iter().all(|index| {
+            let timestamp = training[*index].0.observed_at;
+            timestamp >= selection_cutoff && timestamp < final_cutoff
+        }));
+
+        let (seen_before_final, first_seen_overall) =
+            target_label_history(&rows, final_cutoff);
+        let final_indices = first_unseen_holdout_indices(
+            &rows,
+            final_cutoff,
+            &seen_before_final,
+            &first_seen_overall,
+        );
+        assert!(!final_indices.is_empty());
+        assert!(final_indices
+            .iter()
+            .all(|index| rows[*index].0.observed_at >= final_cutoff));
     }
 
     #[test]
