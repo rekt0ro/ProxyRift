@@ -2566,7 +2566,7 @@ fn select_verified_configs_with_repeat_cap(
         return (selected, selected_fresh);
     }
 
-    let repeat_limit = limit.saturating_mul(REVALIDATED_CANDIDATE_PERCENT) / 100;
+    let repeat_limit = selected_fresh.saturating_mul(REVALIDATED_CANDIDATE_PERCENT) / (100 - REVALIDATED_CANDIDATE_PERCENT);
     let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
     let mut family_counts = HashMap::<String, usize>::new();
     for config in &selected {
@@ -4294,7 +4294,7 @@ mod tests {
         let candidates = (0..20)
             .map(|index| format!("vless://uuid@node{index}.example:443?security=tls"))
             .collect::<Vec<_>>();
-        let repeats = candidates.iter().take(6)
+        let repeats = candidates.iter().take(4)
             .map(|config| history_fingerprint(config))
             .collect::<HashSet<_>>();
         let (ordered, repeats_scheduled) = interleave_repeat_candidates(&candidates, &repeats);
