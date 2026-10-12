@@ -85,20 +85,29 @@ impl LightGbmScores {
         let observations = match load_speed_observations(DEFAULT_TRAINING_PATH) {
             Ok(rows) => rows,
             Err(error) => {
-                eprintln!("[WARN] [LightGBM] Speed history unavailable; using neutral fallback: {error}");
+                eprintln!(
+                    "[WARN] [LightGBM] Speed history unavailable; using neutral fallback: {error}"
+                );
                 Vec::new()
             }
         };
-        let speed_logs = observations.iter().map(|row| row.speed_kbps.ln()).collect::<Vec<_>>();
+        let speed_logs = observations
+            .iter()
+            .map(|row| row.speed_kbps.ln())
+            .collect::<Vec<_>>();
         let median_log_speed = median(&speed_logs).unwrap_or_else(|| 10_000.0_f64.ln());
         let feature_rows = build_speed_training_features(&observations, median_log_speed);
         let (accepted, mut report) = evaluate_speed_regressor(&observations, &feature_rows, now);
 
         let mut booster = None;
         if accepted {
-            let targets = observations.iter().map(|row| row.speed_kbps.ln() as f32).collect::<Vec<_>>();
+            let targets = observations
+                .iter()
+                .map(|row| row.speed_kbps.ln() as f32)
+                .collect::<Vec<_>>();
             let weights = speed_sample_weights(&observations, now);
-            match fit_speed_regression_booster(&feature_rows, &targets, &weights, SPEED_MODEL_SEED) {
+            match fit_speed_regression_booster(&feature_rows, &targets, &weights, SPEED_MODEL_SEED)
+            {
                 Ok(model) => booster = Some(model),
                 Err(error) => {
                     eprintln!("[WARN] [LightGBM] Final speed model failed; using historical speed priors: {error}");
@@ -111,23 +120,32 @@ impl LightGbmScores {
 
         let exact_history = speed_history_by_key(&observations, |row| row.fingerprint.clone());
         let family_history = speed_history_by_key(&observations, |row| row.family.clone());
-        let candidate_features = candidates.iter().map(|config| {
-            let structural = config_feature_vector(config);
-            let mut features = structural.clone();
-            let fingerprint = candidate_fingerprint(config);
-            let family = feature_signature(&structural);
-            features.extend(
-                exact_history.get(&fingerprint)
-                    .map(|history| history.feature_values(now, median_log_speed))
-                    .unwrap_or_else(|| SpeedHistory::default().feature_values(now, median_log_speed)),
-            );
-            features.extend(
-                family_history.get(&family)
-                    .map(|history| history.feature_values(now, median_log_speed))
-                    .unwrap_or_else(|| SpeedHistory::default().feature_values(now, median_log_speed)),
-            );
-            features
-        }).collect::<Vec<_>>();
+        let candidate_features = candidates
+            .iter()
+            .map(|config| {
+                let structural = config_feature_vector(config);
+                let mut features = structural.clone();
+                let fingerprint = candidate_fingerprint(config);
+                let family = feature_signature(&structural);
+                features.extend(
+                    exact_history
+                        .get(&fingerprint)
+                        .map(|history| history.feature_values(now, median_log_speed))
+                        .unwrap_or_else(|| {
+                            SpeedHistory::default().feature_values(now, median_log_speed)
+                        }),
+                );
+                features.extend(
+                    family_history
+                        .get(&family)
+                        .map(|history| history.feature_values(now, median_log_speed))
+                        .unwrap_or_else(|| {
+                            SpeedHistory::default().feature_values(now, median_log_speed)
+                        }),
+                );
+                features
+            })
+            .collect::<Vec<_>>();
 
         let ranking_strategy = if booster.is_some() {
             "stream_speed_regression"
@@ -139,19 +157,30 @@ impl LightGbmScores {
         let predicted_log_speeds = if let Some(model) = booster.as_ref() {
             predict_speed_regression(model, &candidate_features)?
         } else {
-            candidates.iter().map(|config| {
-                historical_speed_prediction(config, &exact_history, &family_history, median_log_speed)
-            }).collect()
+            candidates
+                .iter()
+                .map(|config| {
+                    historical_speed_prediction(
+                        config,
+                        &exact_history,
+                        &family_history,
+                        median_log_speed,
+                    )
+                })
+                .collect()
         };
 
         let mut scores = HashMap::with_capacity(candidates.len());
         for (candidate, predicted) in candidates.iter().zip(predicted_log_speeds) {
             let score = speed_ranking_score(predicted, median_log_speed);
-            scores.insert(candidate.clone(), if score.is_finite() {
-                score.clamp(MIN_SCORE, MAX_SCORE)
-            } else {
-                DEFAULT_SCORE
-            });
+            scores.insert(
+                candidate.clone(),
+                if score.is_finite() {
+                    score.clamp(MIN_SCORE, MAX_SCORE)
+                } else {
+                    DEFAULT_SCORE
+                },
+            );
         }
 
         report["ranking_strategy"] = Value::String(ranking_strategy.to_string());
@@ -160,10 +189,18 @@ impl LightGbmScores {
         report["feature_count"] = Value::from(SPEED_MODEL_FEATURE_COUNT);
         report["speed_samples"] = Value::from(observations.len());
         report["unique_candidates"] = Value::from(
-            observations.iter().map(|row| row.fingerprint.as_str()).collect::<HashSet<_>>().len()
+            observations
+                .iter()
+                .map(|row| row.fingerprint.as_str())
+                .collect::<HashSet<_>>()
+                .len(),
         );
         report["unique_timestamps"] = Value::from(
-            observations.iter().map(|row| row.observed_at).collect::<HashSet<_>>().len()
+            observations
+                .iter()
+                .map(|row| row.observed_at)
+                .collect::<HashSet<_>>()
+                .len(),
         );
 
         let result = Self {
@@ -217,14 +254,23 @@ impl LightGbmScores {
             || value.get("feature_count").and_then(Value::as_u64)
                 != Some(SPEED_MODEL_FEATURE_COUNT as u64)
         {
-            return Err("incompatible LightGBM score schema; expected stream-speed model v5".to_string());
+            return Err(
+                "incompatible LightGBM score schema; expected stream-speed model v5".to_string(),
+            );
         }
 
-        let training_rows = value.get("training_rows").and_then(Value::as_u64).unwrap_or_default() as usize;
-        let trained = value.get("trained").and_then(Value::as_bool).unwrap_or(false);
+        let training_rows = value
+            .get("training_rows")
+            .and_then(Value::as_u64)
+            .unwrap_or_default() as usize;
+        let trained = value
+            .get("trained")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let model_report = value.get("model_report").cloned().unwrap_or(Value::Null);
-        if trained && model_report.get("ranking_strategy").and_then(Value::as_str)
-            != Some("stream_speed_regression")
+        if trained
+            && model_report.get("ranking_strategy").and_then(Value::as_str)
+                != Some("stream_speed_regression")
         {
             return Err("trained LightGBM score file is not a speed-regression model".to_string());
         }
@@ -237,18 +283,37 @@ impl LightGbmScores {
                 }
             }
         }
-        Ok(Self { scores, training_rows, trained, model_report })
+        Ok(Self {
+            scores,
+            training_rows,
+            trained,
+            model_report,
+        })
     }
 
     pub fn score(&self, config: &str) -> f64 {
-        self.scores.get(config).copied().unwrap_or(DEFAULT_SCORE).clamp(MIN_SCORE, MAX_SCORE)
+        self.scores
+            .get(config)
+            .copied()
+            .unwrap_or(DEFAULT_SCORE)
+            .clamp(MIN_SCORE, MAX_SCORE)
     }
 
-    pub fn len(&self) -> usize { self.scores.len() }
-    pub fn is_empty(&self) -> bool { self.scores.is_empty() }
-    pub fn training_rows(&self) -> usize { self.training_rows }
-    pub fn trained(&self) -> bool { self.trained }
-    pub fn model_report(&self) -> &Value { &self.model_report }
+    pub fn len(&self) -> usize {
+        self.scores.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.scores.is_empty()
+    }
+    pub fn training_rows(&self) -> usize {
+        self.training_rows
+    }
+    pub fn trained(&self) -> bool {
+        self.trained
+    }
+    pub fn model_report(&self) -> &Value {
+        &self.model_report
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -270,21 +335,37 @@ struct SpeedHistory {
 
 impl SpeedHistory {
     fn record(&mut self, log_speed: f64, observed_at: u64) {
-        if !log_speed.is_finite() { return; }
+        if !log_speed.is_finite() {
+            return;
+        }
         self.count = self.count.saturating_add(1);
         self.log_speed_sum += log_speed;
-        self.best_log_speed = if self.count == 1 { log_speed } else { self.best_log_speed.max(log_speed) };
+        self.best_log_speed = if self.count == 1 {
+            log_speed
+        } else {
+            self.best_log_speed.max(log_speed)
+        };
         self.last_seen = self.last_seen.max(observed_at);
     }
 
     fn average_log_speed(&self, fallback: f64) -> f64 {
-        if self.count == 0 { fallback } else { self.log_speed_sum / self.count as f64 }
+        if self.count == 0 {
+            fallback
+        } else {
+            self.log_speed_sum / self.count as f64
+        }
     }
 
     fn feature_values(&self, now: u64, fallback: f64) -> [f64; 4] {
-        if self.count == 0 { return [fallback, fallback, 0.0, 0.0]; }
+        if self.count == 0 {
+            return [fallback, fallback, 0.0, 0.0];
+        }
         let average = self.average_log_speed(fallback);
-        let best = if self.best_log_speed.is_finite() { self.best_log_speed } else { average };
+        let best = if self.best_log_speed.is_finite() {
+            self.best_log_speed
+        } else {
+            average
+        };
         let count = ((self.count as f64 + 1.0).ln() / 50_001.0_f64.ln()).clamp(0.0, 1.0);
         let age = now.saturating_sub(self.last_seen) as f64;
         let recency = (-age / SPEED_HISTORY_HALF_LIFE_SECS).exp().clamp(0.0, 1.0);
@@ -300,7 +381,9 @@ fn current_epoch_seconds() -> u64 {
 }
 
 fn finite_positive(value: Option<&Value>) -> Option<f64> {
-    value.and_then(Value::as_f64).filter(|number| number.is_finite() && *number > 0.0)
+    value
+        .and_then(Value::as_f64)
+        .filter(|number| number.is_finite() && *number > 0.0)
 }
 
 fn load_speed_observations(path: &str) -> Result<Vec<SpeedObservation>, String> {
@@ -308,27 +391,53 @@ fn load_speed_observations(path: &str) -> Result<Vec<SpeedObservation>, String> 
     let now = current_epoch_seconds();
     let mut observations = Vec::with_capacity(rows.len());
     for row in rows {
-        if row.get("feature_extraction_version").and_then(Value::as_u64) != Some(FEATURE_EXTRACTION_VERSION)
+        if row
+            .get("feature_extraction_version")
+            .and_then(Value::as_u64)
+            != Some(FEATURE_EXTRACTION_VERSION)
             || row.pointer("/label/strict_pass").and_then(Value::as_bool) != Some(true)
             || row.pointer("/label/transfer_pass").and_then(Value::as_bool) != Some(true)
             || row.pointer("/label/stream_pass").and_then(Value::as_bool) != Some(true)
-        { continue; }
+        {
+            continue;
+        }
         let (Some(observed_at), Some(fingerprint), Some(speed_kbps), Some(duration_ms)) = (
             row.get("observed_at").and_then(Value::as_u64),
             row.get("candidate_fingerprint").and_then(Value::as_str),
             finite_positive(row.get("stream_throughput_kbps")),
             finite_positive(row.get("stream_duration_ms")),
-        ) else { continue; };
-        if observed_at > now || now.saturating_sub(observed_at) >= 3 * 24 * 60 * 60 || duration_ms > 15_000.0 {
+        ) else {
             continue;
         }
-        let Some(fields) = row.get("features").and_then(Value::as_object) else { continue; };
-        let Some(structural) = training_feature_vector(fields) else { continue; };
-        if structural.len() != STRUCTURAL_FEATURE_COUNT { continue; }
+        if observed_at > now
+            || now.saturating_sub(observed_at) >= 3 * 24 * 60 * 60
+            || duration_ms > 15_000.0
+        {
+            continue;
+        }
+        let Some(fields) = row.get("features").and_then(Value::as_object) else {
+            continue;
+        };
+        let Some(structural) = training_feature_vector(fields) else {
+            continue;
+        };
+        if structural.len() != STRUCTURAL_FEATURE_COUNT {
+            continue;
+        }
         let family = feature_signature(&structural);
-        observations.push(SpeedObservation { observed_at, fingerprint: fingerprint.to_string(), family, structural, speed_kbps });
+        observations.push(SpeedObservation {
+            observed_at,
+            fingerprint: fingerprint.to_string(),
+            family,
+            structural,
+            speed_kbps,
+        });
     }
-    observations.sort_unstable_by(|a, b| a.observed_at.cmp(&b.observed_at).then_with(|| a.fingerprint.cmp(&b.fingerprint)));
+    observations.sort_unstable_by(|a, b| {
+        a.observed_at
+            .cmp(&b.observed_at)
+            .then_with(|| a.fingerprint.cmp(&b.fingerprint))
+    });
     Ok(observations)
 }
 
@@ -338,13 +447,18 @@ fn speed_history_by_key(
 ) -> HashMap<String, SpeedHistory> {
     let mut history = HashMap::new();
     for row in observations {
-        history.entry(key(row)).or_insert_with(SpeedHistory::default)
+        history
+            .entry(key(row))
+            .or_insert_with(SpeedHistory::default)
             .record(row.speed_kbps.ln(), row.observed_at);
     }
     history
 }
 
-fn build_speed_training_features(observations: &[SpeedObservation], fallback_log_speed: f64) -> Vec<Vec<f64>> {
+fn build_speed_training_features(
+    observations: &[SpeedObservation],
+    fallback_log_speed: f64,
+) -> Vec<Vec<f64>> {
     let mut result = Vec::with_capacity(observations.len());
     let mut exact = HashMap::<String, SpeedHistory>::new();
     let mut family = HashMap::<String, SpeedHistory>::new();
@@ -352,20 +466,38 @@ fn build_speed_training_features(observations: &[SpeedObservation], fallback_log
     while start < observations.len() {
         let timestamp = observations[start].observed_at;
         let mut end = start + 1;
-        while end < observations.len() && observations[end].observed_at == timestamp { end += 1; }
+        while end < observations.len() && observations[end].observed_at == timestamp {
+            end += 1;
+        }
         for row in &observations[start..end] {
             let mut features = row.structural.clone();
-            features.extend(exact.get(&row.fingerprint)
-                .map(|history| history.feature_values(timestamp, fallback_log_speed))
-                .unwrap_or_else(|| SpeedHistory::default().feature_values(timestamp, fallback_log_speed)));
-            features.extend(family.get(&row.family)
-                .map(|history| history.feature_values(timestamp, fallback_log_speed))
-                .unwrap_or_else(|| SpeedHistory::default().feature_values(timestamp, fallback_log_speed)));
+            features.extend(
+                exact
+                    .get(&row.fingerprint)
+                    .map(|history| history.feature_values(timestamp, fallback_log_speed))
+                    .unwrap_or_else(|| {
+                        SpeedHistory::default().feature_values(timestamp, fallback_log_speed)
+                    }),
+            );
+            features.extend(
+                family
+                    .get(&row.family)
+                    .map(|history| history.feature_values(timestamp, fallback_log_speed))
+                    .unwrap_or_else(|| {
+                        SpeedHistory::default().feature_values(timestamp, fallback_log_speed)
+                    }),
+            );
             result.push(features);
         }
         for row in &observations[start..end] {
-            exact.entry(row.fingerprint.clone()).or_default().record(row.speed_kbps.ln(), timestamp);
-            family.entry(row.family.clone()).or_default().record(row.speed_kbps.ln(), timestamp);
+            exact
+                .entry(row.fingerprint.clone())
+                .or_default()
+                .record(row.speed_kbps.ln(), timestamp);
+            family
+                .entry(row.family.clone())
+                .or_default()
+                .record(row.speed_kbps.ln(), timestamp);
         }
         start = end;
     }
@@ -373,18 +505,33 @@ fn build_speed_training_features(observations: &[SpeedObservation], fallback_log
 }
 
 fn median(values: &[f64]) -> Option<f64> {
-    let mut values = values.iter().copied().filter(|value| value.is_finite()).collect::<Vec<_>>();
-    if values.is_empty() { return None; }
+    let mut values = values
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite())
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        return None;
+    }
     values.sort_by(f64::total_cmp);
     let middle = values.len() / 2;
-    Some(if values.len().is_multiple_of(2) { (values[middle - 1] + values[middle]) / 2.0 } else { values[middle] })
+    Some(if values.len().is_multiple_of(2) {
+        (values[middle - 1] + values[middle]) / 2.0
+    } else {
+        values[middle]
+    })
 }
 
 fn speed_sample_weights(observations: &[SpeedObservation], now: u64) -> Vec<f32> {
-    observations.iter().map(|row| {
-        let age = now.saturating_sub(row.observed_at) as f64;
-        2.0_f64.powf(-age / SPEED_HISTORY_HALF_LIFE_SECS).clamp(0.10, 1.0) as f32
-    }).collect()
+    observations
+        .iter()
+        .map(|row| {
+            let age = now.saturating_sub(row.observed_at) as f64;
+            2.0_f64
+                .powf(-age / SPEED_HISTORY_HALF_LIFE_SECS)
+                .clamp(0.10, 1.0) as f32
+        })
+        .collect()
 }
 
 fn evaluate_speed_regressor(
@@ -392,8 +539,16 @@ fn evaluate_speed_regressor(
     feature_rows: &[Vec<f64>],
     now: u64,
 ) -> (bool, Value) {
-    let unique_candidates = observations.iter().map(|row| row.fingerprint.as_str()).collect::<HashSet<_>>().len();
-    let unique_timestamps = observations.iter().map(|row| row.observed_at).collect::<HashSet<_>>().len();
+    let unique_candidates = observations
+        .iter()
+        .map(|row| row.fingerprint.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    let unique_timestamps = observations
+        .iter()
+        .map(|row| row.observed_at)
+        .collect::<HashSet<_>>()
+        .len();
     let base = serde_json::json!({
         "model": "LightGBM GBDT regression",
         "validation": "chronological_80_20_first_observation_of_unseen_candidates",
@@ -403,15 +558,23 @@ fn evaluate_speed_regressor(
         "train_rows": 0, "holdout_rows": 0, "baseline_log_mae": null,
         "model_log_mae": null, "relative_mae_improvement": null, "top_20pct_speed_lift": null
     });
-    if observations.len() < MIN_SPEED_ROWS || unique_candidates < MIN_SPEED_CANDIDATES
-        || unique_timestamps < MIN_SPEED_TIMESTAMPS || feature_rows.len() != observations.len()
-        || feature_rows.iter().any(|row| row.len() != SPEED_MODEL_FEATURE_COUNT)
+    if observations.len() < MIN_SPEED_ROWS
+        || unique_candidates < MIN_SPEED_CANDIDATES
+        || unique_timestamps < MIN_SPEED_TIMESTAMPS
+        || feature_rows.len() != observations.len()
+        || feature_rows
+            .iter()
+            .any(|row| row.len() != SPEED_MODEL_FEATURE_COUNT)
     {
         let mut report = base;
-        report["reason"] = Value::String("insufficient_speed_samples_or_temporal_coverage".to_string());
+        report["reason"] =
+            Value::String("insufficient_speed_samples_or_temporal_coverage".to_string());
         return (false, report);
     }
-    let mut timestamps = observations.iter().map(|row| row.observed_at).collect::<Vec<_>>();
+    let mut timestamps = observations
+        .iter()
+        .map(|row| row.observed_at)
+        .collect::<Vec<_>>();
     timestamps.sort_unstable();
     timestamps.dedup();
     if timestamps.len() < 2 {
@@ -420,14 +583,29 @@ fn evaluate_speed_regressor(
         return (false, report);
     }
     let cutoff = timestamps[(timestamps.len() * 4 / 5).clamp(1, timestamps.len() - 1)];
-    let train_indices = observations.iter().enumerate()
-        .filter_map(|(i, row)| (row.observed_at < cutoff).then_some(i)).collect::<Vec<_>>();
-    let train_ids = train_indices.iter().map(|i| observations[*i].fingerprint.clone()).collect::<HashSet<_>>();
+    let train_indices = observations
+        .iter()
+        .enumerate()
+        .filter_map(|(i, row)| (row.observed_at < cutoff).then_some(i))
+        .collect::<Vec<_>>();
+    let train_ids = train_indices
+        .iter()
+        .map(|i| observations[*i].fingerprint.clone())
+        .collect::<HashSet<_>>();
     let mut holdout_seen = HashSet::new();
-    let holdout_indices = observations.iter().enumerate().filter_map(|(i,row)| {
-        (row.observed_at >= cutoff && !train_ids.contains(&row.fingerprint) && holdout_seen.insert(row.fingerprint.clone())).then_some(i)
-    }).collect::<Vec<_>>();
-    if train_indices.len() < MIN_SPEED_TRAIN_ROWS || holdout_indices.len() < MIN_SPEED_HOLDOUT_CANDIDATES {
+    let holdout_indices = observations
+        .iter()
+        .enumerate()
+        .filter_map(|(i, row)| {
+            (row.observed_at >= cutoff
+                && !train_ids.contains(&row.fingerprint)
+                && holdout_seen.insert(row.fingerprint.clone()))
+            .then_some(i)
+        })
+        .collect::<Vec<_>>();
+    if train_indices.len() < MIN_SPEED_TRAIN_ROWS
+        || holdout_indices.len() < MIN_SPEED_HOLDOUT_CANDIDATES
+    {
         let mut report = base;
         report["train_rows"] = Value::from(train_indices.len());
         report["holdout_rows"] = Value::from(holdout_indices.len());
@@ -435,22 +613,35 @@ fn evaluate_speed_regressor(
         report["reason"] = Value::String("insufficient_unseen_candidate_holdout".to_string());
         return (false, report);
     }
-    let train_features = train_indices.iter().map(|i| feature_rows[*i].clone()).collect::<Vec<_>>();
-    let train_y = train_indices.iter().map(|i| observations[*i].speed_kbps.ln() as f32).collect::<Vec<_>>();
-    let train_rows = train_indices.iter().map(|i| observations[*i].clone()).collect::<Vec<_>>();
+    let train_features = train_indices
+        .iter()
+        .map(|i| feature_rows[*i].clone())
+        .collect::<Vec<_>>();
+    let train_y = train_indices
+        .iter()
+        .map(|i| observations[*i].speed_kbps.ln() as f32)
+        .collect::<Vec<_>>();
+    let train_rows = train_indices
+        .iter()
+        .map(|i| observations[*i].clone())
+        .collect::<Vec<_>>();
     let weights = speed_sample_weights(&train_rows, now);
-    let model = match fit_speed_regression_booster(&train_features, &train_y, &weights, SPEED_MODEL_SEED) {
-        Ok(model) => model,
-        Err(error) => {
-            let mut report = base;
-            report["train_rows"] = Value::from(train_indices.len());
-            report["holdout_rows"] = Value::from(holdout_indices.len());
-            report["reason"] = Value::String("holdout_model_fit_failed".to_string());
-            report["fit_error"] = Value::String(error);
-            return (false, report);
-        }
-    };
-    let holdout_features = holdout_indices.iter().map(|i| feature_rows[*i].clone()).collect::<Vec<_>>();
+    let model =
+        match fit_speed_regression_booster(&train_features, &train_y, &weights, SPEED_MODEL_SEED) {
+            Ok(model) => model,
+            Err(error) => {
+                let mut report = base;
+                report["train_rows"] = Value::from(train_indices.len());
+                report["holdout_rows"] = Value::from(holdout_indices.len());
+                report["reason"] = Value::String("holdout_model_fit_failed".to_string());
+                report["fit_error"] = Value::String(error);
+                return (false, report);
+            }
+        };
+    let holdout_features = holdout_indices
+        .iter()
+        .map(|i| feature_rows[*i].clone())
+        .collect::<Vec<_>>();
     let predictions = match predict_speed_regression(&model, &holdout_features) {
         Ok(predictions) => predictions,
         Err(error) => {
@@ -460,15 +651,31 @@ fn evaluate_speed_regressor(
             return (false, report);
         }
     };
-    let actual_log = holdout_indices.iter().map(|i| observations[*i].speed_kbps.ln()).collect::<Vec<_>>();
-    let baseline_log = median(&train_indices.iter().map(|i| observations[*i].speed_kbps.ln()).collect::<Vec<_>>())
-        .unwrap_or_else(|| 10_000.0_f64.ln());
+    let actual_log = holdout_indices
+        .iter()
+        .map(|i| observations[*i].speed_kbps.ln())
+        .collect::<Vec<_>>();
+    let baseline_log = median(
+        &train_indices
+            .iter()
+            .map(|i| observations[*i].speed_kbps.ln())
+            .collect::<Vec<_>>(),
+    )
+    .unwrap_or_else(|| 10_000.0_f64.ln());
     let baseline_mae = mean_absolute_error(&vec![baseline_log; actual_log.len()], &actual_log);
     let model_mae = mean_absolute_error(&predictions, &actual_log);
-    let improvement = if baseline_mae > f64::EPSILON { (baseline_mae - model_mae) / baseline_mae } else { 0.0 };
-    let holdout_speeds = holdout_indices.iter().map(|i| observations[*i].speed_kbps).collect::<Vec<_>>();
+    let improvement = if baseline_mae > f64::EPSILON {
+        (baseline_mae - model_mae) / baseline_mae
+    } else {
+        0.0
+    };
+    let holdout_speeds = holdout_indices
+        .iter()
+        .map(|i| observations[*i].speed_kbps)
+        .collect::<Vec<_>>();
     let top_lift = top_quintile_speed_lift(&predictions, &holdout_speeds);
-    let accepted = model_mae.is_finite() && improvement >= 0.01 && top_lift.is_finite() && top_lift > 1.0;
+    let accepted =
+        model_mae.is_finite() && improvement >= 0.01 && top_lift.is_finite() && top_lift > 1.0;
     let report = serde_json::json!({
         "model": "LightGBM GBDT regression",
         "validation": "chronological_80_20_first_observation_of_unseen_candidates",
@@ -488,19 +695,40 @@ fn evaluate_speed_regressor(
 }
 
 fn mean_absolute_error(predictions: &[f64], actual: &[f64]) -> f64 {
-    if predictions.is_empty() || predictions.len() != actual.len() { return f64::INFINITY; }
-    predictions.iter().zip(actual).map(|(p,a)| (p-a).abs()).sum::<f64>() / predictions.len() as f64
+    if predictions.is_empty() || predictions.len() != actual.len() {
+        return f64::INFINITY;
+    }
+    predictions
+        .iter()
+        .zip(actual)
+        .map(|(p, a)| (p - a).abs())
+        .sum::<f64>()
+        / predictions.len() as f64
 }
 
 fn top_quintile_speed_lift(predictions: &[f64], speeds: &[f64]) -> f64 {
-    if predictions.is_empty() || predictions.len() != speeds.len()
-        || speeds.iter().any(|speed| !speed.is_finite() || *speed <= 0.0) { return f64::NAN; }
+    if predictions.is_empty()
+        || predictions.len() != speeds.len()
+        || speeds
+            .iter()
+            .any(|speed| !speed.is_finite() || *speed <= 0.0)
+    {
+        return f64::NAN;
+    }
     let overall = speeds.iter().sum::<f64>() / speeds.len() as f64;
-    if overall <= 0.0 { return f64::NAN; }
+    if overall <= 0.0 {
+        return f64::NAN;
+    }
     let mut indices = (0..predictions.len()).collect::<Vec<_>>();
-    indices.sort_unstable_by(|a,b| predictions[*b].total_cmp(&predictions[*a]));
+    indices.sort_unstable_by(|a, b| predictions[*b].total_cmp(&predictions[*a]));
     let count = (predictions.len() + 4) / 5;
-    indices.iter().take(count.max(1)).map(|i| speeds[*i]).sum::<f64>() / count.max(1) as f64 / overall
+    indices
+        .iter()
+        .take(count.max(1))
+        .map(|i| speeds[*i])
+        .sum::<f64>()
+        / count.max(1) as f64
+        / overall
 }
 
 fn fit_speed_regression_booster(
@@ -509,10 +737,16 @@ fn fit_speed_regression_booster(
     weights: &[f32],
     seed: i32,
 ) -> Result<Booster, String> {
-    if features.is_empty() || features.len() != targets.len() || features.len() != weights.len()
-        || features.iter().any(|row| row.len() != SPEED_MODEL_FEATURE_COUNT)
+    if features.is_empty()
+        || features.len() != targets.len()
+        || features.len() != weights.len()
+        || features
+            .iter()
+            .any(|row| row.len() != SPEED_MODEL_FEATURE_COUNT)
         || targets.iter().any(|target| !target.is_finite())
-    { return Err("speed-regression rows are empty, invalid, or mismatched".to_string()); }
+    {
+        return Err("speed-regression rows are empty, invalid, or mismatched".to_string());
+    }
     let matrix = MatBuf::from_rows_non_empty(features)
         .map_err(|error| format!("failed to build speed-regression matrix: {error}"))?
         .ok_or_else(|| "speed-regression matrix is empty".to_string())?;
@@ -536,32 +770,59 @@ fn fit_speed_regression_booster(
     parameters.push("deterministic", true);
     let mut dataset = Dataset::from_mat(&matrix, None, &parameters)
         .map_err(|error| format!("failed to create regression dataset: {error}"))?;
-    dataset.set_field(Field::LABEL, targets)
+    dataset
+        .set_field(Field::LABEL, targets)
         .map_err(|error| format!("failed to attach regression targets: {error}"))?;
-    dataset.set_field(Field::WEIGHT, weights)
+    dataset
+        .set_field(Field::WEIGHT, weights)
         .map_err(|error| format!("failed to attach regression weights: {error}"))?;
     let mut booster = Booster::new(Arc::new(dataset), &parameters)
         .map_err(|error| format!("failed to create regression booster: {error}"))?;
     for _ in 0..TRAINING_ITERATIONS {
-        if booster.update_one_iter().map_err(|error| format!("regression training failed: {error}"))? { break; }
+        if booster
+            .update_one_iter()
+            .map_err(|error| format!("regression training failed: {error}"))?
+        {
+            break;
+        }
     }
     Ok(booster)
 }
 
 fn predict_speed_regression(booster: &Booster, features: &[Vec<f64>]) -> Result<Vec<f64>, String> {
-    if features.is_empty() { return Ok(Vec::new()); }
-    if features.iter().any(|row| row.len() != SPEED_MODEL_FEATURE_COUNT) {
+    if features.is_empty() {
+        return Ok(Vec::new());
+    }
+    if features
+        .iter()
+        .any(|row| row.len() != SPEED_MODEL_FEATURE_COUNT)
+    {
         return Err("speed-regression prediction feature count mismatch".to_string());
     }
     let matrix = MatBuf::from_rows_non_empty(features)
         .map_err(|error| format!("failed to build prediction matrix: {error}"))?
         .ok_or_else(|| "prediction matrix is empty".to_string())?;
-    let result = booster.predict_for_mat(&matrix, PredictType::Normal, 0, None, &Parameters::new())
+    let result = booster
+        .predict_for_mat(&matrix, PredictType::Normal, 0, None, &Parameters::new())
         .map_err(|error| format!("speed prediction failed: {error}"))?;
     if result.values().len() != features.len() {
-        return Err(format!("LightGBM returned {} speed predictions for {} rows", result.values().len(), features.len()));
+        return Err(format!(
+            "LightGBM returned {} speed predictions for {} rows",
+            result.values().len(),
+            features.len()
+        ));
     }
-    Ok(result.values().iter().map(|value| if value.is_finite() { value.clamp(0.0, 20.0) } else { 0.0 }).collect())
+    Ok(result
+        .values()
+        .iter()
+        .map(|value| {
+            if value.is_finite() {
+                value.clamp(0.0, 20.0)
+            } else {
+                0.0
+            }
+        })
+        .collect())
 }
 
 fn historical_speed_prediction(
@@ -576,7 +837,8 @@ fn historical_speed_prediction(
     match (exact, family) {
         (Some(exact), Some(family)) if exact.count > 0 && family.count > 0 => {
             let exact_weight = exact.count as f64 / (exact.count as f64 + 3.0);
-            exact_weight * exact.average_log_speed(fallback) + (1.0 - exact_weight) * family.average_log_speed(fallback)
+            exact_weight * exact.average_log_speed(fallback)
+                + (1.0 - exact_weight) * family.average_log_speed(fallback)
         }
         (Some(exact), _) if exact.count > 0 => exact.average_log_speed(fallback),
         (_, Some(family)) if family.count >= 3 => family.average_log_speed(fallback),
@@ -590,23 +852,40 @@ fn speed_ranking_score(predicted_log_speed: f64, baseline_log_speed: f64) -> f64
 }
 
 fn feature_signature(features: &[f64]) -> String {
-    features.iter().map(|value| format!("{:016x}", value.to_bits())).collect::<Vec<_>>().join("")
+    features
+        .iter()
+        .map(|value| format!("{:016x}", value.to_bits()))
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 fn fnv64(input: &[u8], seed: u64) -> u64 {
     let mut hash = seed;
-    for byte in input { hash ^= u64::from(*byte); hash = hash.wrapping_mul(0x100000001b3); }
+    for byte in input {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
     hash
 }
 
 fn candidate_fingerprint(config: &str) -> String {
     let cleaned = config.split('#').next().unwrap_or(config);
-    let identity = if cleaned.split_once("://").map(|(scheme,_)| scheme.eq_ignore_ascii_case("vmess")).unwrap_or(false) {
-        decode_vmess(cleaned).and_then(|mut value| {
-            if let Value::Object(object) = &mut value { object.remove("ps"); }
-            serde_json::to_string(&value).ok()
-        }).unwrap_or_else(|| cleaned.to_string())
-    } else { cleaned.to_string() };
+    let identity = if cleaned
+        .split_once("://")
+        .map(|(scheme, _)| scheme.eq_ignore_ascii_case("vmess"))
+        .unwrap_or(false)
+    {
+        decode_vmess(cleaned)
+            .and_then(|mut value| {
+                if let Value::Object(object) = &mut value {
+                    object.remove("ps");
+                }
+                serde_json::to_string(&value).ok()
+            })
+            .unwrap_or_else(|| cleaned.to_string())
+    } else {
+        cleaned.to_string()
+    };
     let first = fnv64(identity.as_bytes(), 0xcbf29ce484222325);
     let second = fnv64(identity.as_bytes(), 0x9e3779b97f4a7c15);
     format!("{first:016x}{second:016x}")
@@ -1152,9 +1431,15 @@ mod tests {
     use std::fs;
 
     fn temp_path() -> String {
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-            .expect("system time").as_nanos();
-        format!("{}/proxyrift-lightgbm-score-{}-{nonce}.json", std::env::temp_dir().display(), std::process::id())
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        format!(
+            "{}/proxyrift-lightgbm-score-{}-{nonce}.json",
+            std::env::temp_dir().display(),
+            std::process::id()
+        )
     }
 
     #[test]
@@ -1171,8 +1456,8 @@ mod tests {
     #[test]
     fn top_quintile_speed_metric_rejects_an_inverted_ranking() {
         let speeds = vec![100.0, 200.0, 300.0, 400.0, 10_000.0];
-        assert!(top_quintile_speed_lift(&[1.0,2.0,3.0,4.0,9.0], &speeds) > 1.0);
-        assert!(top_quintile_speed_lift(&[9.0,8.0,7.0,6.0,1.0], &speeds) < 1.0);
+        assert!(top_quintile_speed_lift(&[1.0, 2.0, 3.0, 4.0, 9.0], &speeds) > 1.0);
+        assert!(top_quintile_speed_lift(&[9.0, 8.0, 7.0, 6.0, 1.0], &speeds) < 1.0);
     }
 
     #[test]
@@ -1189,7 +1474,8 @@ mod tests {
         let path = temp_path();
         let scores = LightGbmScores {
             scores: std::collections::HashMap::from([("candidate".to_string(), 0.8)]),
-            training_rows: 100, trained: true,
+            training_rows: 100,
+            trained: true,
             model_report: serde_json::json!({"ranking_strategy":"stream_speed_regression"}),
         };
         scores.save(&path).expect("save score file");
@@ -1199,7 +1485,10 @@ mod tests {
         assert_eq!(loaded.score("candidate"), 0.8);
         let value: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["version"].as_u64(), Some(5));
-        assert_eq!(value["feature_count"].as_u64(), Some(SPEED_MODEL_FEATURE_COUNT as u64));
+        assert_eq!(
+            value["feature_count"].as_u64(),
+            Some(SPEED_MODEL_FEATURE_COUNT as u64)
+        );
         let _ = fs::remove_file(path);
     }
 
@@ -1209,7 +1498,10 @@ mod tests {
             candidate_fingerprint("vless://uuid@example.com:443?security=tls#first"),
             candidate_fingerprint("vless://uuid@example.com:443?security=tls#second")
         );
-        assert_ne!(feature_signature(&[1.0,2.0]), feature_signature(&[1.0,3.0]));
+        assert_ne!(
+            feature_signature(&[1.0, 2.0]),
+            feature_signature(&[1.0, 3.0])
+        );
     }
 
     #[test]
