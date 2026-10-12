@@ -711,7 +711,6 @@ fn load_light_cohorts(path: &str) -> Result<Vec<Vec<String>>, String> {
     Ok(cohorts)
 }
 
-
 fn load_history(path: &str) -> Result<HashMap<String, HistoryEntry>, String> {
     let Ok(content) = std::fs::read_to_string(path) else {
         return Ok(HashMap::new());
@@ -4350,30 +4349,27 @@ mod tests {
             ranked.iter().collect::<HashSet<_>>(),
             configs.iter().collect::<HashSet<_>>()
         );
-        let score_only_prefix = score_only.iter().take(200).collect::<HashSet<_>>();
+        let score_only_prefix = score_only.into_iter().take(200).collect::<HashSet<_>>();
         let explored_in_prefix = ranked
             .iter()
             .take(200)
-            .filter(|config| !score_only_prefix.contains(config))
+            .filter(|config| !score_only_prefix.contains(*config))
             .count();
         assert!(explored_in_prefix >= 20, "{explored_in_prefix}");
     }
 
     #[test]
-    fn strict_recheck_uses_model_score_without_cohort_override() {
+    fn strict_recheck_uses_positions_for_equal_model_scores() {
         let configs = (0..128)
             .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
             .collect::<Vec<_>>();
-        let light_gbm = LightGbmScores {
-            scores: HashMap::from([
-                (configs[0].clone(), 0.1),
-                (configs[77].clone(), 0.99),
-            ]),
-            ..LightGbmScores::default()
-        };
+        let positions = HashMap::from([(configs[77].clone(), 0usize), (configs[0].clone(), 1usize)]);
 
-        let ranked =
-            super::rank_strict_recheck_candidates(&configs, &light_gbm, &HashMap::new());
+        let ranked = super::rank_strict_recheck_candidates(
+            &configs,
+            &LightGbmScores::default(),
+            &positions,
+        );
 
         assert_eq!(ranked[0], configs[77]);
     }
