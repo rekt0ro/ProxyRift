@@ -785,15 +785,17 @@ fn persist_candidate_ledger(
     now: u64,
 ) -> Result<(), String> {
     ledger.retain(|_, validated_at| {
-        *validated_at <= now
-            && now.saturating_sub(*validated_at) < REVALIDATION_WINDOW_SECS
+        *validated_at <= now && now.saturating_sub(*validated_at) < REVALIDATION_WINDOW_SECS
     });
     for config in fully_validated {
         ledger.insert(history_fingerprint(config), now);
     }
 
     if ledger.len() > MAX_CANDIDATE_LEDGER_ENTRIES {
-        let mut entries = ledger.iter().map(|(key, value)| (key.clone(), *value)).collect::<Vec<_>>();
+        let mut entries = ledger
+            .iter()
+            .map(|(key, value)| (key.clone(), *value))
+            .collect::<Vec<_>>();
         entries.sort_unstable_by(|left, right| right.1.cmp(&left.1));
         entries.truncate(MAX_CANDIDATE_LEDGER_ENTRIES);
         ledger.clear();
@@ -1028,19 +1030,28 @@ fn sort_ranked(
     });
 }
 
-fn sort_by_measured_stream_speed(
-    configs: &mut [String],
-    metrics: &HashMap<String, ProxyMetrics>,
-) {
+fn sort_by_measured_stream_speed(configs: &mut [String], metrics: &HashMap<String, ProxyMetrics>) {
     configs.sort_unstable_by(|left, right| {
         let left_metrics = metrics.get(left);
         let right_metrics = metrics.get(right);
-        let left_speed = left_metrics.map(|value| value.throughput_kbps).unwrap_or(0.0);
-        let right_speed = right_metrics.map(|value| value.throughput_kbps).unwrap_or(0.0);
-        let left_duration = left_metrics.map(|value| value.median_ms).unwrap_or(f64::INFINITY);
-        let right_duration = right_metrics.map(|value| value.median_ms).unwrap_or(f64::INFINITY);
-        let left_jitter = left_metrics.map(|value| value.jitter_ms).unwrap_or(f64::INFINITY);
-        let right_jitter = right_metrics.map(|value| value.jitter_ms).unwrap_or(f64::INFINITY);
+        let left_speed = left_metrics
+            .map(|value| value.throughput_kbps)
+            .unwrap_or(0.0);
+        let right_speed = right_metrics
+            .map(|value| value.throughput_kbps)
+            .unwrap_or(0.0);
+        let left_duration = left_metrics
+            .map(|value| value.median_ms)
+            .unwrap_or(f64::INFINITY);
+        let right_duration = right_metrics
+            .map(|value| value.median_ms)
+            .unwrap_or(f64::INFINITY);
+        let left_jitter = left_metrics
+            .map(|value| value.jitter_ms)
+            .unwrap_or(f64::INFINITY);
+        let right_jitter = right_metrics
+            .map(|value| value.jitter_ms)
+            .unwrap_or(f64::INFINITY);
         right_speed
             .total_cmp(&left_speed)
             .then_with(|| left_duration.total_cmp(&right_duration))
@@ -2593,7 +2604,8 @@ fn select_verified_configs_with_repeat_cap(
         return (selected, selected_fresh);
     }
 
-    let repeat_limit = selected_fresh.saturating_mul(REVALIDATED_CANDIDATE_PERCENT) / (100 - REVALIDATED_CANDIDATE_PERCENT);
+    let repeat_limit = selected_fresh.saturating_mul(REVALIDATED_CANDIDATE_PERCENT)
+        / (100 - REVALIDATED_CANDIDATE_PERCENT);
     let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
     let mut family_counts = HashMap::<String, usize>::new();
     for config in &selected {
@@ -3471,11 +3483,8 @@ async fn main() -> Result<(), String> {
         .filter(|line| !line.starts_with('#'))
         .map(|config| history_fingerprint(&config))
         .collect::<HashSet<_>>();
-    let repeat_candidate_fingerprints = active_revalidated_fingerprints(
-        &candidate_ledger,
-        &active_fingerprints,
-        run_timestamp,
-    );
+    let repeat_candidate_fingerprints =
+        active_revalidated_fingerprints(&candidate_ledger, &active_fingerprints, run_timestamp);
     let light_cohorts = load_light_cohorts(LIGHT_SUBSCRIPTION_PATH)?;
 
     let mut seen_candidates = HashSet::new();
@@ -3557,10 +3566,8 @@ async fn main() -> Result<(), String> {
         discovery_seed,
         &recent_families,
     );
-    let (discovery_candidates, scheduled_repeat_count) = interleave_repeat_candidates(
-        &ranked_discovery_candidates,
-        &repeat_candidate_fingerprints,
-    );
+    let (discovery_candidates, scheduled_repeat_count) =
+        interleave_repeat_candidates(&ranked_discovery_candidates, &repeat_candidate_fingerprints);
     println!(
         "[INFO] 🔁 [Light reuse] Candidate test order | New/expired candidates: {} | Recently validated active candidates: {} (max 20%, within 24h)",
         discovery_candidates.len().saturating_sub(scheduled_repeat_count),
@@ -4291,24 +4298,25 @@ async fn main() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_discovery_batch_size, adaptive_recheck_limit, adaptive_stability_pool_target,
-        adaptive_stability_target, adaptive_strict_validation_target, adaptive_transfer_test_limit,
+        active_revalidated_fingerprints, adaptive_discovery_batch_size, adaptive_recheck_limit,
+        adaptive_stability_pool_target, adaptive_stability_target,
+        adaptive_strict_validation_target, adaptive_transfer_test_limit,
         adjust_discovery_batch_for_yield, adjust_transfer_workers, discovery_downstream_progressed,
-        final_publication_limit, has_disabled_tls_verification, history_fingerprint, light_backend,
-        light_training_features, mirror_sustained_stream_results, normalize_light_config,
-        observation_fingerprint, rank_discovery_candidates, recheck_exploration_limit,
+        final_publication_limit, has_disabled_tls_verification, history_fingerprint,
+        interleave_repeat_candidates, light_backend, light_training_features,
+        mirror_sustained_stream_results, normalize_light_config, observation_fingerprint,
+        persist_candidate_ledger, rank_discovery_candidates, recheck_exploration_limit,
         select_recheck_candidates, select_stability_test_batch, select_transfer_target,
         select_verified_configs, select_verified_configs_with_freshness_quota,
-        sort_by_measured_stream_speed, active_revalidated_fingerprints, interleave_repeat_candidates,
-        select_verified_configs_with_repeat_cap, persist_candidate_ledger,
-        selection_additional_potential_count, selection_eligible_count, selection_potential_count,
-        selection_rejection_counts, should_quarantine_transfer_target, singbox_qualified_metadata,
-        stream_selection_count, strict_validation_batch_limit, strict_validation_target,
-        transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
-        AdaptiveStrictValidationInputs, LightBackend, LightGbmScores, ProxyMetrics,
-        TransferConcurrencyState, TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS,
-        FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES, MAX_DISCOVERY_CANDIDATES,
-        STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
+        select_verified_configs_with_repeat_cap, selection_additional_potential_count,
+        selection_eligible_count, selection_potential_count, selection_rejection_counts,
+        should_quarantine_transfer_target, singbox_qualified_metadata,
+        sort_by_measured_stream_speed, stream_selection_count, strict_validation_batch_limit,
+        strict_validation_target, transfer_target_batch_limit, transfer_validation_target,
+        update_transfer_target_state, AdaptiveStrictValidationInputs, LightBackend, LightGbmScores,
+        ProxyMetrics, TransferConcurrencyState, TransferTargetState,
+        FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES,
+        MAX_DISCOVERY_CANDIDATES, STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -4317,34 +4325,47 @@ mod tests {
     #[test]
     fn final_stream_ranking_prefers_measured_throughput_over_history() {
         let mut metrics = HashMap::new();
-        metrics.insert("slow".to_string(), ProxyMetrics {
-            successes: 1,
-            attempts: 1,
-            median_ms: 4_000.0,
-            min_ms: 3_900.0,
-            jitter_ms: 20.0,
-            throughput_kbps: 7_000.0,
-            successful_targets: Vec::new(),
-        });
-        metrics.insert("fast".to_string(), ProxyMetrics {
-            successes: 1,
-            attempts: 1,
-            median_ms: 8_000.0,
-            min_ms: 7_900.0,
-            jitter_ms: 100.0,
-            throughput_kbps: 22_000.0,
-            successful_targets: Vec::new(),
-        });
-        metrics.insert("fastest".to_string(), ProxyMetrics {
-            successes: 1,
-            attempts: 1,
-            median_ms: 9_000.0,
-            min_ms: 8_900.0,
-            jitter_ms: 200.0,
-            throughput_kbps: 35_000.0,
-            successful_targets: Vec::new(),
-        });
-        let mut configs = vec!["slow".to_string(), "fast".to_string(), "fastest".to_string()];
+        metrics.insert(
+            "slow".to_string(),
+            ProxyMetrics {
+                successes: 1,
+                attempts: 1,
+                median_ms: 4_000.0,
+                min_ms: 3_900.0,
+                jitter_ms: 20.0,
+                throughput_kbps: 7_000.0,
+                successful_targets: Vec::new(),
+            },
+        );
+        metrics.insert(
+            "fast".to_string(),
+            ProxyMetrics {
+                successes: 1,
+                attempts: 1,
+                median_ms: 8_000.0,
+                min_ms: 7_900.0,
+                jitter_ms: 100.0,
+                throughput_kbps: 22_000.0,
+                successful_targets: Vec::new(),
+            },
+        );
+        metrics.insert(
+            "fastest".to_string(),
+            ProxyMetrics {
+                successes: 1,
+                attempts: 1,
+                median_ms: 9_000.0,
+                min_ms: 8_900.0,
+                jitter_ms: 200.0,
+                throughput_kbps: 35_000.0,
+                successful_targets: Vec::new(),
+            },
+        );
+        let mut configs = vec![
+            "slow".to_string(),
+            "fast".to_string(),
+            "fastest".to_string(),
+        ];
         sort_by_measured_stream_speed(&mut configs, &metrics);
         assert_eq!(configs, vec!["fastest", "fast", "slow"]);
     }
@@ -4354,20 +4375,30 @@ mod tests {
         let candidates = (0..20)
             .map(|index| format!("vless://uuid@node{index}.example:443?security=tls"))
             .collect::<Vec<_>>();
-        let repeats = candidates.iter().take(4)
+        let repeats = candidates
+            .iter()
+            .take(4)
             .map(|config| history_fingerprint(config))
             .collect::<HashSet<_>>();
         let (ordered, repeats_scheduled) = interleave_repeat_candidates(&candidates, &repeats);
         assert_eq!(ordered.len(), 20);
         assert_eq!(repeats_scheduled, 4);
         assert_eq!(
-            ordered.iter().filter(|config| repeats.contains(&history_fingerprint(config))).count(),
+            ordered
+                .iter()
+                .filter(|config| repeats.contains(&history_fingerprint(config)))
+                .count(),
             4
         );
         for prefix_len in 1..=ordered.len() {
-            let repeated = ordered[..prefix_len].iter()
-                .filter(|config| repeats.contains(&history_fingerprint(config))).count();
-            assert!(repeated <= prefix_len / 5, "repeat quota exceeded in first {prefix_len} tests");
+            let repeated = ordered[..prefix_len]
+                .iter()
+                .filter(|config| repeats.contains(&history_fingerprint(config)))
+                .count();
+            assert!(
+                repeated <= prefix_len / 5,
+                "repeat quota exceeded in first {prefix_len} tests"
+            );
         }
     }
 
@@ -4396,27 +4427,34 @@ mod tests {
         let configs = (0..10)
             .map(|index| format!("vless://uuid@host{index}.example:443?security=tls"))
             .collect::<Vec<_>>();
-        let repeats = configs.iter().take(5)
+        let repeats = configs
+            .iter()
+            .take(5)
             .map(|config| history_fingerprint(config))
             .collect::<HashSet<_>>();
         let (selected, fresh_count) =
             select_verified_configs_with_repeat_cap(&configs, &repeats, 10, 1, 3);
         assert_eq!(selected.len(), 6);
         assert_eq!(fresh_count, 5);
-        let revalidated = selected.iter()
-            .filter(|config| repeats.contains(&history_fingerprint(config))).count();
+        let revalidated = selected
+            .iter()
+            .filter(|config| repeats.contains(&history_fingerprint(config)))
+            .count();
         assert!(revalidated <= selected.len() / 5);
     }
 
     #[test]
     fn candidate_ledger_writes_only_recent_hashed_fully_validated_identities() {
-        let path = format!("{}/proxyrift-ledger-{}.json", std::env::temp_dir().display(), std::process::id());
+        let path = format!(
+            "{}/proxyrift-ledger-{}.json",
+            std::env::temp_dir().display(),
+            std::process::id()
+        );
         let mut ledger = HashMap::from([("expired".to_string(), 1_u64)]);
         let now = 200_000_u64;
-        let validated = HashSet::from([
-            "vless://uuid@valid.example:443?security=tls".to_string(),
-        ]);
-        persist_candidate_ledger(&path, &mut ledger, &validated, now).expect("persist candidate ledger");
+        let validated = HashSet::from(["vless://uuid@valid.example:443?security=tls".to_string()]);
+        persist_candidate_ledger(&path, &mut ledger, &validated, now)
+            .expect("persist candidate ledger");
         let body = std::fs::read_to_string(&path).expect("read candidate ledger");
         let json: serde_json::Value = serde_json::from_str(&body).expect("parse ledger");
         assert_eq!(json["retention_seconds"].as_u64(), Some(86_400));
