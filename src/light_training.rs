@@ -630,7 +630,7 @@ mod tests {
         assert_eq!(stats.strict_passes, 1);
         assert_eq!(stats.transfer_passes, 1);
         assert_eq!(stats.stream_passes, 1);
-        assert!(stats.speed_model_ready() == false);
+        assert!(!stats.speed_model_ready());
 
         let body = fs::read_to_string(&path).expect("read dataset");
         assert_eq!(body.lines().count(), 1);
@@ -700,18 +700,23 @@ mod tests {
 
     #[test]
     fn readiness_uses_speed_sample_coverage_not_negative_labels() {
-        let mut stats = super::DatasetStats::default();
-        stats.rows = 59;
-        stats.unique_runs = 10;
-        stats.unique_candidates = 40;
-        assert!(!stats.speed_model_ready());
+        let not_ready = super::DatasetStats {
+            rows: 59,
+            unique_runs: 10,
+            unique_candidates: 40,
+            ..super::DatasetStats::default()
+        };
+        assert!(!not_ready.speed_model_ready());
 
-        stats.rows = 60;
-        stats.unique_runs = 6;
-        stats.unique_candidates = 40;
-        assert!(stats.speed_model_ready());
-        assert!(stats.strict_model_ready());
-        assert!(stats.end_to_end_model_ready());
+        let ready = super::DatasetStats {
+            rows: 60,
+            unique_runs: 6,
+            unique_candidates: 40,
+            ..super::DatasetStats::default()
+        };
+        assert!(ready.speed_model_ready());
+        assert!(ready.strict_model_ready());
+        assert!(ready.end_to_end_model_ready());
     }
 
     #[test]
