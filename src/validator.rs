@@ -19,8 +19,8 @@ pub const PRIMARY_TARGET: &str = "https://www.google.com/generate_204";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speed.cloudflare.com/__down?bytes=10485760";
 pub const HETZNER_SPEEDTEST_100MB_TARGET: &str = "https://fsn1-speed.hetzner.com/100MB.bin";
 pub const TRUEFILESIZE_SPEEDTEST_100MB_TARGET: &str =
-    "https://cdn.truefilesize.com/test/test-100mb.bin";
-pub const TELE2_SPEEDTEST_100MB_TARGET: &str = "http://speedtest.tele2.net/100MB.zip";
+    "https://cdn.truefilesize.com/test/test-10mb.bin";
+pub const TELE2_SPEEDTEST_100MB_TARGET: &str = "http://speedtest.tele2.net/10MB.zip";
 pub const STRICT_THROUGHPUT_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
     HETZNER_SPEEDTEST_100MB_TARGET,
