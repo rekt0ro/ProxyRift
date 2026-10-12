@@ -83,9 +83,7 @@ const LIGHT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
 const LIGHT_TRAINING_STATS_PATH: &str = "subscriptions/light-training-stats.json";
 const LIGHT_SUBSCRIPTION_PATH: &str = "subscriptions/light.txt";
 const HISTORICAL_LIGHT_COHORTS: usize = 2;
-const PREVIOUS_COHORT_MIN_PERCENT: usize = 20;
-const OLDER_COHORT_MIN_PERCENT: usize = 10;
-const MIN_COHORT_RETENTION_COUNT: usize = 4;
+const FRESH_FAMILY_TARGET_PERCENT: usize = 70;
 
 fn final_publication_limit(selection_target: usize) -> usize {
     selection_target
@@ -713,15 +711,6 @@ fn load_light_cohorts(path: &str) -> Result<Vec<Vec<String>>, String> {
     Ok(cohorts)
 }
 
-fn build_light_cohort_generations(cohorts: &[Vec<String>]) -> HashMap<String, usize> {
-    let mut generations = HashMap::new();
-    for (generation, cohort) in cohorts.iter().enumerate() {
-        for config in cohort {
-            generations.entry(config.clone()).or_insert(generation);
-        }
-    }
-    generations
-}
 
 fn load_history(path: &str) -> Result<HashMap<String, HistoryEntry>, String> {
     let Ok(content) = std::fs::read_to_string(path) else {
@@ -881,26 +870,12 @@ fn rank_discovery_candidates(
     candidates: &[String],
     light_gbm_scores: &LightGbmScores,
     seed: u64,
-    preferred_candidates: &HashSet<String>,
 ) -> Vec<String> {
-    let mut preferred = candidates
-        .iter()
-        .filter(|config| preferred_candidates.contains(*config))
-        .cloned()
-        .collect::<Vec<_>>();
-    preferred.sort_unstable_by(|a, b| {
-        light_gbm_scores
-            .score(b)
-            .total_cmp(&light_gbm_scores.score(a))
-            .then_with(|| a.cmp(b))
-    });
+    if candidates.is_empty() {
+        return Vec::new();
+    }
 
-    let remaining_candidates = candidates
-        .iter()
-        .filter(|config| !preferred_candidates.contains(*config))
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut ranked = remaining_candidates.clone();
+    let mut ranked = candidates.to_vec();
     ranked.sort_unstable_by(|a, b| {
         light_gbm_scores
             .score(b)
@@ -908,22 +883,16 @@ fn rank_discovery_candidates(
             .then_with(|| a.cmp(b))
     });
 
-    let mut exploration = remaining_candidates;
+    let mut exploration = candidates.to_vec();
     exploration.sort_unstable_by_key(|config| exploration_sort_key(config, seed));
 
     let exploration_target = ranked
         .len()
         .saturating_mul(RECHECK_EXPLORATION_PERCENT)
         .div_ceil(100)
-        .clamp(1, MAX_RECHECK_EXPLORATION)
-        .min(ranked.len());
+        .clamp(1, ranked.len());
 
-    let mut ordered = preferred;
-    if exploration_target == 0 {
-        ordered.extend(ranked);
-        return ordered;
-    }
-
+    let mut ordered = Vec::with_capacity(ranked.len());
     let mut selected = HashSet::with_capacity(ranked.len());
     let mut ranked_index = 0usize;
     let mut exploration_index = 0usize;
@@ -966,19 +935,13 @@ fn rank_discovery_candidates(
 fn rank_strict_recheck_candidates(
     candidates: &[String],
     light_gbm_scores: &LightGbmScores,
-    preferred_candidates: &HashSet<String>,
     positions: &HashMap<String, usize>,
 ) -> Vec<String> {
     let mut ranked = candidates.to_vec();
     ranked.sort_unstable_by(|a, b| {
-        preferred_candidates
-            .contains(b)
-            .cmp(&preferred_candidates.contains(a))
-            .then_with(|| {
-                light_gbm_scores
-                    .score(b)
-                    .total_cmp(&light_gbm_scores.score(a))
-            })
+        light_gbm_scores
+            .score(b)
+            .total_cmp(&light_gbm_scores.score(a))
             .then_with(|| {
                 positions
                     .get(a)
@@ -991,7 +954,6 @@ fn rank_strict_recheck_candidates(
     ranked
 }
 
-#[allow(clippy::too_many_arguments)]
 fn adaptive_discovery_batch_size(
     selection_limit: usize,
     publishable_selected: usize,
@@ -2255,70 +2217,43 @@ fn try_add_verified_config(
     true
 }
 
-fn select_verified_configs_with_cohort_floor(
+fn select_verified_configs_with_freshness_quota(
     configs: &[String],
-    generations: &HashMap<String, usize>,
+    recent_families: &HashSet<String>,
     limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
-) -> (Vec<String>, usize, usize) {
+) -> (Vec<String>, usize) {
     if limit == 0 || configs.is_empty() {
-        return (Vec::new(), 0, 0);
+        return (Vec::new(), 0);
     }
 
-    let expected = configs.len().min(limit);
-    let previous_target = ((expected * PREVIOUS_COHORT_MIN_PERCENT).div_ceil(100))
-        .max(MIN_COHORT_RETENTION_COUNT)
-        .min(expected);
-    let older_target = ((expected * OLDER_COHORT_MIN_PERCENT).div_ceil(100))
-        .max(MIN_COHORT_RETENTION_COUNT)
-        .min(expected.saturating_sub(previous_target));
-
+    let fresh_target = limit
+        .saturating_mul(FRESH_FAMILY_TARGET_PERCENT)
+        .div_ceil(100)
+        .min(limit);
     let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
     let mut family_counts = HashMap::<String, usize>::new();
-    let mut selected = Vec::with_capacity(expected);
+    let mut selected = Vec::with_capacity(limit.min(configs.len()));
     let mut selected_set = HashSet::new();
-    let mut previous_selected = 0usize;
-    let mut older_selected = 0usize;
 
     for config in configs {
-        if previous_selected >= previous_target {
+        if selected.len() >= fresh_target {
             break;
         }
-        if generations.get(config).copied() == Some(1)
-            && try_add_verified_config(
-                config,
-                &mut selected,
-                &mut selected_set,
-                &mut endpoint_counts,
-                &mut family_counts,
-                limit,
-                max_per_endpoint,
-                max_per_family,
-            )
-        {
-            previous_selected += 1;
+        if recent_families.contains(&family_key(config)) {
+            continue;
         }
-    }
-
-    for config in configs {
-        if older_selected >= older_target {
-            break;
-        }
-        if generations.get(config).copied().unwrap_or(0) >= 2
-            && try_add_verified_config(
-                config,
-                &mut selected,
-                &mut selected_set,
-                &mut endpoint_counts,
-                &mut family_counts,
-                limit,
-                max_per_endpoint,
-                max_per_family,
-            )
-        {
-            older_selected += 1;
-        }
+        let _ = try_add_verified_config(
+            config,
+            &mut selected,
+            &mut selected_set,
+            &mut endpoint_counts,
+            &mut family_counts,
+            fresh_target,
+            max_per_endpoint,
+            max_per_family,
+        );
     }
 
     for config in configs {
@@ -2337,7 +2272,12 @@ fn select_verified_configs_with_cohort_floor(
         );
     }
 
-    (selected, previous_selected, older_selected)
+    let fresh_selected = selected
+        .iter()
+        .filter(|config| !recent_families.contains(&family_key(config)))
+        .count();
+
+    (selected, fresh_selected)
 }
 
 fn select_verified_configs(
@@ -2395,11 +2335,10 @@ fn stage_selectable_count(
     select_verified_configs(&ranked, selection_limit, max_per_endpoint, max_per_family).len()
 }
 
-#[allow(clippy::too_many_arguments)]
 #[cfg(test)]
 fn stream_selection_count(
     stream_verified: &HashMap<String, ProxyMetrics>,
-    cohort_generations: &HashMap<String, usize>,
+    recent_families: &HashSet<String>,
     global_positions: &HashMap<String, usize>,
     history: &HashMap<String, HistoryEntry>,
     selection_limit: usize,
@@ -2412,9 +2351,9 @@ fn stream_selection_count(
 
     let mut ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
     sort_ranked(&mut ranked, stream_verified, global_positions, history);
-    select_verified_configs_with_cohort_floor(
+    select_verified_configs_with_freshness_quota(
         &ranked,
-        cohort_generations,
+        recent_families,
         selection_limit,
         max_per_endpoint,
         max_per_family,
@@ -3164,7 +3103,6 @@ async fn main() -> Result<(), String> {
     let history_path = "subscriptions/light-history.json";
     let history = load_history(history_path)?;
     let light_cohorts = load_light_cohorts(LIGHT_SUBSCRIPTION_PATH)?;
-    let cohort_generations = build_light_cohort_generations(&light_cohorts);
 
     let mut seen_candidates = HashSet::new();
     let mut candidates = Vec::with_capacity(
@@ -3227,23 +3165,19 @@ async fn main() -> Result<(), String> {
     let mut stream_tested = HashSet::<String>::new();
 
     let discovery_seed = recheck_exploration_seed(0);
-    let current_cohort = light_cohorts.first().cloned().unwrap_or_default();
-    let current_cohort_set = current_cohort.into_iter().collect::<HashSet<_>>();
-    let preferred_candidates = candidates
+    let recent_families = light_cohorts
         .iter()
-        .filter(|config| current_cohort_set.contains(*config))
-        .cloned()
+        .flatten()
+        .map(|config| family_key(config))
         .collect::<HashSet<_>>();
     println!(
-        "[INFO] 🧭 [Light discovery] Prioritizing {} previously published configs for fresh validation",
-        preferred_candidates.len()
+        "[INFO] 🧭 [Light discovery] {} candidates | {} recently published families | {}% score-independent exploration",
+        candidates.len(),
+        recent_families.len(),
+        RECHECK_EXPLORATION_PERCENT
     );
-    let discovery_candidates = rank_discovery_candidates(
-        &candidates,
-        &light_gbm_scores,
-        discovery_seed,
-        &preferred_candidates,
-    );
+    let discovery_candidates =
+        rank_discovery_candidates(&candidates, &light_gbm_scores, discovery_seed);
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
     let mut stagnant_waves = 0usize;
@@ -3422,12 +3356,8 @@ async fn main() -> Result<(), String> {
             .cloned()
             .collect::<Vec<_>>();
 
-        let ai_ranked = rank_strict_recheck_candidates(
-            &untested,
-            &light_gbm_scores,
-            &preferred_candidates,
-            &global_positions,
-        );
+        let ai_ranked =
+            rank_strict_recheck_candidates(&untested, &light_gbm_scores, &global_positions);
 
         let exploration_limit = recheck_exploration_limit(strict_batch_limit);
         let (final_candidates, exploration_selected) = select_recheck_candidates(
@@ -3716,21 +3646,18 @@ async fn main() -> Result<(), String> {
         &history,
     );
     let publication_limit = final_publication_limit(selection_limit);
-    let (selected, previous_selected, older_selected) = select_verified_configs_with_cohort_floor(
+    let (selected, fresh_family_selected) = select_verified_configs_with_freshness_quota(
         &stream_ranked,
-        &cohort_generations,
+        &recent_families,
         publication_limit,
         max_per_endpoint,
         max_per_family,
     );
     println!(
-        "[INFO] 🛡️ [Light retention] Final cohort | Previous: {} | Older: {} | Current/new: {}",
-        previous_selected,
-        older_selected,
-        selected
-            .iter()
-            .filter(|config| cohort_generations.get(*config).copied().unwrap_or(0) == 0)
-            .count()
+        "[INFO] 🧭 [Light freshness] Final selection | Fresh families: {} | Recently published families: {} | Fresh-family target: {}%",
+        fresh_family_selected,
+        selected.len().saturating_sub(fresh_family_selected),
+        FRESH_FAMILY_TARGET_PERCENT
     );
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(
         &stream_ranked,
@@ -3913,7 +3840,7 @@ mod tests {
         singbox_qualified_metadata, mirror_sustained_stream_results, normalize_light_config,
         observation_fingerprint, rank_discovery_candidates, recheck_exploration_limit,
         select_recheck_candidates, select_stability_test_batch, select_transfer_target,
-        select_verified_configs, select_verified_configs_with_cohort_floor,
+        select_verified_configs, select_verified_configs_with_freshness_quota,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, stream_selection_count,
         strict_validation_batch_limit, strict_validation_target, transfer_target_batch_limit,
@@ -3992,34 +3919,20 @@ mod tests {
     }
 
     #[test]
-    fn cohort_floor_retains_previous_and_older_candidates() {
-        let configs = vec![
-            "vless://fresh@example.com:443".to_string(),
-            "vless://previous1@example.net:443".to_string(),
-            "trojan://previous2@example.org:8443".to_string(),
-            "vmess://previous3@example.dev:9443".to_string(),
-            "ss://older1@example.io:8388".to_string(),
-            "hysteria2://older2@example.xyz:443".to_string(),
-            "vless://fresh2@example.cloud:443".to_string(),
-            "trojan://fresh3@example.pro:8443".to_string(),
-        ];
-        let generations = HashMap::from([
-            (configs[0].clone(), 0usize),
-            (configs[1].clone(), 1usize),
-            (configs[2].clone(), 1usize),
-            (configs[3].clone(), 1usize),
-            (configs[4].clone(), 2usize),
-            (configs[5].clone(), 2usize),
-            (configs[6].clone(), 0usize),
-            (configs[7].clone(), 0usize),
-        ]);
+    fn fresh_families_reach_the_target_before_recent_families() {
+        let configs = (0..10)
+            .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
+            .collect::<Vec<_>>();
+        let recent_families = configs[..3]
+            .iter()
+            .map(|config| super::family_key(config))
+            .collect::<HashSet<_>>();
 
-        let (selected, previous, older) =
-            select_verified_configs_with_cohort_floor(&configs, &generations, 8, 1, 3);
+        let (selected, fresh_selected) =
+            select_verified_configs_with_freshness_quota(&configs, &recent_families, 8, 1, 3);
 
         assert_eq!(selected.len(), 8);
-        assert_eq!(previous, 3);
-        assert_eq!(older, 2);
+        assert_eq!(fresh_selected, 6);
     }
 
     #[test]
@@ -4032,18 +3945,19 @@ mod tests {
         let configs = (0..143)
             .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
             .collect::<Vec<_>>();
-        let generations = HashMap::new();
+        let recent_families = HashSet::new();
         let publication_limit = final_publication_limit(130);
 
         assert_eq!(publication_limit, 130);
-        let (selected, _, _) = select_verified_configs_with_cohort_floor(
+        let (selected, fresh_selected) = select_verified_configs_with_freshness_quota(
             &configs,
-            &generations,
+            &recent_families,
             publication_limit,
             1,
             3,
         );
         assert_eq!(selected.len(), 130);
+        assert_eq!(fresh_selected, 130);
     }
 
     #[test]
@@ -4066,14 +3980,14 @@ mod tests {
             .cloned()
             .map(|config| (config, metrics.clone()))
             .collect::<HashMap<_, _>>();
-        let cohort_generations = HashMap::new();
+        let recent_families = HashSet::new();
         let positions = HashMap::new();
         let history = HashMap::new();
 
         assert_eq!(
             stream_selection_count(
                 &stream_verified,
-                &cohort_generations,
+                &recent_families,
                 &positions,
                 &history,
                 2,
@@ -4085,7 +3999,7 @@ mod tests {
         assert_eq!(
             stream_selection_count(
                 &stream_verified,
-                &cohort_generations,
+                &recent_families,
                 &positions,
                 &history,
                 3,
@@ -4422,65 +4336,46 @@ mod tests {
     }
 
     #[test]
-    fn discovery_ranking_uses_ml_with_exploration() {
-        let configs = (0..20)
-            .map(|index| format!("vless://{index}@example.com:443"))
+    fn discovery_ranking_spreads_exploration_across_large_pools() {
+        let configs = (0..15_000)
+            .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
             .collect::<Vec<_>>();
         let light_gbm = LightGbmScores::default();
-        let ranked = rank_discovery_candidates(&configs, &light_gbm, 123, &HashSet::new());
+        let ranked = rank_discovery_candidates(&configs, &light_gbm, 123);
+        let mut score_only = configs.clone();
+        score_only.sort_unstable();
 
         assert_eq!(ranked.len(), configs.len());
         assert_eq!(
             ranked.iter().collect::<HashSet<_>>(),
             configs.iter().collect::<HashSet<_>>()
         );
-        assert_ne!(ranked, configs);
+        let score_only_prefix = score_only.iter().take(200).collect::<HashSet<_>>();
+        let explored_in_prefix = ranked
+            .iter()
+            .take(200)
+            .filter(|config| !score_only_prefix.contains(config))
+            .count();
+        assert!(explored_in_prefix >= 20, "{explored_in_prefix}");
     }
 
     #[test]
-    fn discovery_prioritizes_current_cohort_before_new_candidates() {
+    fn strict_recheck_uses_model_score_without_cohort_override() {
         let configs = (0..128)
             .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
             .collect::<Vec<_>>();
-        let preferred =
-            HashSet::from([configs[18].clone(), configs[77].clone(), configs[2].clone()]);
+        let light_gbm = LightGbmScores {
+            scores: HashMap::from([
+                (configs[0].clone(), 0.1),
+                (configs[77].clone(), 0.99),
+            ]),
+            ..LightGbmScores::default()
+        };
 
         let ranked =
-            super::rank_discovery_candidates(&configs, &LightGbmScores::default(), 123, &preferred);
+            super::rank_strict_recheck_candidates(&configs, &light_gbm, &HashMap::new());
 
-        assert_eq!(ranked.len(), configs.len());
-        assert_eq!(
-            ranked.iter().collect::<HashSet<_>>(),
-            configs.iter().collect::<HashSet<_>>()
-        );
-        assert!(ranked[..preferred.len()]
-            .iter()
-            .all(|config| preferred.contains(config)));
-    }
-
-    #[test]
-    fn strict_recheck_prioritizes_current_cohort_before_new_candidates() {
-        let configs = (0..128)
-            .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
-            .collect::<Vec<_>>();
-        let preferred =
-            HashSet::from([configs[18].clone(), configs[77].clone(), configs[2].clone()]);
-
-        let ranked = super::rank_strict_recheck_candidates(
-            &configs,
-            &LightGbmScores::default(),
-            &preferred,
-            &HashMap::new(),
-        );
-
-        assert_eq!(ranked.len(), configs.len());
-        assert_eq!(
-            ranked.iter().collect::<HashSet<_>>(),
-            configs.iter().collect::<HashSet<_>>()
-        );
-        assert!(ranked[..preferred.len()]
-            .iter()
-            .all(|config| preferred.contains(config)));
+        assert_eq!(ranked[0], configs[77]);
     }
 
     #[test]
