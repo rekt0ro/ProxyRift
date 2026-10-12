@@ -83,6 +83,10 @@ const HISTORY_RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
 const LIGHT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
 const LIGHT_TRAINING_STATS_PATH: &str = "subscriptions/light-training-stats.json";
 const LIGHT_SUBSCRIPTION_PATH: &str = "subscriptions/light.txt";
+const LIGHT_CANDIDATE_LEDGER_PATH: &str = "subscriptions/light-candidate-ledger.json";
+const REVALIDATION_WINDOW_SECS: u64 = 24 * 60 * 60;
+const REVALIDATED_CANDIDATE_PERCENT: usize = 20;
+const MAX_CANDIDATE_LEDGER_ENTRIES: usize = 10_000;
 const HISTORICAL_LIGHT_COHORTS: usize = 7;
 const FRESH_FAMILY_TARGET_PERCENT: usize = 70;
 
@@ -2851,11 +2855,17 @@ fn write_light_validation_report(
                     "passed": true,
                     "bytes": LIGHT_TRANSFER_STABILITY_BYTES,
                     "successful_targets": stability.successful_targets.clone(),
+                    "duration_ms": stability.median_ms,
                 },
                 "nine_mib_sustained": {
                     "passed": true,
                     "bytes": STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
                     "successful_targets": transfer.successful_targets.clone(),
+                    "duration_ms": transfer.median_ms,
+                    "throughput_kbps": transfer.throughput_kbps,
+                    "throughput_mbps": transfer.throughput_kbps / 1000.0,
+                    "timeout_limit_ms": FINAL_TRANSFER_LATENCY_LIMIT_MS,
+                    "max_inter_chunk_idle_secs": STREAM_CONTINUITY_MAX_IDLE_SECS,
                 },
                 "total_download_bytes": LIGHT_TRANSFER_STABILITY_BYTES
                     + STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
@@ -2866,7 +2876,8 @@ fn write_light_validation_report(
         .collect::<Result<Vec<_>, String>>()?;
 
     let report = serde_json::json!({
-        "version": 1,
+        "version": 2,
+        "training_objective": "validated_stream_throughput_regression",
         "validated_core": "sing-box",
         "primary_targets": [
             proxyrift::validator::LIGHT_TRANSFER_STABILITY_TARGETS[0],
@@ -2923,6 +2934,7 @@ fn persist_light_training_data(
         let transfer_was_tested = transfer_tested.contains(config);
         let stream_was_tested = stream_tested.contains(config);
 
+        let stream_metrics = stream_verified.get(config);
         rows.push(TrainingRow {
             observed_at,
             run_id: run_id.clone(),
@@ -2940,6 +2952,14 @@ fn persist_light_training_data(
             transfer_pass: transfer_was_tested.then(|| transfer_verified.contains_key(config)),
             stream_tested: stream_was_tested,
             stream_pass: stream_was_tested.then(|| stream_verified.contains_key(config)),
+            stream_throughput_kbps: stream_metrics
+                .map(|metrics| metrics.throughput_kbps)
+                .filter(|speed| speed.is_finite() && *speed > 0.0)
+                .unwrap_or(0.0),
+            stream_duration_ms: stream_metrics
+                .map(|metrics| metrics.median_ms)
+                .filter(|duration| duration.is_finite() && *duration > 0.0)
+                .unwrap_or(0.0),
         });
     }
 
@@ -2947,20 +2967,12 @@ fn persist_light_training_data(
     write_readiness_report(LIGHT_TRAINING_STATS_PATH, &stats)?;
 
     println!(
-        "[INFO] 🧠 [Light ml data] +{} Rows | Total: {} | Runs: {} | Candidates: {} | Features: {} | Strict: {}/{} | Transfer: {}/{} | Stream: {}/{} | Strict-data: {} | E2E-data: {}",
+        "[INFO] 🧠 [Light ml data] +{} speed samples | Retained: {} / 72h | Runs: {} | Candidates: {} | Speed model ready: {}",
         stats.new_rows,
         stats.rows,
         stats.unique_runs,
         stats.unique_candidates,
-        rows.first().map(|row| row.features.len()).unwrap_or(0),
-        stats.strict_passes,
-        stats.rows,
-        stats.transfer_passes,
-        stats.transfer_tests,
-        stats.stream_passes,
-        stats.stream_tests,
-        if stats.strict_model_ready() { "READY" } else { "NOT_READY" },
-        if stats.end_to_end_model_ready() { "READY" } else { "NOT_READY" }
+        stats.speed_model_ready()
     );
 
     Ok(stats)
