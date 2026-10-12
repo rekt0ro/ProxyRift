@@ -4274,6 +4274,8 @@ mod tests {
         observation_fingerprint, rank_discovery_candidates, recheck_exploration_limit,
         select_recheck_candidates, select_stability_test_batch, select_transfer_target,
         select_verified_configs, select_verified_configs_with_freshness_quota,
+        active_revalidated_fingerprints, interleave_repeat_candidates,
+        select_verified_configs_with_repeat_cap, persist_candidate_ledger, load_candidate_ledger,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, singbox_qualified_metadata,
         stream_selection_count, strict_validation_batch_limit, strict_validation_target,
@@ -4286,6 +4288,83 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn recently_revalidated_candidates_are_limited_to_twenty_percent_of_test_order() {
+        let candidates = (0..20)
+            .map(|index| format!("vless://uuid@node{index}.example:443?security=tls"))
+            .collect::<Vec<_>>();
+        let repeats = candidates.iter().take(6)
+            .map(|config| history_fingerprint(config))
+            .collect::<HashSet<_>>();
+        let (ordered, repeats_scheduled) = interleave_repeat_candidates(&candidates, &repeats);
+        assert_eq!(ordered.len(), 20);
+        assert_eq!(repeats_scheduled, 4);
+        assert_eq!(
+            ordered.iter().filter(|config| repeats.contains(&history_fingerprint(config))).count(),
+            4
+        );
+        for prefix_len in 1..=ordered.len() {
+            let repeated = ordered[..prefix_len].iter()
+                .filter(|config| repeats.contains(&history_fingerprint(config))).count();
+            assert!(repeated <= prefix_len / 5, "repeat quota exceeded in first {prefix_len} tests");
+        }
+    }
+
+    #[test]
+    fn recent_reuse_requires_current_subscription_and_age_strictly_under_24_hours() {
+        let now = 1_800_000_u64;
+        let ledger = HashMap::from([
+            ("active-recent".to_string(), now - 120),
+            ("active-exactly-24h".to_string(), now - 86_400),
+            ("not-active".to_string(), now - 120),
+            ("future".to_string(), now + 1),
+        ]);
+        let active = HashSet::from([
+            "active-recent".to_string(),
+            "active-exactly-24h".to_string(),
+            "future".to_string(),
+        ]);
+        assert_eq!(
+            active_revalidated_fingerprints(&ledger, &active, now),
+            HashSet::from(["active-recent".to_string()])
+        );
+    }
+
+    #[test]
+    fn publication_does_not_exceed_twenty_percent_revalidated_items() {
+        let configs = (0..10)
+            .map(|index| format!("vless://uuid@host{index}.example:443?security=tls"))
+            .collect::<Vec<_>>();
+        let repeats = configs.iter().take(5)
+            .map(|config| history_fingerprint(config))
+            .collect::<HashSet<_>>();
+        let (selected, fresh_count) =
+            select_verified_configs_with_repeat_cap(&configs, &repeats, 10, 1, 3);
+        assert_eq!(selected.len(), 10);
+        assert_eq!(fresh_count, 5);
+        let revalidated = selected.iter()
+            .filter(|config| repeats.contains(&history_fingerprint(config))).count();
+        assert!(revalidated <= selected.len() / 5);
+    }
+
+    #[test]
+    fn candidate_ledger_writes_only_recent_hashed_fully_validated_identities() {
+        let path = format!("{}/proxyrift-ledger-{}.json", std::env::temp_dir().display(), std::process::id());
+        let mut ledger = HashMap::from([("expired".to_string(), 1_u64)]);
+        let now = 200_000_u64;
+        let validated = HashSet::from([
+            "vless://uuid@valid.example:443?security=tls".to_string(),
+        ]);
+        persist_candidate_ledger(&path, &mut ledger, &validated, now).expect("persist candidate ledger");
+        let body = std::fs::read_to_string(&path).expect("read candidate ledger");
+        let json: serde_json::Value = serde_json::from_str(&body).expect("parse ledger");
+        assert_eq!(json["retention_seconds"].as_u64(), Some(86_400));
+        assert_eq!(json["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(json["entries"][0]["validated_at"].as_u64(), Some(now));
+        assert_eq!(json["entries"][0]["config_id"].as_str().unwrap().len(), 32);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn staged_light_transfer_requires_ten_mib_before_publication() {
