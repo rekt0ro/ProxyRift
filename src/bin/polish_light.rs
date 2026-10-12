@@ -527,6 +527,8 @@ fn write_light_stats(
     fresh_family_target_percent: usize,
     score_independent_exploration_percent: usize,
     published_from_fresh_families: usize,
+    published_new_or_expired: usize,
+    published_revalidated: usize,
 ) -> Result<(), String> {
     if path.is_empty() {
         return Ok(());
@@ -557,6 +559,10 @@ fn write_light_stats(
         "score_independent_exploration_percent": score_independent_exploration_percent,
         "published_from_fresh_families": published_from_fresh_families,
         "published_from_recent_families": published.saturating_sub(published_from_fresh_families),
+        "published_new_or_expired": published_new_or_expired,
+        "published_revalidated": published_revalidated,
+        "revalidated_candidate_max_percent": REVALIDATED_CANDIDATE_PERCENT,
+        "revalidation_window_seconds": REVALIDATION_WINDOW_SECS,
     });
     let body = serde_json::to_vec_pretty(&stats).map_err(|error| error.to_string())?;
     std::fs::write(path, body).map_err(|error| error.to_string())
@@ -4168,6 +4174,8 @@ async fn main() -> Result<(), String> {
         FRESH_FAMILY_TARGET_PERCENT,
         RECHECK_EXPLORATION_PERCENT,
         fresh_family_selected,
+        selected_new_count,
+        selected_revalidated_count,
     )?;
 
     let validation_report_path = write_light_validation_report(
