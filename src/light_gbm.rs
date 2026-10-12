@@ -159,7 +159,9 @@ impl LightGbmScores {
             models.push((&stream, 0.20_f64));
         }
         let weight_sum = models.iter().map(|(_, weight)| *weight).sum::<f64>();
-        let historical_fallback = candidate_features.iter().any(historical_prior_has_signal);
+        let historical_fallback = candidate_features
+            .iter()
+            .any(|features| historical_prior_has_signal(features));
         let ranking_strategy = if end_to_end.accepted {
             "end_to_end"
         } else if weight_sum > 0.0 {
