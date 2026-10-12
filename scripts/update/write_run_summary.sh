@@ -135,7 +135,7 @@ format_yes_no() {
 format_ranking_strategy() {
   case "$1" in
     end_to_end) printf 'End-to-end model' ;;
-    stage_blend_fallback) printf 'Stage-model blend' ;;
+    stage_model_fallback) printf 'Stage-model fallback' ;;
     neutral_default) printf 'Neutral fallback' ;;
     *) printf 'Not evaluated' ;;
   esac

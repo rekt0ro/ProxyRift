@@ -162,7 +162,7 @@ impl LightGbmScores {
         let ranking_strategy = if end_to_end.accepted {
             "end_to_end"
         } else if weight_sum > 0.0 {
-            "stage_blend_fallback"
+            "stage_model_fallback"
         } else {
             "neutral_default"
         };

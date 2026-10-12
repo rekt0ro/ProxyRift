@@ -583,10 +583,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let light_gbm = match LightGbmScores::train_and_score(&configs) {
         Ok(scores) => {
             println!(
-                "[INFO] 🧠 [LightGBM] Collection model | Trained: {} | Training rows: {} | Scored: {}",
-                scores.trained(),
-                scores.training_rows(),
-                scores.len()
+                "[INFO] 🧠 [LightGBM] Collection model | Trained: {}",
+                scores.trained()
             );
             scores
         }

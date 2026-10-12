@@ -3110,12 +3110,9 @@ async fn main() -> Result<(), String> {
         .model_report()
         .get("ranking_strategy")
         .and_then(Value::as_str)
-        .unwrap_or("legacy_stage_blend");
+        .unwrap_or("legacy_stage_model_fallback");
     println!(
-        "[INFO] 🧠 [LightGBM] Loaded collection scores | Trained: {} | Training rows: {} | Scored: {} | Ranking strategy: {}",
-        light_gbm_scores.trained(),
-        light_gbm_scores.training_rows(),
-        light_gbm_scores.len(),
+        "[INFO] 🧠 [LightGBM] Loaded collection scores | Ranking strategy: {}",
         ranking_strategy
     );
 

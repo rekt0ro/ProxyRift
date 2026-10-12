@@ -56,9 +56,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-
+          key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'src/**/*.rs') }}
 
       - name: Shell syntax check
         run: for script in scripts/*.sh scripts/update/*.sh scripts/autopilot/*.sh; do bash -n "$script" || exit 1; done
@@ -68,6 +66,9 @@ jobs:
 
       - name: Test watchdog output validation and cleanup
         run: bash scripts/autopilot/test_watchdog.sh
+
+      - name: Test source-sensitive build cache keys
+        run: bash scripts/update/test_compute_cache_keys.sh
 
       - name: Test update run summary formatting
         run: bash scripts/update/test_write_run_summary.sh
@@ -108,4 +109,4 @@ jobs:
         continue-on-error: true
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'src/**/*.rs') }}

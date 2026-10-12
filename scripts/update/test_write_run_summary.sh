@@ -40,7 +40,7 @@ cat > "$work/proxyrift/lightgbm-scores.json" <<'JSON'
   "model_report": {
     "validation": "single_temporal_holdout_unseen_candidates_first_observation",
     "baseline": "training_prevalence_brier",
-    "ranking_strategy": "stage_blend_fallback",
+    "ranking_strategy": "stage_model_fallback",
     "model_feature_count": 66,
     "promotion_minimum_relative_brier_improvement": 0.005,
     "promotion_top_20pct_lift_minimum": 1.0,
@@ -158,7 +158,7 @@ grep -Fq '| Candidates considered | 15,000 |' "$tmp/summary.md"
 grep -Fq '| Strict validation | 300 of 317 passed |' "$tmp/summary.md"
 grep -Fq '| 10 MiB transfer | 211 of 232 passed |' "$tmp/summary.md"
 grep -Fq '| Light configs published | 200 of 200 target |' "$tmp/summary.md"
-grep -Fq '**Ranking:** Model-based ranking active — Stage-model blend (1 of 4 targets accepted).' "$tmp/summary.md"
+grep -Fq '**Ranking:** Model-based ranking active — Stage-model fallback (1 of 4 targets accepted).' "$tmp/summary.md"
 grep -Fq '**Training:** 50,000 rows · 66 features · Candidates scored: 1.' "$tmp/summary.md"
 grep -Fq '**Evaluation:** Single temporal holdout on unseen candidates (first observations) · Baseline: Training-prevalence Brier score.' "$tmp/summary.md"
 grep -Fq '| Strict validation | Promoted after temporal validation | 0.10000 / 0.15000 | 80.0% / 60.0% |' "$tmp/summary.md"

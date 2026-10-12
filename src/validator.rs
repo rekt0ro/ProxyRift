@@ -2555,7 +2555,7 @@ fn compatibility_security_bucket(value: &str) -> &'static str {
         .to_ascii_lowercase()
         .as_str()
     {
-        "" | "none" => "none",
+        "none" => "none",
         "tls" | "t" | "tl" => "tls",
         "reality" => "reality",
         "tls-required" => "tls-required",
@@ -6381,6 +6381,25 @@ mod tests {
         assert!(is_cheaply_supported_config("socks4a://example.com:1080"));
         assert!(is_light_consumer_compatible("socks4://example.com:1080"));
         assert!(is_light_consumer_compatible("socks4a://example.com:1080"));
+    }
+
+    #[test]
+    fn unsupported_security_context_preserves_invalid_empty_normalizations() {
+        for security in [".", "..", "%20", "%20%20"] {
+            let config = format!(
+                "trojan://secret@example.com:443?type=tcp&security={security}"
+            );
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                Some("unsupported-security"),
+                "{security}"
+            );
+
+            let context =
+                cheap_compatibility_rejection_context(&config, "unsupported-security");
+            assert_eq!(context.security, "other", "{security}");
+            assert_eq!(context.detail, "security=other", "{security}");
+        }
     }
 
     #[test]
