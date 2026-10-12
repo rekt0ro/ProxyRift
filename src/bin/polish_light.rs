@@ -4299,7 +4299,7 @@ mod tests {
         observation_fingerprint, rank_discovery_candidates, recheck_exploration_limit,
         select_recheck_candidates, select_stability_test_batch, select_transfer_target,
         select_verified_configs, select_verified_configs_with_freshness_quota,
-        active_revalidated_fingerprints, interleave_repeat_candidates,
+        sort_by_measured_stream_speed, active_revalidated_fingerprints, interleave_repeat_candidates,
         select_verified_configs_with_repeat_cap, persist_candidate_ledger,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, singbox_qualified_metadata,
