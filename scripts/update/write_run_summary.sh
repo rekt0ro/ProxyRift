@@ -136,6 +136,7 @@ format_ranking_strategy() {
   case "$1" in
     end_to_end) printf 'End-to-end model' ;;
     stage_model_fallback) printf 'Stage-model fallback' ;;
+    historical_prior_fallback) printf 'Historical-prior fallback' ;;
     neutral_default) printf 'Neutral fallback' ;;
     *) printf 'Not evaluated' ;;
   esac
@@ -270,8 +271,11 @@ declare -A lightgbm_target_min_weight=()
 
 if [ -s "$score_file" ]; then
   trained="$(read_json_value "$score_file" '.trained' 'unknown')"
+  lightgbm_ranking_strategy_raw="$(read_json_value "$score_file" '.model_report.ranking_strategy' 'not_evaluated')"
   if [ "$trained" = "true" ]; then
     lightgbm_model_state="Model-based ranking active"
+  elif [ "$trained" = "false" ] && [ "$lightgbm_ranking_strategy_raw" = "historical_prior_fallback" ]; then
+    lightgbm_model_state="Historical-prior ranking active"
   elif [ "$trained" = "false" ]; then
     lightgbm_model_state="Neutral fallback active"
   fi
@@ -284,7 +288,7 @@ if [ -s "$score_file" ]; then
   lightgbm_baseline_type="$(read_json_value "$score_file" '.model_report.baseline' 'n/a')"
   lightgbm_min_brier_improvement="$(read_json_value "$score_file" '.model_report.promotion_minimum_relative_brier_improvement' 'n/a')"
   lightgbm_min_top20_lift="$(read_json_value "$score_file" '.model_report.promotion_top_20pct_lift_minimum' 'n/a')"
-  lightgbm_ranking_strategy="$(format_ranking_strategy "$(read_json_value "$score_file" '.model_report.ranking_strategy' 'not_evaluated')")"
+  lightgbm_ranking_strategy="$(format_ranking_strategy "$lightgbm_ranking_strategy_raw")"
 
   for target in strict transfer stream end_to_end; do
     lightgbm_target_status["$target"]="$(format_lightgbm_status "$target")"
