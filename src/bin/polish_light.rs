@@ -4015,7 +4015,7 @@ mod tests {
             min_ms: 10.0,
             jitter_ms: 1.0,
             throughput_kbps: 100.0,
-                    successful_targets: Vec::new(),
+            successful_targets: Vec::new(),
         };
         let stream_verified = configs
             .iter()
@@ -4430,7 +4430,8 @@ mod tests {
         let configs = (0..128)
             .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
             .collect::<Vec<_>>();
-        let positions = HashMap::from([(configs[77].clone(), 0usize), (configs[0].clone(), 1usize)]);
+        let positions =
+            HashMap::from([(configs[77].clone(), 0usize), (configs[0].clone(), 1usize)]);
 
         let ranked =
             super::rank_strict_recheck_candidates(&configs, &LightGbmScores::default(), &positions);
@@ -4902,7 +4903,7 @@ mod tests {
             min_ms: 80.0,
             jitter_ms: 10.0,
             throughput_kbps: 900.0,
-                    successful_targets: Vec::new(),
+            successful_targets: Vec::new(),
         };
 
         let features = super::light_training_features(
