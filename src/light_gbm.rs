@@ -397,6 +397,7 @@ fn evaluate_speed_regressor(
     let base = serde_json::json!({
         "model": "LightGBM GBDT regression",
         "validation": "chronological_80_20_first_observation_of_unseen_candidates",
+        "baseline": "training_median_log_stream_throughput",
         "accepted": false, "speed_samples": observations.len(),
         "unique_candidates": unique_candidates, "unique_timestamps": unique_timestamps,
         "train_rows": 0, "holdout_rows": 0, "baseline_log_mae": null,
@@ -471,6 +472,7 @@ fn evaluate_speed_regressor(
     let report = serde_json::json!({
         "model": "LightGBM GBDT regression",
         "validation": "chronological_80_20_first_observation_of_unseen_candidates",
+        "baseline": "training_median_log_stream_throughput",
         "accepted": accepted, "cutoff_timestamp": cutoff,
         "train_rows": train_indices.len(), "holdout_rows": holdout_indices.len(),
         "speed_samples": observations.len(), "unique_candidates": unique_candidates,
