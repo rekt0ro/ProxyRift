@@ -179,6 +179,37 @@ grep -Fq '| End-to-end | Not promoted: insufficient labelled data | n/a / n/a | 
 grep -Fq '**Recency strategy selection:** Strict validation — Recency-weighted · Inner holdout Brier (unweighted → weighted) 0.13000 → 0.10000 · Inner holdout Top-20% pass rate 70.0% → 80.0% · 3-day half-life, minimum weight 0.1.' "$tmp/summary.md"
 grep -Fq '**Training data:** 50,000 rows (278 new this run) · 4,044 unique candidates · 177 runs. Strict model: Ready · End-to-end model: Not ready.' "$tmp/summary.md"
 
+jq '
+  .trained = false
+  | .model_report.ranking_strategy = "historical_prior_fallback"
+  | .model_report.targets |= with_entries(
+      .value.accepted = false
+      | .value.reason = (if .key == "end_to_end" then "insufficient labelled data" else "model_did_not_beat_unseen_candidate_baseline" end)
+    )
+' "$work/proxyrift/lightgbm-scores.json" > "$tmp/history-fallback-scores.json"
+cp "$tmp/history-fallback-scores.json" "$work/proxyrift/lightgbm-scores.json"
+
+(
+  cd "$work"
+  PATH="$tmp/bin:$PATH" \
+  PROXYRIFT_TMP_DIR="$work/proxyrift" \
+  GH_REPOSITORY="test/repo" \
+  GITHUB_RUN_ID="1" \
+  GITHUB_RUN_NUMBER="1" \
+  JOB_STATUS="success" \
+  DISCOVERY_OUTCOME="success" \
+  COLLECT_OUTCOME="success" \
+  LIGHT_OUTCOME="success" \
+  GENERATION_OUTCOME="success" \
+  PREPARE_OUTCOME="success" \
+  PUBLISH_OUTCOME="success" \
+  XRAY_VERSION="test" \
+  SINGBOX_VERSION="test" \
+  GITHUB_STEP_SUMMARY="$tmp/history-fallback-summary.md" \
+  bash "$repo_root/scripts/update/write_run_summary.sh"
+)
+grep -Fq '**Ranking:** Historical-prior ranking active — Historical-prior fallback (0 of 4 targets accepted).' "$tmp/history-fallback-summary.md"
+
 if grep -Eq 'walk_forward_time_split|training_prevalence_brier|model_did_not_beat_temporal_baseline|top_20pct_below_random_selection_baseline|\| Transfer \(10 MiB total\)' "$tmp/summary.md"; then
   echo "[ERROR] Summary contains raw internal identifiers or a legacy target label." >&2
   exit 1

@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::env;
 use std::process::Command;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -67,6 +67,7 @@ const STABILITY_TEST_MAX_PER_FAMILY: usize = 6;
 const STABILITY_TRANSFER_MAX_LATENCY_MS: f64 = 15000.0;
 const STABILITY_TARGET_SAFETY_FACTOR: f64 = 1.15;
 const STABILITY_TARGET_MIN_RESERVE: usize = 24;
+const STABILITY_TRANSFER_DEFAULT_PASS_RATE: f64 = 0.68;
 const STABILITY_COMPLETION_GRACE_REMAINING: usize = 24;
 const STABILITY_COMPLETION_BATCH_SIZE: usize = 8;
 const STREAM_CONTINUITY_RESERVE_PERCENT: usize = 5;
@@ -1616,39 +1617,39 @@ fn transfer_target_batch_limit(state: &TransferTargetState, requested: usize) ->
 
 fn adaptive_stability_pool_target(
     selection_limit: usize,
-    stability_tested: usize,
-    stability_passed: usize,
+    transfer_tested: usize,
+    transfer_passed: usize,
 ) -> usize {
-    let base_target = selection_limit.min(STABILITY_TRANSFER_TEST_LIMIT);
-    if base_target == 0 {
+    let transfer_target =
+        transfer_validation_target(selection_limit).min(STABILITY_TRANSFER_TEST_LIMIT);
+    if transfer_target == 0 {
         return 0;
     }
 
-    let observed_rate = if stability_tested < 32 {
-        0.75
+    let observed_rate = if transfer_tested < 16 {
+        STABILITY_TRANSFER_DEFAULT_PASS_RATE
     } else {
-        ((stability_passed as f64 + 2.0) / (stability_tested as f64 + 4.0)).clamp(0.50, 0.95)
+        ((transfer_passed as f64 + 2.0) / (transfer_tested as f64 + 4.0)).clamp(0.25, 0.95)
     };
-
     let estimated =
-        ((base_target as f64 / observed_rate) * STABILITY_TARGET_SAFETY_FACTOR).ceil() as usize;
+        ((transfer_target as f64 / observed_rate) * STABILITY_TARGET_SAFETY_FACTOR).ceil() as usize;
 
     estimated
-        .max(base_target.saturating_add(STABILITY_TARGET_MIN_RESERVE))
+        .max(selection_limit.saturating_add(STABILITY_TARGET_MIN_RESERVE))
         .min(STABILITY_TRANSFER_TEST_LIMIT)
 }
 
 fn adaptive_stability_target(
     selection_limit: usize,
-    stability_tested: usize,
-    stability_passed: usize,
+    transfer_tested: usize,
+    transfer_passed: usize,
     available_candidates: usize,
 ) -> usize {
     if available_candidates == 0 {
         return 0;
     }
 
-    adaptive_stability_pool_target(selection_limit, stability_tested, stability_passed)
+    adaptive_stability_pool_target(selection_limit, transfer_tested, transfer_passed)
         .min(available_candidates.min(STABILITY_TRANSFER_TEST_LIMIT))
 }
 
@@ -1665,6 +1666,8 @@ async fn fill_transfer_stability_gate(
     global_positions: &HashMap<String, usize>,
     history: &HashMap<String, HistoryEntry>,
     selection_limit: usize,
+    transfer_tested: Arc<AtomicUsize>,
+    transfer_passed: Arc<AtomicUsize>,
     max_per_endpoint: usize,
     max_per_family: usize,
 ) -> Result<(usize, HashMap<String, ProxyMetrics>, HashSet<String>), String> {
@@ -1682,11 +1685,10 @@ async fn fill_transfer_stability_gate(
 
         let stability_target = adaptive_stability_target(
             selection_limit,
-            stability_tested.len(),
-            stability_verified.len(),
+            transfer_tested.load(Ordering::Relaxed),
+            transfer_passed.load(Ordering::Relaxed),
             final_verified.len(),
-        )
-        .min(strict_validation_target(selection_limit));
+        );
 
         let mut stable_ranked = stability_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
@@ -1702,9 +1704,7 @@ async fn fill_transfer_stability_gate(
             max_per_family,
         );
 
-        if stable_selected.len() >= stability_target
-            || stability_tested.len() >= STABILITY_TRANSFER_TEST_LIMIT
-        {
+        if stability_tested.len() >= STABILITY_TRANSFER_TEST_LIMIT {
             break;
         }
 
@@ -1735,7 +1735,7 @@ async fn fill_transfer_stability_gate(
             &untested,
             &stable_selected,
             batch_limit,
-            stability_target,
+            STABILITY_TRANSFER_TEST_LIMIT,
             STABILITY_TEST_MAX_PER_ENDPOINT,
             STABILITY_TEST_MAX_PER_FAMILY,
         );
@@ -1826,6 +1826,8 @@ async fn run_transfer_gate_consumer(
     selection_limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
+    transfer_tested_count: Arc<AtomicUsize>,
+    transfer_passed_count: Arc<AtomicUsize>,
     transfer_done: Arc<AtomicBool>,
 ) -> Result<usize, String> {
     let transfer_target = transfer_validation_target(selection_limit);
@@ -2014,6 +2016,8 @@ async fn run_transfer_gate_consumer(
         let batch_elapsed = batch_started.elapsed().as_secs();
         let batch_passed = metadata.len();
         transfer_verified.extend(metadata);
+        transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
+        transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
         let rate_limits = target_rate_limit_events(target)
             .saturating_sub(rate_limits_before)
@@ -2071,6 +2075,8 @@ async fn run_transfer_gate_consumer(
                 );
             }
         }
+        transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
+        transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
         let (previous_workers, previous_clean_batches) =
             target_concurrency[target_index].observe(rate_limits, batch.len());
@@ -2170,6 +2176,8 @@ async fn fill_transfer_gate(
     }
 
     let transfer_done = Arc::new(AtomicBool::new(false));
+    let transfer_tested_count = Arc::new(AtomicUsize::new(transfer_tested.len()));
+    let transfer_passed_count = Arc::new(AtomicUsize::new(transfer_verified.len()));
     let (stability_sender, stability_receiver) = tokio::sync::mpsc::unbounded_channel();
 
     let stability_future = fill_transfer_stability_gate(
@@ -2184,6 +2192,8 @@ async fn fill_transfer_gate(
         global_positions,
         history,
         selection_limit,
+        transfer_tested_count.clone(),
+        transfer_passed_count.clone(),
         max_per_endpoint,
         max_per_family,
     );
@@ -2201,6 +2211,8 @@ async fn fill_transfer_gate(
         selection_limit,
         max_per_endpoint,
         max_per_family,
+        transfer_tested_count,
+        transfer_passed_count,
         transfer_done.clone(),
     );
 
@@ -3297,9 +3309,9 @@ async fn main() -> Result<(), String> {
         wave += 1;
         let batch_start = discovery_cursor;
         let batch_end = batch_start + discovery_batch_size;
-        let progress_before_final = final_metadata.len();
-        let progress_before_transfer = transfer_verified.len();
-        let progress_before_stream = stream_verified.len();
+        let transfer_selected_before = transfer_selected;
+        let publishable_selected_before = publishable_selected;
+        let transfer_tested_before = transfer_tested.len();
         let strict_selectable_before = select_verified_configs(
             &final_verified,
             final_verified.len(),
@@ -3599,9 +3611,9 @@ async fn main() -> Result<(), String> {
             );
             discovery_batch_floor = next_batch;
 
-            let progressed = final_metadata.len() > progress_before_final
-                || transfer_verified.len() > progress_before_transfer
-                || stream_verified.len() > progress_before_stream;
+            let progressed = transfer_selected > transfer_selected_before
+                || publishable_selected > publishable_selected_before
+                || transfer_tested.len() > transfer_tested_before;
 
             if strict_selected.len() >= selection_limit {
                 if progressed {
@@ -3612,7 +3624,7 @@ async fn main() -> Result<(), String> {
 
                 if stagnant_waves >= DISCOVERY_STAGNATION_WAVES {
                     println!(
-                        "[INFO] 🛑 [Light discovery] Funnel stalled | No strict/transfer/stream growth for {} consecutive waves | Strict selectable: {} | Transfer selectable: {} | Stream passed: {} | Remaining candidates: {} | Stopping best-effort discovery",
+                        "[INFO] 🛑 [Light discovery] Funnel stalled | No transfer/stream output growth for {} consecutive waves | Strict selectable: {} | Transfer selectable: {} | Stream passed: {} | Remaining candidates: {} | Stopping best-effort discovery",
                         stagnant_waves,
                         strict_selected.len(),
                         transfer_selected,
@@ -4475,19 +4487,19 @@ mod tests {
 
     #[test]
     fn adaptive_stability_reserve_expands_with_low_yield() {
-        assert_eq!(adaptive_stability_pool_target(200, 0, 0), 307);
-        assert_eq!(adaptive_stability_pool_target(200, 236, 133), 409);
-        assert_eq!(adaptive_stability_pool_target(200, 400, 200), 450);
+        assert_eq!(adaptive_stability_pool_target(200, 0, 0), 356);
+        assert_eq!(adaptive_stability_pool_target(200, 243, 169), 349);
+        assert_eq!(adaptive_stability_pool_target(200, 200, 100), 450);
     }
 
     #[test]
     fn adaptive_stability_target_tracks_available_pool_and_yield() {
         assert_eq!(adaptive_stability_target(200, 0, 0, 261), 261);
         assert_eq!(adaptive_stability_target(200, 0, 0, 180), 180);
-        let low_yield = adaptive_stability_target(200, 256, 150, 500);
-        let high_yield = adaptive_stability_target(200, 256, 220, 500);
+        let low_yield = adaptive_stability_target(200, 200, 100, 500);
+        let high_yield = adaptive_stability_target(200, 200, 180, 500);
         assert!(low_yield > high_yield);
-        assert!(high_yield >= 224);
+        assert_eq!(high_yield, 271);
     }
 
     #[test]

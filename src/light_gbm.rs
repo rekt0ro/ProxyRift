@@ -159,15 +159,20 @@ impl LightGbmScores {
             models.push((&stream, 0.20_f64));
         }
         let weight_sum = models.iter().map(|(_, weight)| *weight).sum::<f64>();
+        let historical_fallback = candidate_features
+            .iter()
+            .any(|features| historical_prior_has_signal(features));
         let ranking_strategy = if end_to_end.accepted {
             "end_to_end"
         } else if weight_sum > 0.0 {
             "stage_model_fallback"
+        } else if historical_fallback {
+            "historical_prior_fallback"
         } else {
             "neutral_default"
         };
         let mut scores = HashMap::with_capacity(candidates.len());
-        for candidate in candidates {
+        for (candidate, features) in candidates.iter().zip(&candidate_features) {
             let score = if end_to_end.accepted {
                 end_to_end
                     .predictions
@@ -188,7 +193,7 @@ impl LightGbmScores {
                     .sum::<f64>()
                     / weight_sum
             } else {
-                DEFAULT_SCORE
+                historical_prior_score(features)
             };
             scores.insert(
                 candidate.clone(),
@@ -771,6 +776,61 @@ fn feature_signature(features: &[f64]) -> String {
         .map(|feature| format!("{:016x}", feature.to_bits()))
         .collect::<Vec<_>>()
         .join("")
+}
+
+fn denormalized_log(value: f64, maximum: f64) -> f64 {
+    if !value.is_finite() || maximum <= 0.0 {
+        return 0.0;
+    }
+
+    ((value.clamp(0.0, 1.0) * (1.0 + maximum).ln()).exp() - 1.0).clamp(0.0, maximum)
+}
+
+fn historical_prior_has_signal(features: &[f64]) -> bool {
+    if features.len() < MODEL_FEATURE_COUNT {
+        return false;
+    }
+
+    let history = MODEL_FEATURE_COUNT - HISTORY_FEATURE_COUNT;
+    features[history] > 0.0 || features[history + 4] > 0.0
+}
+
+fn historical_prior_score(features: &[f64]) -> f64 {
+    if features.len() < MODEL_FEATURE_COUNT {
+        return DEFAULT_SCORE;
+    }
+
+    let history = MODEL_FEATURE_COUNT - HISTORY_FEATURE_COUNT;
+    let exact_observations = denormalized_log(features[history], 50_000.0);
+    let family_observations = denormalized_log(features[history + 4], 50_000.0);
+    let exact_weight = exact_observations / (exact_observations + 8.0);
+    let family_weight =
+        family_observations / (family_observations + 20.0) * features[history + 12].clamp(0.0, 1.0);
+    let total_weight = exact_weight + family_weight;
+
+    if total_weight <= 0.0 {
+        return DEFAULT_SCORE;
+    }
+
+    let exact_quality = 0.65 * features[history + 1].clamp(0.0, 1.0)
+        + 0.20 * features[history + 2].clamp(0.0, 1.0)
+        + 0.15 * features[history + 3].clamp(0.0, 1.0);
+    let family_quality = 0.55 * features[history + 5].clamp(0.0, 1.0)
+        + 0.20 * features[history + 6].clamp(0.0, 1.0)
+        + 0.15 * features[history + 7].clamp(0.0, 1.0)
+        + 0.10 * features[history + 8].clamp(0.0, 1.0);
+    let observed_quality =
+        (exact_weight * exact_quality + family_weight * family_quality) / total_weight;
+    let confidence = total_weight / (total_weight + 0.5);
+    let performance_adjustment = family_weight / total_weight
+        * (0.08 * (features[history + 11].clamp(0.0, 1.0) - 0.5)
+            - 0.04 * (features[history + 9].clamp(0.0, 1.0) - 0.5)
+            - 0.02 * (features[history + 10].clamp(0.0, 1.0) - 0.5));
+
+    (DEFAULT_SCORE
+        + confidence * (observed_quality - DEFAULT_SCORE)
+        + confidence * performance_adjustment)
+        .clamp(MIN_SCORE, MAX_SCORE)
 }
 
 fn candidate_fingerprint(config: &str) -> String {
@@ -2082,11 +2142,11 @@ fn structural_vector(
 #[cfg(test)]
 mod tests {
     use super::{
-        backend_for_config, candidate_fingerprint, config_feature_vector,
-        first_unseen_holdout_indices, history_feature_vector, load_training, parse_config_features,
-        port_bucket, recency_weight, target_label_history, temporal_cutoff, top_quintile_pass_rate,
-        ModelTarget, TrainingExample, HISTORY_FEATURE_COUNT, MIN_RECENCY_WEIGHT,
-        MODEL_FEATURE_COUNT,
+        backend_for_config, candidate_fingerprint, config_feature_vector, denormalized_log,
+        first_unseen_holdout_indices, historical_prior_has_signal, historical_prior_score,
+        history_feature_vector, load_training, parse_config_features, port_bucket, recency_weight,
+        target_label_history, temporal_cutoff, top_quintile_pass_rate, ModelTarget,
+        TrainingExample, HISTORY_FEATURE_COUNT, MIN_RECENCY_WEIGHT, MODEL_FEATURE_COUNT,
     };
     use base64::Engine as _;
     use serde_json::{json, Map, Value};
@@ -2576,5 +2636,43 @@ mod tests {
         assert_eq!(vector[1], 0.5);
         assert_eq!(vector[5], 0.5);
         assert_eq!(vector[12], 0.0);
+    }
+
+    #[test]
+    fn historical_fallback_ranks_observed_successes_and_leaves_unseen_candidates_neutral() {
+        let history = MODEL_FEATURE_COUNT - HISTORY_FEATURE_COUNT;
+        let mut reliable = vec![0.0; MODEL_FEATURE_COUNT];
+        reliable[history] = super::normalized_log(20.0, 50_000.0);
+        reliable[history + 1] = 0.95;
+        reliable[history + 2] = 0.90;
+        reliable[history + 3] = 0.90;
+        reliable[history + 4] = super::normalized_log(200.0, 50_000.0);
+        reliable[history + 5] = 0.92;
+        reliable[history + 6] = 0.88;
+        reliable[history + 7] = 0.90;
+        reliable[history + 8] = 0.95;
+        reliable[history + 9] = 0.10;
+        reliable[history + 10] = 0.10;
+        reliable[history + 11] = 0.90;
+        reliable[history + 12] = 0.95;
+
+        let mut unreliable = reliable.clone();
+        unreliable[history + 1] = 0.10;
+        unreliable[history + 2] = 0.15;
+        unreliable[history + 3] = 0.10;
+        unreliable[history + 5] = 0.12;
+        unreliable[history + 6] = 0.15;
+        unreliable[history + 7] = 0.10;
+        unreliable[history + 8] = 0.15;
+        unreliable[history + 9] = 0.90;
+        unreliable[history + 10] = 0.90;
+        unreliable[history + 11] = 0.10;
+
+        let unseen = vec![0.0; MODEL_FEATURE_COUNT];
+        assert!(historical_prior_has_signal(&reliable));
+        assert!(historical_prior_score(&reliable) > historical_prior_score(&unreliable));
+        assert!(!historical_prior_has_signal(&unseen));
+        assert_eq!(historical_prior_score(&unseen), 0.5);
+        assert_eq!(denormalized_log(0.0, 50_000.0), 0.0);
     }
 }

@@ -94,6 +94,24 @@ if grep -Fq 'private-candidate' "$artifact_file"; then
   exit 1
 fi
 
+jq '
+  .trained = false
+  | .model_report.ranking_strategy = "historical_prior_fallback"
+  | .model_report.targets |= with_entries(
+      if .key == "strict" then
+        .value.accepted = false
+        | .value.reason = "model_did_not_beat_unseen_candidate_baseline"
+      else
+        .
+      end
+    )
+' "$score_file" > "$tmp/history-fallback.json"
+sed \
+  -e 's/Model-based ranking active — Stage-model fallback (1 of 4 targets accepted)/Historical-prior ranking active — Historical-prior fallback (0 of 4 targets accepted)/' \
+  -e 's/Promoted after temporal validation/Did not beat unseen-candidate baseline/' \
+  "$summary_file" > "$tmp/history-fallback-summary.md"
+bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/history-fallback-summary.md" "$tmp/history-fallback.json"
+
 sed 's/| Strict validation | Promoted after temporal validation | 0.14000 \/ 0.15000 |/| Strict validation | Promoted after temporal validation | 9.99000 \/ 0.15000 |/' "$summary_file" > "$tmp/mismatch.md"
 if bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/mismatch.md" "$score_file" >/dev/null 2>&1; then
   printf '[ERROR] Summary validator accepted a mismatched metric.\n' >&2

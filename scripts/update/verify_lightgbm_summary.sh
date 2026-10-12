@@ -45,6 +45,7 @@ format_ranking_strategy() {
   case "$1" in
     end_to_end) printf 'End-to-end model' ;;
     stage_model_fallback) printf 'Stage-model fallback' ;;
+    historical_prior_fallback) printf 'Historical-prior fallback' ;;
     neutral_default) printf 'Neutral fallback' ;;
     *) printf 'Not evaluated' ;;
   esac
@@ -94,12 +95,14 @@ format_status() {
   esac
 }
 trained="$(json_value '.trained')"
-case "$trained" in
-  true) model_state='Model-based ranking active' ;;
-  false) model_state='Neutral fallback active' ;;
+ranking_strategy_raw="$(json_value '.model_report.ranking_strategy')"
+case "$trained:$ranking_strategy_raw" in
+  true:*) model_state='Model-based ranking active' ;;
+  false:historical_prior_fallback) model_state='Historical-prior ranking active' ;;
+  false:*) model_state='Neutral fallback active' ;;
   *) model_state='Not evaluated' ;;
 esac
-ranking_strategy="$(format_ranking_strategy "$(json_value '.model_report.ranking_strategy')")"
+ranking_strategy="$(format_ranking_strategy "$ranking_strategy_raw")"
 training_rows="$(format_count "$(json_value '.training_rows')")"
 features="$(json_value '.model_report.model_feature_count')"
 if [[ "$features" == "n/a" ]]; then features="$(json_value '.feature_count')"; fi
