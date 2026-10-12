@@ -83,7 +83,7 @@ jobs:
           RUNNER_OS_NAME: ${{ runner.os }}
           RUNNER_ARCH_NAME: ${{ runner.arch }}
           LOCK_HASH: ${{ hashFiles('Cargo.lock') }}
-          SOURCE_HASH: ${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'src/**/*.rs') }}
+          SOURCE_HASH: ${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
           RUST_VERSION: ${{ steps.rust-version.outputs.version }}
           XRAY_VERSION: ${{ steps.validation-cores.outputs.xray_version }}
           XRAY_SHA256: ${{ steps.validation-cores.outputs.xray_sha256 }}
