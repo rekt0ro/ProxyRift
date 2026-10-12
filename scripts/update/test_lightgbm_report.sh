@@ -11,113 +11,87 @@ artifact_file="$tmp/lightgbm-evaluation.json"
 
 cat > "$score_file" <<'JSON'
 {
-  "version": 4,
+  "version": 5,
   "trained": true,
-  "training_rows": 5000,
-  "feature_count": 66,
-  "scores": {"vless://private-candidate@example.invalid:443": 0.75},
+  "training_rows": 100,
+  "feature_count": 61,
+  "scores": {"vless://private-candidate@example.invalid:443": 0.8},
   "model_report": {
-    "validation": "single_temporal_holdout_unseen_candidates_first_observation",
-    "baseline": "training_prevalence_brier",
-    "ranking_strategy": "stage_model_fallback",
-    "model_feature_count": 66,
-    "targets": {
-      "strict": {
-        "accepted": true,
-        "reason": "promoted_after_temporal_validation",
-        "model_brier": 0.14,
-        "baseline_brier": 0.15,
-        "model_top_20pct_pass_rate": 0.9,
-        "holdout_pass_rate": 0.8,
-        "recency_weighting_experiment": {
-          "selection_evaluation_strategy": "inner_temporal_holdout_unseen_candidates_first_observation",
-          "selection_available": true,
-          "selection_reason": "recency_weighted_passed_inner_selection_gate",
-          "selection_training_rows": 3000,
-          "selection_holdout_rows": 400,
-          "selection_holdout_pass_rows": 320,
-          "selection_holdout_fail_rows": 80,
-          "selection_baseline_brier": 0.16,
-          "half_life_days": 3,
-          "minimum_sample_weight": 0.1,
-          "unweighted_brier": 0.14,
-          "weighted_brier": 0.13,
-          "unweighted_accepted": true,
-          "weighted_accepted": true,
-          "unweighted_top_20pct_pass_rate": 0.9,
-          "weighted_top_20pct_pass_rate": 0.91,
-          "selected_strategy": "recency_weighted"
-        }
-      },
-      "transfer": {"accepted": false, "reason": "model_did_not_beat_unseen_candidate_baseline", "model_brier": 0.22, "baseline_brier": 0.20, "model_top_20pct_pass_rate": 0.7, "holdout_pass_rate": 0.75},
-      "stream": {
-        "accepted": false,
-        "reason": "top_20pct_below_unseen_candidate_baseline",
-        "model_brier": 0.3,
-        "baseline_brier": 0.31,
-        "model_top_20pct_pass_rate": 0.5,
-        "holdout_pass_rate": 0.5,
-        "recency_weighting_experiment": {
-          "half_life_days": 3,
-          "minimum_sample_weight": 0.1,
-          "unweighted_brier": 0.3,
-          "weighted_brier": 0.31,
-          "unweighted_accepted": false,
-          "weighted_accepted": false,
-          "unweighted_top_20pct_pass_rate": 0.5,
-          "weighted_top_20pct_pass_rate": 0.5,
-          "selected_strategy": "none"
-        }
-      },
-      "end_to_end": {"accepted": false, "reason": "insufficient labelled data (rows=100, pass=0, fail=100)", "model_brier": null, "baseline_brier": null, "model_top_20pct_pass_rate": null, "holdout_pass_rate": null}
-    }
+    "model": "LightGBM GBDT regression",
+    "validation": "chronological_80_20_first_observation_of_unseen_candidates",
+    "baseline": "training_median_log_stream_throughput",
+    "ranking_strategy": "stream_speed_regression",
+    "target": "log(stream_throughput_kbps)",
+    "target_unit": "kbps",
+    "accepted": true,
+    "reason": "promoted_after_temporal_speed_validation",
+    "cutoff_timestamp": 1800000000,
+    "speed_samples": 100,
+    "unique_candidates": 100,
+    "unique_timestamps": 15,
+    "train_rows": 80,
+    "holdout_rows": 20,
+    "baseline_log_mae": 0.12,
+    "model_log_mae": 0.1,
+    "relative_mae_improvement": 0.1666667,
+    "top_20pct_speed_lift": 1.25,
+    "minimum_relative_mae_improvement": 0.01,
+    "minimum_top_20pct_speed_lift": 1.0
   }
 }
 JSON
 
 cat > "$summary_file" <<'MD'
-**Ranking:** Model-based ranking active — Stage-model fallback (1 of 4 targets accepted).
-**Training:** 5,000 rows · 66 features · Candidates scored: 1.
-**Evaluation:** Single temporal holdout on unseen candidates (first observations) · Baseline: Training-prevalence Brier score.
-| Strict validation | Promoted after temporal validation | 0.14000 / 0.15000 | 90.0% / 80.0% |
-| Transfer (10 MiB) | Did not beat unseen-candidate baseline | 0.22000 / 0.20000 | 70.0% / 75.0% |
-| Stream stability | Top-20% pass rate below unseen-candidate baseline | 0.30000 / 0.31000 | 50.0% / 50.0% |
-| End-to-end | Not promoted: insufficient labelled data | n/a / n/a | n/a / n/a |
-**Recency strategy selection:** Strict validation — Recency-weighted · Inner holdout Brier (unweighted → weighted) 0.14000 → 0.13000 · Inner holdout Top-20% pass rate 90.0% → 91.0% · 3-day half-life, minimum weight 0.1.
+**Ranking:** Model-based ranking active — Stream-speed regression.
+**Training:** 100 speed samples (72-hour retention) · 61 features · Candidates scored: 1.
+**Evaluation:** Chronological 80/20 holdout on first observations of unseen candidates · Target: log stream throughput (kbps) · Baseline: Training median log stream throughput.
+| Holdout log-MAE (model / baseline) | 0.10000 / 0.12000 |
+| Relative log-MAE improvement | 16.7% |
+| Top-20% measured speed lift | 1.25x |
+| Train / unseen holdout rows | 80 / 20 |
+| Unique candidates / timestamps | 100 / 15 |
+**Model decision:** Accepted — promoted after temporal speed validation.
 MD
 
 bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$summary_file" "$score_file"
 bash "$repo_root/scripts/update/write_lightgbm_artifact.sh" "$score_file" "$artifact_file"
-jq -e '.available == true and .scored_candidates == 1 and (has("scores") | not) and .model_report.targets.strict.recency_weighting_experiment.selected_strategy == "recency_weighted" and .model_report.targets.strict.recency_weighting_experiment.selection_available == true and .model_report.targets.transfer.accepted == false and .model_report.targets.stream.recency_weighting_experiment.unweighted_accepted == false and .model_report.targets.stream.recency_weighting_experiment.weighted_accepted == false and .model_report.targets.end_to_end.accepted == false' "$artifact_file" >/dev/null
-if grep -Fq 'private-candidate' "$artifact_file"; then
-  printf '[ERROR] Artifact contains a private candidate string.\n' >&2
+jq -e '.available == true and .trained == true and .model_report.accepted == true and .scored_candidates == 1 and (has("scores") | not) and .model_report.top_20pct_speed_lift == 1.25' "$artifact_file" >/dev/null
+if grep -Fq 'private-candidate' "$artifact_file" || grep -Eq 'vless://|example.invalid' "$artifact_file"; then
+  printf '[ERROR] Artifact contains a raw candidate string.\n' >&2
   exit 1
 fi
 
 jq '
   .trained = false
-  | .model_report.ranking_strategy = "historical_prior_fallback"
-  | .model_report.targets |= with_entries(
-      if .key == "strict" then
-        .value.accepted = false
-        | .value.reason = "model_did_not_beat_unseen_candidate_baseline"
-      else
-        .
-      end
-    )
+  | .model_report.ranking_strategy = "historical_stream_speed_prior_fallback"
+  | .model_report.accepted = false
+  | .model_report.reason = "insufficient_speed_samples_or_temporal_coverage"
+  | .model_report.baseline_log_mae = null
+  | .model_report.model_log_mae = null
+  | .model_report.relative_mae_improvement = null
+  | .model_report.top_20pct_speed_lift = null
+  | .model_report.train_rows = 0
+  | .model_report.holdout_rows = 0
 ' "$score_file" > "$tmp/history-fallback.json"
-sed \
-  -e 's/Model-based ranking active — Stage-model fallback (1 of 4 targets accepted)/Historical-prior ranking active — Historical-prior fallback (0 of 4 targets accepted)/' \
-  -e 's/Promoted after temporal validation/Did not beat unseen-candidate baseline/' \
-  "$summary_file" > "$tmp/history-fallback-summary.md"
+cat > "$tmp/history-fallback-summary.md" <<'MD'
+**Ranking:** Historical speed-prior ranking active — Historical stream-speed priors.
+**Training:** 100 speed samples (72-hour retention) · 61 features · Candidates scored: 1.
+**Evaluation:** Chronological 80/20 holdout on first observations of unseen candidates · Target: log stream throughput (kbps) · Baseline: Training median log stream throughput.
+| Holdout log-MAE (model / baseline) | n/a / n/a |
+| Relative log-MAE improvement | n/a |
+| Top-20% measured speed lift | n/a |
+| Train / unseen holdout rows | 0 / 0 |
+| Unique candidates / timestamps | 100 / 15 |
+**Model decision:** Not promoted — insufficient speed samples or temporal coverage.
+MD
 bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/history-fallback-summary.md" "$tmp/history-fallback.json"
 
-sed 's/| Strict validation | Promoted after temporal validation | 0.14000 \/ 0.15000 |/| Strict validation | Promoted after temporal validation | 9.99000 \/ 0.15000 |/' "$summary_file" > "$tmp/mismatch.md"
+sed 's/| Holdout log-MAE (model \/ baseline) | 0.10000 \/ 0.12000 |/| Holdout log-MAE (model \/ baseline) | 9.99000 \/ 0.12000 |/' "$summary_file" > "$tmp/mismatch.md"
 if bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/mismatch.md" "$score_file" >/dev/null 2>&1; then
-  printf '[ERROR] Summary validator accepted a mismatched metric.\n' >&2
+  printf '[ERROR] Summary validator accepted a mismatched speed metric.\n' >&2
   exit 1
 fi
 
 bash "$repo_root/scripts/update/write_lightgbm_artifact.sh" "$tmp/missing.json" "$tmp/unavailable.json"
 jq -e '.available == false and (has("scores") | not)' "$tmp/unavailable.json" >/dev/null
-printf '[OK] LightGBM report verification and artifact sanitization tests passed.\n'
+printf '[OK] Stream-speed report verification and artifact sanitization tests passed.\n'
