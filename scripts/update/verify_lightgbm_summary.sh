@@ -51,6 +51,7 @@ format_ranking_strategy() {
 }
 format_validation_scheme() {
   case "$1" in
+    single_temporal_holdout_unseen_candidates_first_observation) printf 'Single temporal holdout on unseen candidates (first observations)' ;;
     walk_forward_time_split) printf 'Walk-forward temporal split' ;;
     *) local readable="${1//_/ }"; printf '%s' "${readable^}" ;;
   esac
@@ -65,6 +66,8 @@ format_strategy() {
   case "$1" in
     recency_weighted) printf 'Recency-weighted' ;;
     unweighted) printf 'Unweighted' ;;
+    unweighted_default_insufficient_selection_data) printf 'Unweighted default (selection data insufficient)' ;;
+    unweighted_default_no_variant_passed_selection_gate) printf 'Unweighted default (neither variant passed inner selection gate)' ;;
     none) printf 'Neither variant passed promotion gates' ;;
     *) printf 'Not evaluated' ;;
   esac
@@ -127,15 +130,20 @@ for target in strict transfer stream end_to_end; do
 done
 strategy="$(format_strategy "$(json_value '.model_report.targets.strict.recency_weighting_experiment.selected_strategy')")"
 if [[ "$strategy" != "Not evaluated" ]]; then
-  unweighted_brier="$(format_decimal "$(json_value '.model_report.targets.strict.recency_weighting_experiment.unweighted_brier')")"
-  weighted_brier="$(format_decimal "$(json_value '.model_report.targets.strict.recency_weighting_experiment.weighted_brier')")"
-  unweighted_top20="$(format_percentage "$(json_value '.model_report.targets.strict.recency_weighting_experiment.unweighted_top_20pct_pass_rate')")"
-  weighted_top20="$(format_percentage "$(json_value '.model_report.targets.strict.recency_weighting_experiment.weighted_top_20pct_pass_rate')")"
-  half_life="$(format_compact_number "$(json_value '.model_report.targets.strict.recency_weighting_experiment.half_life_days')")"
-  min_weight="$(json_value '.model_report.targets.strict.recency_weighting_experiment.minimum_sample_weight')"
-  expected_recency="**Recency weighting:** Strict validation — $strategy · Brier $unweighted_brier → $weighted_brier · Top-20% pass rate $unweighted_top20 → $weighted_top20 · $half_life-day half-life, minimum weight $min_weight."
+  selection_available="$(json_value '.model_report.targets.strict.recency_weighting_experiment.selection_available')"
+  if [[ "$selection_available" == "true" ]]; then
+    unweighted_brier="$(format_decimal "$(json_value '.model_report.targets.strict.recency_weighting_experiment.unweighted_brier')")"
+    weighted_brier="$(format_decimal "$(json_value '.model_report.targets.strict.recency_weighting_experiment.weighted_brier')")"
+    unweighted_top20="$(format_percentage "$(json_value '.model_report.targets.strict.recency_weighting_experiment.unweighted_top_20pct_pass_rate')")"
+    weighted_top20="$(format_percentage "$(json_value '.model_report.targets.strict.recency_weighting_experiment.weighted_top_20pct_pass_rate')")"
+    half_life="$(format_compact_number "$(json_value '.model_report.targets.strict.recency_weighting_experiment.half_life_days')")"
+    min_weight="$(json_value '.model_report.targets.strict.recency_weighting_experiment.minimum_sample_weight')"
+    expected_recency="**Recency strategy selection:** Strict validation — $strategy · Inner holdout Brier (unweighted → weighted) $unweighted_brier → $weighted_brier · Inner holdout Top-20% pass rate $unweighted_top20 → $weighted_top20 · $half_life-day half-life, minimum weight $min_weight."
+  else
+    expected_recency="**Recency strategy selection:** Strict validation — $strategy · Comparison skipped because the inner temporal holdout lacked representative data."
+  fi
   if ! grep -Fqx -- "$expected_recency" "$summary_file"; then
-    printf '[ERROR] LightGBM recency summary does not match the run report. Expected: %s\n' "$expected_recency" >&2
+    printf '[ERROR] LightGBM recency strategy summary does not match the run report. Expected: %s\n' "$expected_recency" >&2
     exit 1
   fi
 fi
