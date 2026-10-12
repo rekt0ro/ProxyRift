@@ -1620,8 +1620,8 @@ fn adaptive_stability_pool_target(
     transfer_tested: usize,
     transfer_passed: usize,
 ) -> usize {
-    let transfer_target = transfer_validation_target(selection_limit)
-        .min(STABILITY_TRANSFER_TEST_LIMIT);
+    let transfer_target =
+        transfer_validation_target(selection_limit).min(STABILITY_TRANSFER_TEST_LIMIT);
     if transfer_target == 0 {
         return 0;
     }
