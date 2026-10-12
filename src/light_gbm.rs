@@ -721,7 +721,7 @@ fn top_quintile_speed_lift(predictions: &[f64], speeds: &[f64]) -> f64 {
     }
     let mut indices = (0..predictions.len()).collect::<Vec<_>>();
     indices.sort_unstable_by(|a, b| predictions[*b].total_cmp(&predictions[*a]));
-    let count = (predictions.len() + 4) / 5;
+    let count = predictions.len().div_ceil(5);
     indices
         .iter()
         .take(count.max(1))
