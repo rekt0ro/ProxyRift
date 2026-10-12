@@ -1005,7 +1005,6 @@ fn first_unseen_holdout_indices(
         .collect()
 }
 
-
 #[derive(Clone, Copy, Debug)]
 struct ValidationMetrics {
     model_brier: f64,
@@ -1062,8 +1061,7 @@ fn temporal_cutoff(timestamps: &[u64]) -> Option<u64> {
     if unique.len() < 2 {
         return None;
     }
-    let index = (unique.len()
-        * (HOLDOUT_FRACTION_DENOMINATOR - HOLDOUT_FRACTION_NUMERATOR))
+    let index = (unique.len() * (HOLDOUT_FRACTION_DENOMINATOR - HOLDOUT_FRACTION_NUMERATOR))
         / HOLDOUT_FRACTION_DENOMINATOR;
     Some(unique[index.clamp(1, unique.len() - 1)])
 }
@@ -1262,14 +1260,14 @@ fn train_target_model(
                 .iter()
                 .filter(|(_, label)| *label)
                 .count();
-            let selection_train_negative =
-                selection_training.len().saturating_sub(selection_train_positive);
-            let selection_holdout_positive = selection_holdout
-                .iter()
-                .filter(|(_, label)| *label)
-                .count();
-            let selection_holdout_negative =
-                selection_holdout.len().saturating_sub(selection_holdout_positive);
+            let selection_train_negative = selection_training
+                .len()
+                .saturating_sub(selection_train_positive);
+            let selection_holdout_positive =
+                selection_holdout.iter().filter(|(_, label)| *label).count();
+            let selection_holdout_negative = selection_holdout
+                .len()
+                .saturating_sub(selection_holdout_positive);
             let minimum_selection_holdout_class_rows =
                 target.minimum_holdout_class_rows().min(50).max(25);
             let selection_data_is_representative = selection_training.len()
@@ -2543,8 +2541,7 @@ mod tests {
             timestamp >= selection_cutoff && timestamp < final_cutoff
         }));
 
-        let (seen_before_final, first_seen_overall) =
-            target_label_history(&rows, final_cutoff);
+        let (seen_before_final, first_seen_overall) = target_label_history(&rows, final_cutoff);
         let final_indices = first_unseen_holdout_indices(
             &rows,
             final_cutoff,
