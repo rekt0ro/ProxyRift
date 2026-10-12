@@ -688,6 +688,137 @@ fn observation_fingerprint(config: &str) -> String {
     format!("{first:016x}{second:016x}")
 }
 
+fn load_candidate_ledger(path: &str, now: u64) -> HashMap<String, u64> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return HashMap::new();
+    };
+    let Ok(document) = serde_json::from_str::<Value>(&content) else {
+        println!("[WARN] [Light reuse] Candidate ledger is invalid; all candidates will be treated as new");
+        return HashMap::new();
+    };
+    if document.get("version").and_then(Value::as_u64) != Some(1) {
+        println!("[WARN] [Light reuse] Candidate ledger version is unsupported; all candidates will be treated as new");
+        return HashMap::new();
+    }
+
+    document
+        .get("entries")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let fingerprint = entry.get("config_id")?.as_str()?;
+            let validated_at = entry.get("validated_at")?.as_u64()?;
+            if fingerprint.len() != 32
+                || validated_at > now
+                || now.saturating_sub(validated_at) >= REVALIDATION_WINDOW_SECS
+            {
+                return None;
+            }
+            Some((fingerprint.to_string(), validated_at))
+        })
+        .collect()
+}
+
+fn active_revalidated_fingerprints(
+    ledger: &HashMap<String, u64>,
+    active_fingerprints: &HashSet<String>,
+    now: u64,
+) -> HashSet<String> {
+    ledger
+        .iter()
+        .filter_map(|(fingerprint, validated_at)| {
+            (active_fingerprints.contains(fingerprint)
+                && *validated_at <= now
+                && now.saturating_sub(*validated_at) < REVALIDATION_WINDOW_SECS)
+                .then_some(fingerprint.clone())
+        })
+        .collect()
+}
+
+fn interleave_repeat_candidates(
+    candidates: &[String],
+    repeat_fingerprints: &HashSet<String>,
+) -> (Vec<String>, usize) {
+    let mut fresh = VecDeque::new();
+    let mut repeats = VecDeque::new();
+    for candidate in candidates {
+        if repeat_fingerprints.contains(&history_fingerprint(candidate)) {
+            repeats.push_back(candidate.clone());
+        } else {
+            fresh.push_back(candidate.clone());
+        }
+    }
+
+    // For 20% repeats, each repeat must be backed by at least four non-repeat candidates.
+    let repeat_budget = fresh.len() / 4;
+    let mut ordered = Vec::with_capacity(candidates.len());
+    let mut used_repeats = 0usize;
+    while !fresh.is_empty() {
+        for _ in 0..4 {
+            if let Some(candidate) = fresh.pop_front() {
+                ordered.push(candidate);
+            } else {
+                break;
+            }
+        }
+        if used_repeats < repeat_budget {
+            if let Some(candidate) = repeats.pop_front() {
+                ordered.push(candidate);
+                used_repeats += 1;
+            }
+        }
+    }
+    (ordered, used_repeats)
+}
+
+fn persist_candidate_ledger(
+    path: &str,
+    ledger: &mut HashMap<String, u64>,
+    fully_validated: &HashSet<String>,
+    now: u64,
+) -> Result<(), String> {
+    ledger.retain(|_, validated_at| {
+        *validated_at <= now
+            && now.saturating_sub(*validated_at) < REVALIDATION_WINDOW_SECS
+    });
+    for config in fully_validated {
+        ledger.insert(history_fingerprint(config), now);
+    }
+
+    if ledger.len() > MAX_CANDIDATE_LEDGER_ENTRIES {
+        let mut entries = ledger.iter().map(|(key, value)| (key.clone(), *value)).collect::<Vec<_>>();
+        entries.sort_unstable_by(|left, right| right.1.cmp(&left.1));
+        entries.truncate(MAX_CANDIDATE_LEDGER_ENTRIES);
+        ledger.clear();
+        ledger.extend(entries);
+    }
+
+    let entries = ledger
+        .iter()
+        .map(|(config_id, validated_at)| {
+            serde_json::json!({"config_id": config_id, "validated_at": validated_at})
+        })
+        .collect::<Vec<_>>();
+    let document = serde_json::json!({
+        "version": 1,
+        "retention_seconds": REVALIDATION_WINDOW_SECS,
+        "updated_at": now,
+        "entries": entries,
+    });
+    let body = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let temporary = format!("{path}.tmp");
+    std::fs::write(&temporary, body).map_err(|error| error.to_string())?;
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
 fn load_light_cohorts(path: &str) -> Result<Vec<Vec<String>>, String> {
     let current = read_lines(path)
         .unwrap_or_default()
@@ -2411,6 +2542,67 @@ fn select_verified_configs_with_freshness_quota(
     (selected, fresh_selected)
 }
 
+fn select_verified_configs_with_repeat_cap(
+    configs: &[String],
+    repeat_fingerprints: &HashSet<String>,
+    limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+) -> (Vec<String>, usize) {
+    let fresh = configs
+        .iter()
+        .filter(|config| !repeat_fingerprints.contains(&history_fingerprint(config)))
+        .cloned()
+        .collect::<Vec<_>>();
+    let repeated = configs
+        .iter()
+        .filter(|config| repeat_fingerprints.contains(&history_fingerprint(config)))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut selected = select_verified_configs(&fresh, limit, max_per_endpoint, max_per_family);
+    let selected_fresh = selected.len();
+    if selected.len() >= limit || limit == 0 {
+        return (selected, selected_fresh);
+    }
+
+    let repeat_limit = limit.saturating_mul(REVALIDATED_CANDIDATE_PERCENT) / 100;
+    let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
+    let mut family_counts = HashMap::<String, usize>::new();
+    for config in &selected {
+        if let Some(endpoint) = endpoint(config) {
+            *endpoint_counts.entry(endpoint).or_insert(0) += 1;
+        }
+        *family_counts.entry(family_key(config)).or_insert(0) += 1;
+    }
+
+    let mut selected_repeats = 0usize;
+    for config in repeated {
+        if selected.len() >= limit || selected_repeats >= repeat_limit {
+            break;
+        }
+        let endpoint = endpoint(&config);
+        if endpoint
+            .as_ref()
+            .is_some_and(|key| endpoint_counts.get(key).copied().unwrap_or(0) >= max_per_endpoint)
+        {
+            continue;
+        }
+        let family = family_key(&config);
+        if family_counts.get(&family).copied().unwrap_or(0) >= max_per_family {
+            continue;
+        }
+        if let Some(endpoint) = endpoint {
+            *endpoint_counts.entry(endpoint).or_insert(0) += 1;
+        }
+        *family_counts.entry(family).or_insert(0) += 1;
+        selected.push(config);
+        selected_repeats += 1;
+    }
+
+    (selected, selected_fresh)
+}
+
 fn select_verified_configs(
     configs: &[String],
     limit: usize,
@@ -3241,6 +3433,22 @@ async fn main() -> Result<(), String> {
 
     let history_path = "subscriptions/light-history.json";
     let history = load_history(history_path)?;
+    let run_timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_secs();
+    let mut candidate_ledger = load_candidate_ledger(LIGHT_CANDIDATE_LEDGER_PATH, run_timestamp);
+    let active_fingerprints = read_lines(LIGHT_SUBSCRIPTION_PATH)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|line| !line.starts_with('#'))
+        .map(|config| history_fingerprint(&config))
+        .collect::<HashSet<_>>();
+    let repeat_candidate_fingerprints = active_revalidated_fingerprints(
+        &candidate_ledger,
+        &active_fingerprints,
+        run_timestamp,
+    );
     let light_cohorts = load_light_cohorts(LIGHT_SUBSCRIPTION_PATH)?;
 
     let mut seen_candidates = HashSet::new();
@@ -3316,11 +3524,20 @@ async fn main() -> Result<(), String> {
         light_cohorts.len(),
         RECHECK_EXPLORATION_PERCENT
     );
-    let discovery_candidates = rank_discovery_candidates(
+    let ranked_discovery_candidates = rank_discovery_candidates(
         &candidates,
         &light_gbm_scores,
         discovery_seed,
         &recent_families,
+    );
+    let (discovery_candidates, scheduled_repeat_count) = interleave_repeat_candidates(
+        &ranked_discovery_candidates,
+        &repeat_candidate_fingerprints,
+    );
+    println!(
+        "[INFO] 🔁 [Light reuse] Candidate test order | New/expired candidates: {} | Recently validated active candidates: {} (max 20%, within 24h)",
+        discovery_candidates.len().saturating_sub(scheduled_repeat_count),
+        scheduled_repeat_count
     );
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
@@ -3838,18 +4055,24 @@ async fn main() -> Result<(), String> {
         &history,
     );
     let publication_limit = final_publication_limit(selection_limit);
-    let (selected, fresh_family_selected) = select_verified_configs_with_freshness_quota(
+    let (selected, selected_new_count) = select_verified_configs_with_repeat_cap(
         &stream_ranked,
-        &recent_families,
+        &repeat_candidate_fingerprints,
         publication_limit,
         max_per_endpoint,
         max_per_family,
     );
+    let fresh_family_selected = selected
+        .iter()
+        .filter(|config| !recent_families.contains(&family_key(config)))
+        .count();
+    let selected_revalidated_count = selected.len().saturating_sub(selected_new_count);
     println!(
-        "[INFO] 🧭 [Light freshness] Final selection | Configs from fresh families: {} | Configs from recent families: {} | Fresh-family target: {}%",
-        fresh_family_selected,
-        selected.len().saturating_sub(fresh_family_selected),
-        FRESH_FAMILY_TARGET_PERCENT
+        "[INFO] 🧭 [Light reuse] Final selection | New/expired: {} | Fully validated in previous 24h and still active: {} (max {}%) | Fresh families: {}",
+        selected_new_count,
+        selected_revalidated_count,
+        REVALIDATED_CANDIDATE_PERCENT,
+        fresh_family_selected
     );
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(
         &stream_ranked,
@@ -4015,14 +4238,27 @@ async fn main() -> Result<(), String> {
         &transfer_tested,
         &transfer_verified,
     )?;
+    let mut fully_validated = HashSet::new();
+    for config in stream_verified.keys() {
+        if final_metadata.contains_key(config) && stability_verified.contains_key(config) {
+            fully_validated.insert(config.clone());
+        }
+    }
+    persist_candidate_ledger(
+        LIGHT_CANDIDATE_LEDGER_PATH,
+        &mut candidate_ledger,
+        &fully_validated,
+        run_timestamp,
+    )?;
     println!(
-        "[INFO] ✅ [Light] Published {} configs | Discovery: {} | Strict attempts: {} | Strictly verified: {} | Transfer tested: {} | Transfer passes: {}",
+        "[INFO] ✅ [Light] Published {} configs | Discovery: {} | Strict attempts: {} | Strictly verified: {} | Transfer tested: {} | Transfer passes: {} | Reuse ledger: {} recent fully validated identities",
         selected.len(),
         candidates.len(),
         final_attempts.values().copied().sum::<usize>(),
         final_metadata.len(),
         transfer_tested.len(),
-        transfer_verified.len()
+        transfer_verified.len(),
+        candidate_ledger.len()
     );
     Ok(())
 }
