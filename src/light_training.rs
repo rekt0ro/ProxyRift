@@ -617,7 +617,7 @@ fn valid_stored_row(value: &Value) -> bool {
 mod tests {
     use super::{
         persist_at, TrainingRow, DATASET_VERSION, FEATURE_COUNT, FEATURE_EXTRACTION_VERSION,
-        RETENTION_SECS,
+        RETENTION_SECS, STRICT_VALIDATION_CONTRACT_VERSION,
     };
     use serde_json::Value;
     use std::collections::BTreeMap;
