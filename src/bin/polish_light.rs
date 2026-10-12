@@ -4425,7 +4425,7 @@ mod tests {
     #[test]
     fn publication_does_not_exceed_twenty_percent_revalidated_items() {
         let configs = (0..10)
-            .map(|index| format!("vless://uuid@host{index}.example:443?security=tls"))
+            .map(|index| format!("vless://uuid@host{index}.example:443?security=tls&mode={index}"))
             .collect::<Vec<_>>();
         let repeats = configs
             .iter()
