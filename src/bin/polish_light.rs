@@ -1704,9 +1704,7 @@ async fn fill_transfer_stability_gate(
             max_per_family,
         );
 
-        if stable_selected.len() >= stability_target
-            || stability_tested.len() >= STABILITY_TRANSFER_TEST_LIMIT
-        {
+        if stability_tested.len() >= STABILITY_TRANSFER_TEST_LIMIT {
             break;
         }
 
@@ -1737,7 +1735,7 @@ async fn fill_transfer_stability_gate(
             &untested,
             &stable_selected,
             batch_limit,
-            stability_target,
+            STABILITY_TRANSFER_TEST_LIMIT,
             STABILITY_TEST_MAX_PER_ENDPOINT,
             STABILITY_TEST_MAX_PER_FAMILY,
         );
