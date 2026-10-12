@@ -3303,6 +3303,7 @@ async fn main() -> Result<(), String> {
         let batch_end = batch_start + discovery_batch_size;
         let transfer_selected_before = transfer_selected;
         let publishable_selected_before = publishable_selected;
+        let transfer_tested_before = transfer_tested.len();
         let strict_selectable_before = select_verified_configs(
             &final_verified,
             final_verified.len(),
@@ -3603,7 +3604,8 @@ async fn main() -> Result<(), String> {
             discovery_batch_floor = next_batch;
 
             let progressed = transfer_selected > transfer_selected_before
-                || publishable_selected > publishable_selected_before;
+                || publishable_selected > publishable_selected_before
+                || transfer_tested.len() > transfer_tested_before;
 
             if strict_selected.len() >= selection_limit {
                 if progressed {
