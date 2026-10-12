@@ -4197,24 +4197,27 @@ mod tests {
     }
 
     #[test]
-    fn transfer_target_selection_uses_iranian_endpoints_before_backups() {
+    fn transfer_target_selection_fails_over_across_four_external_hosts() {
         let mut states = vec![
             TransferTargetState::default();
             proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()
         ];
+        assert_eq!(states.len(), 4);
         assert_eq!(select_transfer_target(&states, 0), Some(0));
         states[0].quarantined = true;
         assert_eq!(select_transfer_target(&states, 0), Some(1));
         states[1].quarantined = true;
         assert_eq!(select_transfer_target(&states, 0), Some(2));
-        assert_eq!(
-            proxyrift::validator::STRICT_THROUGHPUT_TARGETS[0],
-            proxyrift::validator::ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
-        );
-        assert_eq!(
-            proxyrift::validator::STRICT_THROUGHPUT_TARGETS[1],
-            proxyrift::validator::MOBINHOST_SPEEDTEST_100MB_TARGET
-        );
+        states[2].quarantined = true;
+        assert_eq!(select_transfer_target(&states, 0), Some(3));
+        states[3].quarantined = true;
+        assert_eq!(select_transfer_target(&states, 0), None);
+
+        let targets = proxyrift::validator::STRICT_THROUGHPUT_TARGETS;
+        assert!(targets.contains(&proxyrift::validator::STRICT_THROUGHPUT_TARGET));
+        assert!(targets.contains(&proxyrift::validator::HETZNER_SPEEDTEST_100MB_TARGET));
+        assert!(targets.contains(&proxyrift::validator::TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
+        assert!(targets.contains(&proxyrift::validator::TELE2_SPEEDTEST_100MB_TARGET));
     }
 
     #[test]
@@ -4691,24 +4694,20 @@ mod tests {
     }
 
     #[test]
-    fn transfer_target_selector_uses_remaining_iranian_mirror_before_foreign_fallbacks() {
+    fn transfer_target_selector_falls_back_when_preferred_hosts_are_quarantined() {
         let mut states = vec![TransferTargetState::default(); 4];
         states[0].quarantined = true;
-        states[1].tested = 48;
-        states[1].passed = 40;
-        states[1].batches = 2;
-
-        assert_eq!(select_transfer_target(&states, 1), Some(1));
-
+        states[1].quarantined = true;
         states[2].tested = 16;
         states[2].passed = 14;
         states[2].batches = 1;
-        assert_eq!(select_transfer_target(&states, 1), Some(1));
-
-        states[1].quarantined = true;
-        states[2].tested = 16;
         states[3].tested = 32;
+        states[3].passed = 29;
+        states[3].batches = 2;
+
         assert_eq!(select_transfer_target(&states, 0), Some(2));
+        states[2].quarantined = true;
+        assert_eq!(select_transfer_target(&states, 0), Some(3));
     }
 
     #[test]
