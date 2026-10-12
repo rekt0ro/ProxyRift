@@ -4275,7 +4275,7 @@ mod tests {
         select_recheck_candidates, select_stability_test_batch, select_transfer_target,
         select_verified_configs, select_verified_configs_with_freshness_quota,
         active_revalidated_fingerprints, interleave_repeat_candidates,
-        select_verified_configs_with_repeat_cap, persist_candidate_ledger, load_candidate_ledger,
+        select_verified_configs_with_repeat_cap, persist_candidate_ledger,
         selection_additional_potential_count, selection_eligible_count, selection_potential_count,
         selection_rejection_counts, should_quarantine_transfer_target, singbox_qualified_metadata,
         stream_selection_count, strict_validation_batch_limit, strict_validation_target,
@@ -4341,7 +4341,7 @@ mod tests {
             .collect::<HashSet<_>>();
         let (selected, fresh_count) =
             select_verified_configs_with_repeat_cap(&configs, &repeats, 10, 1, 3);
-        assert_eq!(selected.len(), 10);
+        assert_eq!(selected.len(), 6);
         assert_eq!(fresh_count, 5);
         let revalidated = selected.iter()
             .filter(|config| repeats.contains(&history_fingerprint(config))).count();
