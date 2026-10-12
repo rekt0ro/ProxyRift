@@ -4559,7 +4559,6 @@ pub async fn validate_candidates_with_target_pool_once_with_minimum_body(
     .await
 }
 
-
 #[allow(clippy::too_many_arguments)]
 pub async fn validate_candidates_with_ordered_target_pool_once_with_minimum_body(
     binary: &str,
@@ -6455,17 +6454,14 @@ mod tests {
     #[test]
     fn unsupported_security_context_preserves_invalid_empty_normalizations() {
         for security in [".", "..", "%20", "%20%20"] {
-            let config = format!(
-                "trojan://secret@example.com:443?type=tcp&security={security}"
-            );
+            let config = format!("trojan://secret@example.com:443?type=tcp&security={security}");
             assert_eq!(
                 cheap_compatibility_rejection_reason(&config),
                 Some("unsupported-security"),
                 "{security}"
             );
 
-            let context =
-                cheap_compatibility_rejection_context(&config, "unsupported-security");
+            let context = cheap_compatibility_rejection_context(&config, "unsupported-security");
             assert_eq!(context.security, "other", "{security}");
             assert_eq!(context.detail, "security=other", "{security}");
         }
