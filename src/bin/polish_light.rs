@@ -507,6 +507,11 @@ fn write_light_stats(
     transfer_selectable: usize,
     stream_selectable: usize,
     published: usize,
+    historical_subscription_revisions: usize,
+    recent_family_keys: usize,
+    fresh_family_target_percent: usize,
+    score_independent_exploration_percent: usize,
+    published_from_fresh_families: usize,
 ) -> Result<(), String> {
     if path.is_empty() {
         return Ok(());
@@ -531,6 +536,12 @@ fn write_light_stats(
         "stream_selectable": stream_selectable,
         "selection_shortfall": selection_target.saturating_sub(published),
         "published": published,
+        "historical_subscription_revisions": historical_subscription_revisions,
+        "recent_family_keys": recent_family_keys,
+        "fresh_family_target_percent": fresh_family_target_percent,
+        "score_independent_exploration_percent": score_independent_exploration_percent,
+        "published_from_fresh_families": published_from_fresh_families,
+        "published_from_recent_families": published.saturating_sub(published_from_fresh_families),
     });
     let body = serde_json::to_vec_pretty(&stats).map_err(|error| error.to_string())?;
     std::fs::write(path, body).map_err(|error| error.to_string())
@@ -3193,9 +3204,10 @@ async fn main() -> Result<(), String> {
         .map(|config| family_key(config))
         .collect::<HashSet<_>>();
     println!(
-        "[INFO] 🧭 [Light discovery] {} candidates | {} recently published families | Fresh families first | {}% score-independent exploration",
+        "[INFO] 🧭 [Light discovery] {} candidates | {} family keys from {} subscription revisions | Fresh families first | {}% score-independent exploration",
         candidates.len(),
         recent_families.len(),
+        light_cohorts.len(),
         RECHECK_EXPLORATION_PERCENT
     );
     let discovery_candidates =
@@ -3676,7 +3688,7 @@ async fn main() -> Result<(), String> {
         max_per_family,
     );
     println!(
-        "[INFO] 🧭 [Light freshness] Final selection | Fresh families: {} | Recently published families: {} | Fresh-family target: {}%",
+        "[INFO] 🧭 [Light freshness] Final selection | Configs from fresh families: {} | Configs from recent families: {} | Fresh-family target: {}%",
         fresh_family_selected,
         selected.len().saturating_sub(fresh_family_selected),
         FRESH_FAMILY_TARGET_PERCENT
@@ -3770,6 +3782,11 @@ async fn main() -> Result<(), String> {
         transfer_selectable,
         stream_selectable,
         selected.len(),
+        light_cohorts.len(),
+        recent_families.len(),
+        FRESH_FAMILY_TARGET_PERCENT,
+        RECHECK_EXPLORATION_PERCENT,
+        fresh_family_selected,
     )?;
 
     let validation_report_path = write_light_validation_report(
