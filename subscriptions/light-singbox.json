@@ -2,231 +2,343 @@
   "$schema": "https://sing-box.sagernet.org/schema.json",
   "outbounds": [
     {
-      "method": "aes-128-gcm",
-      "password": "7f02b717406f2c5d4a7e287aa1d87a3dba9feacb5776c33f",
-      "server": "45.76.9.57",
-      "server_port": 8392,
-      "tag": "ProxyRift 001",
-      "type": "shadowsocks"
-    },
-    {
       "flow": "xtls-rprx-vision",
-      "server": "147.182.212.232",
-      "server_port": 56565,
-      "tag": "ProxyRift 002",
+      "server": "169.40.42.212",
+      "server_port": 443,
+      "tag": "ProxyRift 001",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "Td03Ae-cuYLq4xg7MSps58c_yRUcbbwtZLXm0ywabjY",
-          "short_id": ""
+          "public_key": "e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg",
+          "short_id": "c39cc7310a"
         },
-        "server_name": "www.paypal.com",
+        "server_name": "yahoo.com",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
         }
       },
       "type": "vless",
-      "uuid": "7b188eea-b08f-42c2-bac7-d3b0e74218b8"
+      "uuid": "d65cc14c-f53f-4fe2-b262-97856601319c"
     },
     {
-      "flow": "xtls-rprx-vision",
-      "server": "172.245.253.16",
+      "alter_id": 0,
+      "network": "tcp",
+      "packet_encoding": "xudp",
+      "security": "auto",
+      "server": "172.64.229.21",
+      "server_port": 443,
+      "tag": "ProxyRift 002",
+      "tls": {
+        "alpn": [
+          "null"
+        ],
+        "enabled": true,
+        "server_name": "vmess.lbw666.dpdns.org"
+      },
+      "transport": {
+        "early_data_header_name": "Sec-WebSocket-Protocol",
+        "headers": {
+          "Host": "vmess.lbw666.dpdns.org"
+        },
+        "max_early_data": 2048,
+        "path": "/ws",
+        "type": "ws"
+      },
+      "type": "vmess",
+      "uuid": "0cf6d970-3f1d-4aae-a989-92a8f76ae3db"
+    },
+    {
+      "password": "humanity",
+      "server": "172.67.118.45",
       "server_port": 443,
       "tag": "ProxyRift 003",
       "tls": {
+        "alpn": [
+          "http/1.1"
+        ],
         "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "Vh8dv6ENmfFd4JlPgj9-R1Fbet2m6JyRFukcVvDq5A8",
-          "short_id": "e7dc2c820ba8bbd4"
-        },
-        "server_name": "www.apple.com",
+        "server_name": "www.volumeroot.com",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "b67422ff-101b-433b-8f66-4ab282960b36"
-    },
-    {
-      "method": "chacha20-ietf-poly1305",
-      "password": "6054f059036c3ff1e907aeb51377b2ac54e61ceb666226fd",
-      "server": "45.76.9.57",
-      "server_port": 8389,
-      "tag": "ProxyRift 004",
-      "type": "shadowsocks"
-    },
-    {
-      "server": "cf.130519.xyz",
-      "server_port": 443,
-      "tag": "ProxyRift 005",
-      "tls": {
-        "enabled": true,
-        "server_name": "lucasjow.us.ci",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "qq"
         }
       },
       "transport": {
         "headers": {
-          "Host": "lucasjow.us.ci"
+          "Host": "www.volumeroot.com"
         },
-        "path": "/cart/docs/www/proxyip=108.160.132.132",
+        "path": "/assignment",
         "type": "ws"
       },
-      "type": "vless",
-      "uuid": "e6df2095-a73c-4043-8693-8d5a03686870"
+      "type": "trojan"
     },
     {
-      "flow": "xtls-rprx-vision",
-      "server": "195.123.240.65",
+      "password": "humanity",
+      "server": "104.21.103.254",
+      "server_port": 443,
+      "tag": "ProxyRift 004",
+      "tls": {
+        "alpn": [
+          "http/1.1"
+        ],
+        "enabled": true,
+        "server_name": "www.calmlunch.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "headers": {
+          "Host": "www.calmlunch.com"
+        },
+        "path": "/assignment",
+        "type": "ws"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "humanity",
+      "server": "188.42.145.180",
+      "server_port": 443,
+      "tag": "ProxyRift 005",
+      "tls": {
+        "alpn": [
+          "http/1.1"
+        ],
+        "enabled": true,
+        "server_name": "wWw.Volumeroot.cOm.",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "headers": {
+          "Host": "www.volumerOot.coM."
+        },
+        "path": "/assignment",
+        "type": "ws"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "humanity",
+      "server": "104.21.57.25",
       "server_port": 443,
       "tag": "ProxyRift 006",
       "tls": {
+        "alpn": [
+          "http/1.1"
+        ],
         "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "StPbcmBuzpuYUfa4oZ5SI3Bq1OSF_-oU1vp2AcyvQVE",
-          "short_id": "19296c9f1bf9c7b1"
-        },
-        "server_name": "www.cloudflare.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "ios"
-        }
+        "server_name": "www.volumeroot.com"
       },
-      "type": "vless",
-      "uuid": "ce18d0eb-5c71-41f9-96e5-1632e22456e4"
+      "transport": {
+        "headers": {
+          "Host": "www.volumeroot.com"
+        },
+        "path": "/assignment",
+        "type": "ws"
+      },
+      "type": "trojan"
     },
     {
-      "flow": "xtls-rprx-vision",
-      "server": "5.34.178.120",
-      "server_port": 443,
+      "method": "aes-128-gcm",
+      "password": "bdd35b65a5b716eb7a91150c06764956",
+      "server": "66.23.205.83",
+      "server_port": 17529,
       "tag": "ProxyRift 007",
+      "type": "shadowsocks"
+    },
+    {
+      "method": "aes-128-gcm",
+      "password": "shadowsocks",
+      "server": "158.173.20.208",
+      "server_port": 443,
+      "tag": "ProxyRift 008",
+      "type": "shadowsocks"
+    },
+    {
+      "server": "2.59.183.167",
+      "server_port": 443,
+      "tag": "ProxyRift 009",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "EVhq2BxKuw2Cody1DmF_HPvUYKwzdXbHP47blUv-eRM",
-          "short_id": "55ab5559e3a6d10a"
+          "public_key": "OZVjfQBboTDTBw0baMFqzVPsVUI4FNQmspTEb0b0zW4",
+          "short_id": "a1b2c3d4"
         },
-        "server_name": "www.cloudflare.com",
+        "server_name": "www.samsung.com",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
         }
       },
       "type": "vless",
-      "uuid": "9063f9fb-e88a-4ee0-b4a4-a92ca7316a9f"
+      "uuid": "301d514e-4aa0-47b0-ba44-a0cb891cd52f"
     },
     {
       "flow": "xtls-rprx-vision",
-      "server": "nl-s-1.pythonmakemigreat.wiki",
+      "server": "31.77.151.175",
       "server_port": 443,
-      "tag": "ProxyRift 008",
+      "tag": "ProxyRift 010",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
           "public_key": "ZqVz1kWNxh_5zQ5PPkoPHoaXQOvppM0ZyIo8uKp2dCg",
-          "short_id": "78f97d82e16aaad6"
+          "short_id": "bdf5852d1423e694"
         },
-        "server_name": "nl-s-1.pythonmakemigreat.wiki",
+        "server_name": "fi.pythonsetupbib.online",
         "utls": {
           "enabled": true,
-          "fingerprint": "firefox"
+          "fingerprint": "random"
         }
       },
       "type": "vless",
       "uuid": "f8d52ece-fad4-478d-875d-df6eed3befa7"
     },
     {
-      "server": "185.192.22.159",
-      "server_port": 8444,
-      "tag": "ProxyRift 009",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "FWitre1jinQR7qz5HQ0q2Q4Gg9xA9B0SyizCziN7Ch0",
-          "short_id": "457fab2ac885dbe0"
-        },
-        "server_name": "github.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "transport": {
-        "service_name": "GunService",
-        "type": "grpc"
-      },
-      "type": "vless",
-      "uuid": "f55e9aba-7b14-4f6f-b59a-d5b3d45c9309"
-    },
-    {
-      "method": "chacha20-ietf-poly1305",
-      "password": "y7KeRTzmH0vXT2kp",
-      "server": "20.71.90.237",
+      "password": "humanity",
+      "server": "5.44.46.142",
       "server_port": 443,
-      "tag": "ProxyRift 010",
-      "type": "shadowsocks"
-    },
-    {
-      "server": "51.77.217.70",
-      "server_port": 2053,
       "tag": "ProxyRift 011",
       "tls": {
         "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "g63cT3uI0Y5iUtj3m__RYz7nmR1eIK4AYikdnZCl63w",
-          "short_id": "bfe58beb41f1d09f"
-        },
-        "server_name": "www.apple.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "firefox"
-        }
+        "server_name": "www.calmlunch.com"
       },
-      "type": "vless",
-      "uuid": "bf16ee0c-8b3c-41e4-ab3a-8b48033c404e"
+      "transport": {
+        "headers": {
+          "Host": "www.calmlunch.com"
+        },
+        "path": "/assignment",
+        "type": "ws"
+      },
+      "type": "trojan"
     },
     {
-      "server": "216.9.226.22",
+      "flow": "xtls-rprx-vision",
+      "server": "86.54.28.75",
       "server_port": 443,
       "tag": "ProxyRift 012",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "gS0qvWKumWcOVoAgf8SHt6Sm3tqpBw07c5sA_Clb1hg",
-          "short_id": ""
+          "public_key": "PryGoq51ilG0eLUPl9i0xCvmk1xpwkyFSr_tG4GNLlU",
+          "short_id": "1d86d17709852910"
         },
-        "server_name": "us-1-1.unturned-rust-dead.lol",
+        "server_name": "www.apple.com",
         "utls": {
           "enabled": true,
-          "fingerprint": "firefox"
+          "fingerprint": "chrome"
         }
       },
       "type": "vless",
-      "uuid": "c6e3c24c-ce20-4ad5-8c8c-68cb05890ea8"
+      "uuid": "44ae52b9-76fc-444d-8e43-186b4384b80a"
+    },
+    {
+      "password": "8bd04756-3beb-4348-82c9-d35453df50ce",
+      "server": "spainspeedboostjbl88.qcloud.surf",
+      "server_port": 27313,
+      "tag": "ProxyRift 013",
+      "tls": {
+        "enabled": true,
+        "server_name": "spainspeedboostjbl88.qcloud.surf"
+      },
+      "type": "hysteria2"
+    },
+    {
+      "password": "humanity",
+      "server": "5.253.189.238",
+      "server_port": 443,
+      "tag": "ProxyRift 014",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.calmlunch.com"
+      },
+      "transport": {
+        "headers": {
+          "Host": "www.calmlunch.com"
+        },
+        "path": "/assignment",
+        "type": "ws"
+      },
+      "type": "trojan"
     },
     {
       "flow": "xtls-rprx-vision",
-      "server": "82.118.19.153",
+      "server": "179.61.138.177",
       "server_port": 443,
-      "tag": "ProxyRift 013",
+      "tag": "ProxyRift 015",
+      "tls": {
+        "enabled": true,
+        "server_name": "u695098u47d2e9bes71.gogocs.xyz",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "30e52776-55ac-3cb4-8d36-e2910f07e2c3"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "185.31.242.61",
+      "server_port": 443,
+      "tag": "ProxyRift 016",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "Tiuy8om5Lk0pWL95-8LaFFTwH0vbURVMoOkaW9xGaiE",
-          "short_id": "670ed9f350bd8ee0"
+          "public_key": "7mRrVzTchVLWWBru5fCgTvtdkL7lVJ_qRj9HW8Rd8X0",
+          "short_id": "0da7e14db353e7d0"
+        },
+        "server_name": "est.nztvpn.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "type": "vless",
+      "uuid": "ee18d188-14cc-417e-beb1-70e4add6d023"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "31.57.106.241",
+      "server_port": 443,
+      "tag": "ProxyRift 017",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "4SJB--DChFNhmOUz0-BZK2dS3GhZ1yZwMVIhmpobB0o",
+          "short_id": "44f7c5615039ae1b"
+        },
+        "server_name": "www.lmt.lv",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "a4801105-c0c7-4cab-87c6-f257ff2afc09"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "45.90.59.15",
+      "server_port": 443,
+      "tag": "ProxyRift 018",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "P7S4UPFlQbmiBr4txyy8NZIMTrmO3UdxyH16WBU-YzY",
+          "short_id": "19253fae84102271"
         },
         "server_name": "www.cloudflare.com",
         "utls": {
@@ -235,198 +347,13 @@
         }
       },
       "type": "vless",
-      "uuid": "adcaa148-7c66-4282-a81a-99ec8afa029d"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "217.69.167.125",
-      "server_port": 43000,
-      "tag": "ProxyRift 014",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "NXN75t-gk0tpVh74Thc7nPBXM4fytgMOZafDzSe8xAk",
-          "short_id": "353fdd95"
-        },
-        "server_name": "217.69.167.125",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "random"
-        }
-      },
-      "type": "vless",
-      "uuid": "ebdf3268-2bd2-4608-875f-82f6a5efac69"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "50.7.87.122",
-      "server_port": 443,
-      "tag": "ProxyRift 015",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "ygxQyBcJzlLgpSl3MCRDDiFET4TT-3wxa4GdG1obkCY",
-          "short_id": "ba4b2afa9e7193ea"
-        },
-        "server_name": "edge-fr.extazy.net",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "qq"
-        }
-      },
-      "type": "vless",
-      "uuid": "9c104116-b231-4626-94cb-6d8fc4d2b000"
-    },
-    {
-      "server": "162.35.242.252",
-      "server_port": 443,
-      "tag": "ProxyRift 016",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "ClG6fvriBTK8donGsTlKusJ0dwRCgVDDTAGzAtZzJDY",
-          "short_id": "82c2b7d5e70ff000"
-        },
-        "server_name": "nl.aksay.pro",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "e3e9805a-6c8b-4edd-8ee8-621df79806eb"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "api.mediaprosvet.cc",
-      "server_port": 443,
-      "tag": "ProxyRift 017",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "r5WB5FnSCt4eeBC1FJMfkWHbzsMuabo0Rc6wuAhlZUs",
-          "short_id": "a8"
-        },
-        "server_name": "api.mediaprosvet.cc",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "qq"
-        }
-      },
-      "type": "vless",
-      "uuid": "4d63b928-5068-4f6d-918c-c6fa95d936c5"
-    },
-    {
-      "server": "nl-1-6.unturned-rust-dead.lol",
-      "server_port": 443,
-      "tag": "ProxyRift 018",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "aYz4_13W8gtAXGBrWeqJXtExahAJ9kUPDapqeyAlYCk",
-          "short_id": ""
-        },
-        "server_name": "nl-1-6.unturned-rust-dead.lol",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "random"
-        }
-      },
-      "transport": {
-        "service_name": "nl-grpc",
-        "type": "grpc"
-      },
-      "type": "vless",
-      "uuid": "c6e3c24c-ce20-4ad5-8c8c-68cb05890ea8"
-    },
-    {
-      "obfs": {
-        "password": "c1b4086fea89914496c7e10967a419216566",
-        "type": "salamander"
-      },
-      "password": "QCgqi_I4EkV8UR-OgQ_tG4EnVTEVvIyR2GgRBzrIn2s",
-      "server": "162.249.125.133",
-      "server_port": 443,
-      "tag": "ProxyRift 019",
-      "tls": {
-        "enabled": true,
-        "server_name": "hy2-new.aspidnet.xyz"
-      },
-      "type": "hysteria2"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "144.31.215.227",
-      "server_port": 443,
-      "tag": "ProxyRift 020",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "LEoyslGYLVf2XWq9Bkq8Hod-EsB3ZoTlvR5AKK3rciQ",
-          "short_id": "c885e8f8"
-        },
-        "server_name": "cdn-de.bulkavpn.top",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "91d734be-a3d0-4d50-83ab-74cf7b6966fa"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "2.27.69.117",
-      "server_port": 443,
-      "tag": "ProxyRift 021",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "-bn-69fLm8-ZIN4AWcFJTvliohVXnevdOK6E0HJF90Y",
-          "short_id": "123c2bff"
-        },
-        "server_name": "addons.mozilla.org",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "randomized"
-        }
-      },
-      "type": "vless",
-      "uuid": "df53b6c2-8005-475c-9eb9-74e1be785dc8"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "193.27.200.200",
-      "server_port": 443,
-      "tag": "ProxyRift 022",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "Sikc1gu5t_uwitf1xTTChP9tpT_sjY530p2tioHbmz0",
-          "short_id": "3b20e438da99"
-        },
-        "server_name": "swe.wizard.select",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "firefox"
-        }
-      },
-      "type": "vless",
-      "uuid": "3db6eb7e-c548-11f1-9902-a337233c6cda"
+      "uuid": "3950b45e-740d-4dca-ac95-505ec8534592"
     },
     {
       "password": "UX82473651",
       "server": "master-possum.rooster465.autos",
       "server_port": 443,
-      "tag": "ProxyRift 023",
+      "tag": "ProxyRift 019",
       "tls": {
         "enabled": true,
         "server_name": "master-possum.rooster465.autos",
@@ -439,315 +366,9 @@
     },
     {
       "flow": "xtls-rprx-vision",
-      "server": "fi.pythonsetupbib.online",
+      "server": "ees92.shhflow.xyz",
       "server_port": 443,
-      "tag": "ProxyRift 024",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "ZqVz1kWNxh_5zQ5PPkoPHoaXQOvppM0ZyIo8uKp2dCg",
-          "short_id": "bdf5852d1423e694"
-        },
-        "server_name": "fi.pythonsetupbib.online",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "f8d52ece-fad4-478d-875d-df6eed3befa7"
-    },
-    {
-      "password": "humanity",
-      "server": "45.87.41.18",
-      "server_port": 443,
-      "tag": "ProxyRift 025",
-      "tls": {
-        "enabled": true,
-        "server_name": "www.calmlunch.com"
-      },
-      "transport": {
-        "headers": {
-          "Host": "www.calmlunch.com"
-        },
-        "path": "/assignment",
-        "type": "ws"
-      },
-      "type": "trojan"
-    },
-    {
-      "server": "45.88.12.47",
-      "server_port": 2083,
-      "tag": "ProxyRift 026",
-      "tls": {
-        "alpn": [
-          "http/1.1"
-        ],
-        "enabled": true,
-        "server_name": "cert.viktorthebest.lol",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "random"
-        }
-      },
-      "transport": {
-        "path": "/vless-ws",
-        "type": "ws"
-      },
-      "type": "vless",
-      "uuid": "51b7e147-a320-44be-ae95-3f3a80b7d3d7"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "pl9.aiage.work",
-      "server_port": 443,
-      "tag": "ProxyRift 027",
-      "tls": {
-        "enabled": true,
-        "server_name": "pl9.aiage.work"
-      },
-      "type": "vless",
-      "uuid": "6338c01a-310e-42c3-bf4f-2a20e161054b"
-    },
-    {
-      "password": "UX82473651",
-      "server": "3.75.93.113",
-      "server_port": 443,
-      "tag": "ProxyRift 028",
-      "tls": {
-        "enabled": true,
-        "server_name": "meet-goshawk.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "2.26.231.218",
-      "server_port": 2063,
-      "tag": "ProxyRift 029",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "MMpt_jWc4J3oySBdf5sPDVRkiWlZmOObth6A1scM9BM",
-          "short_id": ""
-        },
-        "server_name": "rusbid.de",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "b18d5990-96eb-4587-a386-7f8ef7591e6a"
-    },
-    {
-      "password": "humanity",
-      "server": "188.42.145.180",
-      "server_port": 443,
-      "tag": "ProxyRift 030",
-      "tls": {
-        "alpn": [
-          "http/1.1"
-        ],
-        "enabled": true,
-        "server_name": "www.volumeroot.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "transport": {
-        "headers": {
-          "Host": "www.volumeroot.com"
-        },
-        "path": "/assignment",
-        "type": "ws"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "humanity",
-      "server": "172.67.118.45",
-      "server_port": 443,
-      "tag": "ProxyRift 031",
-      "tls": {
-        "alpn": [
-          "http/1.1"
-        ],
-        "enabled": true,
-        "server_name": "www.volumeroot.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "transport": {
-        "headers": {
-          "Host": "www.volumeroot.com"
-        },
-        "path": "/assignment",
-        "type": "ws"
-      },
-      "type": "trojan"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "82.118.22.161",
-      "server_port": 443,
-      "tag": "ProxyRift 032",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "xY1KpNxaIGmi6jfeudYQ_aaLGQqWK_uHStnwUFd2_2E",
-          "short_id": "fa3ea655619a3e78"
-        },
-        "server_name": "www.cloudflare.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "05488656-d4bf-4634-8b2e-e4ff5a56c7e2"
-    },
-    {
-      "password": "humanity",
-      "server": "165.215.250.14",
-      "server_port": 443,
-      "tag": "ProxyRift 033",
-      "tls": {
-        "enabled": true,
-        "server_name": "www.calmlunch.com"
-      },
-      "transport": {
-        "headers": {
-          "Host": "www.calmlunch.com"
-        },
-        "path": "//assignment",
-        "type": "ws"
-      },
-      "type": "trojan"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "81.177.215.156",
-      "server_port": 443,
-      "tag": "ProxyRift 034",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "VNinTQ6vwOujTkrJgK_NPV4SpSBU6B7xG2tpM7prITQ",
-          "short_id": "fd5b0def0660cdb1"
-        },
-        "server_name": "tr-4vps.yourzloy.site",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "firefox"
-        }
-      },
-      "type": "vless",
-      "uuid": "9ee57d03-dcf5-488b-aff7-305301879353"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "freefl.aiage.work",
-      "server_port": 443,
-      "tag": "ProxyRift 035",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "EqN5QtvWGccdkmL5ZNVDBRxRhWgr6g_vr3ABT8Q2dW4",
-          "short_id": "ff0ddf949624ef2a"
-        },
-        "server_name": "freefl.aiage.work",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "firefox"
-        }
-      },
-      "type": "vless",
-      "uuid": "6338c01a-310e-42c3-bf4f-2a20e161054b"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "177.1.192.74",
-      "server_port": 443,
-      "tag": "ProxyRift 036",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "qC0g7Y0pwyLFTGAPG2zfZNuo64Cda695wdKgLU4KkF8",
-          "short_id": "770618b6"
-        },
-        "server_name": "addons.mozilla.org",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "4d852af3-a121-41aa-9aed-4ca40a6f7b4d"
-    },
-    {
-      "server": "95.216.27.15",
-      "server_port": 2053,
-      "tag": "ProxyRift 037",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "4nfogj5mHqNowtSn_2sXS3xTX8vcH75rFEU2BWvyekM",
-          "short_id": "d368b94e275ab080"
-        },
-        "server_name": "www.google.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "1c81f6d3-5771-4c5d-9fdd-1655eff50634"
-    },
-    {
-      "server": "107.189.26.160",
-      "server_port": 443,
-      "tag": "ProxyRift 038",
-      "tls": {
-        "alpn": [
-          "http/1.1"
-        ],
-        "enabled": true,
-        "server_name": "lucasjow.us.ci",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "transport": {
-        "headers": {
-          "Host": "lucasjow.us.ci"
-        },
-        "path": "/cart/docs/www/proxyip=108.160.132.132",
-        "type": "ws"
-      },
-      "type": "vless",
-      "uuid": "e6df2095-a73c-4043-8693-8d5a03686870"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "143.246.41.31",
-      "server_port": 443,
-      "tag": "ProxyRift 039",
+      "tag": "ProxyRift 020",
       "tls": {
         "enabled": true,
         "reality": {
@@ -758,17 +379,338 @@
         "server_name": "ees92.shhflow.xyz",
         "utls": {
           "enabled": true,
-          "fingerprint": "firefox"
+          "fingerprint": "random"
         }
       },
       "type": "vless",
       "uuid": "43212c32-01f2-4356-b216-67dc1c178262"
     },
     {
+      "server": "ee.h1cloud.net",
+      "server_port": 25895,
+      "tag": "ProxyRift 021",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "jOVKSP-bS9OkILJ8Epz8hadh6qhavCrOiJYeF0NCn0k",
+          "short_id": "a73f0410d728c823"
+        },
+        "server_name": "www.samsung.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "type": "vless",
+      "uuid": "f90b7d43-69e2-4b46-a672-8029bc6796a2"
+    },
+    {
+      "server": "138.16.141.59",
+      "server_port": 7443,
+      "tag": "ProxyRift 022",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "RY7zkFQ01lI92jxNAyCa8T33UBW1fgpJgg8ZEqMA10k",
+          "short_id": "a09ff9f8"
+        },
+        "server_name": "ibm.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "a289a3d3-5833-4b28-8809-ae72898a98d0"
+    },
+    {
+      "server": "152.228.139.33",
+      "server_port": 51671,
+      "tag": "ProxyRift 023",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "-5PowNUY37Pi01YKO9fjRTrum1m_9n6XauaPDpmOJzU",
+          "short_id": "2fed44d8c59f7e71"
+        },
+        "server_name": "www.sony.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "service_name": "grpc_common3",
+        "type": "grpc"
+      },
+      "type": "vless",
+      "uuid": "75cc7568-abb0-46a8-88be-8137d3c647d4"
+    },
+    {
       "flow": "xtls-rprx-vision",
-      "server": "154.29.149.140",
+      "server": "177.1.192.81",
+      "server_port": 443,
+      "tag": "ProxyRift 024",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "JNr60Nnq_sdeAz5jd25bxNDx_c9CeYLu7DRbQH3P5xk",
+          "short_id": "85766a81"
+        },
+        "server_name": "addons.mozilla.org",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "5ac49a12-f275-44b4-b11d-26505f3f268e"
+    },
+    {
+      "method": "aes-256-cfb",
+      "password": "rpgbNnU9rDDU4aWZ",
+      "server": "185.135.86.175",
+      "server_port": 9094,
+      "tag": "ProxyRift 025",
+      "type": "shadowsocks"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "co-a.speedtec.ru",
+      "server_port": 443,
+      "tag": "ProxyRift 026",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "EBISh6QAVskJ_nvet-Qio9jS2yqxe9de6GMScYlbjhI",
+          "short_id": "226509f017e4c36d"
+        },
+        "server_name": "co-pl.speedtec.ru",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "type": "vless",
+      "uuid": "019fbe0f-2d9f-4b89-9f81-e1e36129892a"
+    },
+    {
+      "method": "aes-256-cfb",
+      "password": "y9VURyNzJWNRYEGQ",
+      "server": "195.238.126.20",
+      "server_port": 9008,
+      "tag": "ProxyRift 027",
+      "type": "shadowsocks"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "77.110.105.122",
+      "server_port": 443,
+      "tag": "ProxyRift 028",
+      "tls": {
+        "enabled": true,
+        "server_name": "co-pl.speedtec.ru",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "019fbe0f-2d9f-4b89-9f81-e1e36129892a"
+    },
+    {
+      "method": "aes-256-cfb",
+      "password": "37Z4TFCYhfxcpc9Q",
+      "server": "195.238.126.20",
+      "server_port": 9086,
+      "tag": "ProxyRift 029",
+      "type": "shadowsocks"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "ember.datanexi.store",
+      "server_port": 443,
+      "tag": "ProxyRift 030",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "irnW7-3RKbH3SLv-RrPR27DQTLiIV8GYj2N8CRVgCBQ",
+          "short_id": "c7e7592543e1fe96"
+        },
+        "server_name": "ember.datanexi.store",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "type": "vless",
+      "uuid": "6c21cf57-a9a9-4075-ad9f-631152bd911e"
+    },
+    {
+      "server": "us7-2.998998.best",
+      "server_port": 443,
+      "tag": "ProxyRift 031",
+      "tls": {
+        "enabled": true,
+        "server_name": "server9.9966338.xyz",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "early_data_header_name": "Sec-WebSocket-Protocol",
+        "headers": {
+          "Host": "server9.9966338.xyz"
+        },
+        "max_early_data": 2560,
+        "path": "/imnotarealherox",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "5504eaa8-1395-402f-8e0e-75ecd762e627"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "92.53.120.186",
+      "server_port": 443,
+      "tag": "ProxyRift 032",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "j6Ea9USHO5t3f1RC2_5TINyy4BOv2V30nW54OLxQGFQ",
+          "short_id": "ae33b0ff89304aea"
+        },
+        "server_name": "lumen.linqora.net",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "type": "vless",
+      "uuid": "6c21cf57-a9a9-4075-ad9f-631152bd911e"
+    },
+    {
+      "server": "196.245.52.146",
+      "server_port": 25535,
+      "tag": "ProxyRift 033",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "Jh7CocBJSA55VZcLfXwXwoQ_Hi5pV-L1vv1SY-IrSh4",
+          "short_id": "7642ce57308852e7"
+        },
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "type": "vless",
+      "uuid": "c379d8e4-c67d-42ec-a3ed-ca99d1ad0546"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "jumpernode.online",
+      "server_port": 443,
+      "tag": "ProxyRift 034",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "sDKrtAJk2VP_w1w7cFi2O86RdlvQ2E2An5xsRdJlgGE",
+          "short_id": "5ea30fc4"
+        },
+        "server_name": "yp.amazon.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "ce7beb9a-5dc1-47b3-b3ff-94521430c446"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "146.235.16.130",
+      "server_port": 19825,
+      "tag": "ProxyRift 035",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "GvvkY8xYb9QjvwvzYq_uNC4tOGd0DCxRnz6770-xgkI",
+          "short_id": "6ba85179e30d4fc2"
+        },
+        "server_name": "sg2-8sb.6121999.dpdns.org",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "2d1ad594-80a4-4bfb-87a6-038e39701f51"
+    },
+    {
+      "alter_id": 0,
+      "network": "tcp",
+      "packet_encoding": "xudp",
+      "security": "auto",
+      "server": "152.67.8.205",
+      "server_port": 80,
+      "tag": "ProxyRift 036",
+      "transport": {
+        "headers": {
+          "Host": "152.67.8.205"
+        },
+        "path": "/",
+        "type": "ws"
+      },
+      "type": "vmess",
+      "uuid": "9db4c708-aef8-4359-821b-38e47990be0d"
+    },
+    {
+      "password": "UX82473651",
+      "server": "18.183.167.216",
+      "server_port": 443,
+      "tag": "ProxyRift 037",
+      "tls": {
+        "enabled": true,
+        "server_name": "amazed-mako.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "server": "www.csgo.net",
+      "server_port": 2095,
+      "tag": "ProxyRift 038",
+      "transport": {
+        "headers": {
+          "Host": "uwu.femboy67.cc.cd"
+        },
+        "path": "/",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "86c50e3a-5b87-49dd-bd20-03c7f2735e40"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "151.241.128.115",
       "server_port": 16586,
-      "tag": "ProxyRift 040",
+      "tag": "ProxyRift 039",
       "tls": {
         "enabled": true,
         "reality": {
@@ -779,187 +721,56 @@
         "server_name": "us1p1.xn--ghq880n3na965a.com",
         "utls": {
           "enabled": true,
-          "fingerprint": "random"
+          "fingerprint": "firefox"
         }
       },
       "type": "vless",
       "uuid": "57beeeb0-03fc-4fc9-94da-7604488a7134"
     },
     {
-      "server": "80.209.237.144",
+      "flow": "xtls-rprx-vision",
+      "server": "95.179.208.12",
+      "server_port": 443,
+      "tag": "ProxyRift 040",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "hTweFDvbSucrGERtiiwDfoqD3vo_Z9cuaqboff3FTXQ",
+          "short_id": ""
+        },
+        "server_name": "googleapis.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "d90087c3-54f5-4283-a13f-615260c8b0c7"
+    },
+    {
+      "password": "humanity",
+      "server": "45.87.41.18",
       "server_port": 443,
       "tag": "ProxyRift 041",
       "tls": {
         "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "MbRONgV8ADD5B_aKDBv15LAW2a8QZok5bkkZexRRVAs",
-          "short_id": "2301ac8aee8bf6d4"
-        },
-        "server_name": "b58e68t.lt1.h1clayd.click",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "firefox"
-        }
-      },
-      "type": "vless",
-      "uuid": "f90b7d43-69e2-4b46-a672-8029bc6796a2"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "89.23.113.11",
-      "server_port": 443,
-      "tag": "ProxyRift 042",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "DP_8vX-l2ugAHn828ZGa4wHp4Y7YOZrhGKiTMaFoCDc",
-          "short_id": "4ea43db267b5fd8b"
-        },
-        "server_name": "ru-in-lt-4vp.movietop24.site",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "firefox"
-        }
-      },
-      "type": "vless",
-      "uuid": "9ee57d03-dcf5-488b-aff7-305301879353"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "2.26.89.14",
-      "server_port": 443,
-      "tag": "ProxyRift 043",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "fyG6EMB247gGPXLK1YqvbWd_Q9fnoMWkbmGfG1BRJUE",
-          "short_id": "c90408131c6d00b0"
-        },
-        "server_name": "assets-ms-33.ecom-ai-solutions.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "random"
-        }
-      },
-      "type": "vless",
-      "uuid": "0cf8e402-e801-4aeb-9b7a-00a933f9f1c1"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "142.91.108.25",
-      "server_port": 443,
-      "tag": "ProxyRift 044",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "9ZCYjybxMQ7JpE39B8u_Bo-alI1LIbt5ER0E-4yMjiM",
-          "short_id": "ea36c03d86f91287"
-        },
-        "server_name": "jp3.nztvpn.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "ee18d188-14cc-417e-beb1-70e4add6d023"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "cypress.accesslane.store",
-      "server_port": 443,
-      "tag": "ProxyRift 045",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "a5JxpYLxYxImFpeDFol3fWSU4067vjV2R8nUtKST6k4",
-          "short_id": "2a3754e75174806e"
-        },
-        "server_name": "cypress.accesslane.store",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "6c21cf57-a9a9-4075-ad9f-631152bd911e"
-    },
-    {
-      "server": "62.60.159.81",
-      "server_port": 2053,
-      "tag": "ProxyRift 046",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "ygmJxS-Mc7g0buNSUTVGhazT-FoBjyYtLLfUYIQxFTw",
-          "short_id": "d0ea1847066af5a6"
-        },
-        "server_name": "www.samsung.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
+        "server_name": "www.calmlunch.com"
       },
       "transport": {
-        "service_name": "grpce5bb9e71",
-        "type": "grpc"
-      },
-      "type": "vless",
-      "uuid": "fc00adfb-232a-46ce-8b93-0c70e516aa8a"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "app-ms-33.ecom-ai-solutions.com",
-      "server_port": 443,
-      "tag": "ProxyRift 047",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "fyG6EMB247gGPXLK1YqvbWd_Q9fnoMWkbmGfG1BRJUE",
-          "short_id": "c90408131c6d00b0"
+        "headers": {
+          "Host": "www.calmlunch.com"
         },
-        "server_name": "assets-ms-33.ecom-ai-solutions.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "random"
-        }
+        "path": "/assignment",
+        "type": "ws"
       },
-      "type": "vless",
-      "uuid": "0cf8e402-e801-4aeb-9b7a-00a933f9f1c1"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "51.81.203.63",
-      "server_port": 443,
-      "tag": "ProxyRift 048",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "nqwCf6oW49tEtmQ0EzxigZ0uu1pg0E30CS54G40Iti0",
-          "short_id": "4477382ff6d3d41c"
-        },
-        "server_name": "www.icloud.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "cb2dbb6a-a1ea-4023-9ace-6466cee57241"
+      "type": "trojan"
     },
     {
       "flow": "xtls-rprx-vision",
       "server": "31.77.29.47",
       "server_port": 443,
-      "tag": "ProxyRift 049",
+      "tag": "ProxyRift 042",
       "tls": {
         "enabled": true,
         "reality": {
@@ -977,13 +788,13 @@
       "uuid": "9ee57d03-dcf5-488b-aff7-305301879353"
     },
     {
-      "password": "sshs8_6481354771",
-      "server": "86.38.247.109",
-      "server_port": 2087,
-      "tag": "ProxyRift 050",
+      "password": "UX82473651",
+      "server": "63.178.198.94",
+      "server_port": 443,
+      "tag": "ProxyRift 043",
       "tls": {
         "enabled": true,
-        "server_name": "ul-singapore1.09vpn.com",
+        "server_name": "pleased-albacore.rooster465.autos",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
@@ -992,333 +803,126 @@
       "type": "trojan"
     },
     {
-      "server": "us-1-1.unturned-rust-dead.lol",
-      "server_port": 443,
-      "tag": "ProxyRift 051",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "gS0qvWKumWcOVoAgf8SHt6Sm3tqpBw07c5sA_Clb1hg",
-          "short_id": ""
-        },
-        "server_name": "us-1-1.unturned-rust-dead.lol",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "random"
-        }
-      },
-      "type": "vless",
-      "uuid": "c6e3c24c-ce20-4ad5-8c8c-68cb05890ea8"
+      "method": "aes-256-cfb",
+      "password": "FG5ddLsMPbV5CutE",
+      "server": "91.201.65.122",
+      "server_port": 9050,
+      "tag": "ProxyRift 044",
+      "type": "shadowsocks"
     },
     {
       "flow": "xtls-rprx-vision",
-      "server": "45.132.177.37",
-      "server_port": 443,
-      "tag": "ProxyRift 052",
+      "server": "103.172.197.3",
+      "server_port": 16006,
+      "tag": "ProxyRift 045",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "wDy0-Bm0XWBk20O6sGv5gEmrQzchKJVw8Gr2mdFnZiQ",
-          "short_id": "2dc613878d940a61"
-        },
-        "server_name": "usa-in-ru.movietop24.site",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "firefox"
-        }
-      },
-      "type": "vless",
-      "uuid": "9ee57d03-dcf5-488b-aff7-305301879353"
-    },
-    {
-      "server": "104.64.205.103",
-      "server_port": 443,
-      "tag": "ProxyRift 053",
-      "tls": {
-        "enabled": true,
-        "server_name": "cdn-dynmedia.shalana.shop",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "random"
-        }
-      },
-      "type": "vless",
-      "uuid": "d3ad7253-2dbd-42fd-9b07-04caea38de54"
-    },
-    {
-      "server": "118.167.248.243",
-      "server_port": 24215,
-      "tag": "ProxyRift 054",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "mdWKUPMVTtTbDqK10BPb89OcqBC2-Lx-4NOYtqc1GWE",
+          "public_key": "ll7JTP628PuBMZJvx6fuhGSmCRSURnReAetmhCEL8GU",
           "short_id": ""
-        },
-        "server_name": "addons.mozilla.org",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "firefox"
-        }
-      },
-      "type": "vless",
-      "uuid": "19d5a678-8396-4e3b-93da-ece618d0e83a"
-    },
-    {
-      "password": "humanity",
-      "server": "104.17.121.43",
-      "server_port": 443,
-      "tag": "ProxyRift 055",
-      "tls": {
-        "enabled": true,
-        "server_name": "www.calmlunch.com"
-      },
-      "transport": {
-        "headers": {
-          "Host": "www.calmlunch.com"
-        },
-        "path": "/assignment",
-        "type": "ws"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "13.125.29.37",
-      "server_port": 443,
-      "tag": "ProxyRift 056",
-      "tls": {
-        "enabled": true,
-        "server_name": "fancy-skink.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "server": "hinet1.2yly.com",
-      "server_port": 24215,
-      "tag": "ProxyRift 057",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "mdWKUPMVTtTbDqK10BPb89OcqBC2-Lx-4NOYtqc1GWE",
-          "short_id": ""
-        },
-        "server_name": "addons.mozilla.org",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "19d5a678-8396-4e3b-93da-ece618d0e83a"
-    },
-    {
-      "server": "151.245.106.49",
-      "server_port": 2053,
-      "tag": "ProxyRift 058",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "F6C33iIbfmt1mUsuLTarIC8ygdHKMqsaGvrSQltyxUo",
-          "short_id": "429499c03d4cc8a0"
         },
         "server_name": "www.cloudflare.com",
         "utls": {
           "enabled": true,
-          "fingerprint": "firefox"
+          "fingerprint": "chrome"
         }
       },
       "type": "vless",
-      "uuid": "a2de9567-9646-45a9-a410-7303a43bdb6c"
-    },
-    {
-      "password": "UX82473651",
-      "server": "52.78.42.192",
-      "server_port": 443,
-      "tag": "ProxyRift 059",
-      "tls": {
-        "enabled": true,
-        "server_name": "working-tomcat.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "humanity",
-      "server": "www.hcaptcha.com",
-      "server_port": 443,
-      "tag": "ProxyRift 060",
-      "tls": {
-        "alpn": [
-          "http/1.1"
-        ],
-        "enabled": true,
-        "server_name": "www.volumeroot.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "transport": {
-        "headers": {
-          "Host": "www.volumeroot.com"
-        },
-        "path": "/assignment",
-        "type": "ws"
-      },
-      "type": "trojan"
+      "uuid": "f8c9d2a1-da40-4f90-b671-11772a0b13d6"
     },
     {
       "flow": "xtls-rprx-vision",
-      "server": "t14.qifei.app",
-      "server_port": 443,
-      "tag": "ProxyRift 061",
+      "server": "103.172.197.2",
+      "server_port": 29172,
+      "tag": "ProxyRift 046",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "0i_xAxYgSNx5NMpK2lOaWGS-CvAiD_LneYPO0MF0owo",
-          "short_id": "1a"
+          "public_key": "pff94OJwuKXnF7_3SJ8KKJuAN4GJtInBlR-kg-4mwzQ",
+          "short_id": ""
         },
-        "server_name": "www.amazon.com",
+        "server_name": "aws.amazon.com",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
         }
       },
       "type": "vless",
-      "uuid": "b98d4c6e-6770-4a31-8256-a4750cdea0e7"
-    },
-    {
-      "password": "UX82473651",
-      "server": "3.36.52.203",
-      "server_port": 443,
-      "tag": "ProxyRift 062",
-      "tls": {
-        "enabled": true,
-        "server_name": "inviting-rabbit.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
+      "uuid": "3977434d-6a9b-4858-8ced-80326ba5e367"
     },
     {
       "flow": "xtls-rprx-vision",
-      "server": "s249.freessr.bid",
-      "server_port": 443,
-      "tag": "ProxyRift 063",
-      "tls": {
-        "enabled": true,
-        "server_name": "u695098u47d2e9bes71.gogocs.xyz",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "30e52776-55ac-3cb4-8d36-e2910f07e2c3"
-    },
-    {
-      "server": "tr2.h1cloud.net",
-      "server_port": 25375,
-      "tag": "ProxyRift 064",
+      "server": "103.30.76.37",
+      "server_port": 27916,
+      "tag": "ProxyRift 047",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "PdiXtqIEtNpVRKgB1WCKnmIOC7yJ-VR4uUe1uYjcqXM",
-          "short_id": "8e2a0cd6de5dc50a"
+          "public_key": "ztQ8VYq_dVDc3x-QM8LXjup2161CirYrIBE1F7loVzQ",
+          "short_id": "6772eb2b7a"
         },
-        "server_name": "www.bing.com",
+        "server_name": "cdn-dynmedia-1.microsoft.com",
         "utls": {
           "enabled": true,
           "fingerprint": "random"
         }
       },
+      "type": "vless",
+      "uuid": "57beeeb0-03fc-4fc9-94da-7604488a7134"
+    },
+    {
+      "alter_id": 0,
+      "network": "tcp",
+      "packet_encoding": "xudp",
+      "security": "auto",
+      "server": "132.145.80.230",
+      "server_port": 80,
+      "tag": "ProxyRift 048",
       "transport": {
-        "service_name": "05195f917c82",
-        "type": "grpc"
+        "path": "/cctv13.m3u8",
+        "type": "ws"
       },
-      "type": "vless",
-      "uuid": "ec572cf0-1337-4c51-b4ec-ff2f538c1f4c"
-    },
-    {
-      "alter_id": 0,
-      "network": "tcp",
-      "packet_encoding": "xudp",
-      "security": "auto",
-      "server": "140.238.2.250",
-      "server_port": 443,
-      "tag": "ProxyRift 065",
       "type": "vmess",
-      "uuid": "41a7089a-040b-4538-8b8d-010902405bde"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "64.118.158.41",
-      "server_port": 443,
-      "tag": "ProxyRift 066",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "XTarABsaaFbjYNk6lRKnUzGavHzeqMIP7B8dZGNCvkE",
-          "short_id": "0fa4a0e2493392"
-        },
-        "server_name": "p-y3-www-amazon-com-kalias.amazon.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "8af93649-403b-46d8-9966-923d4c58402c"
-    },
-    {
-      "alter_id": 0,
-      "network": "tcp",
-      "packet_encoding": "xudp",
-      "security": "auto",
-      "server": "119.46.51.45",
-      "server_port": 37515,
-      "tag": "ProxyRift 067",
-      "type": "vmess",
-      "uuid": "9b76bc31-17a5-4454-934a-8d5fb602cd70"
+      "uuid": "5155860e-d07d-46c3-9128-3afbd84626c7"
     },
     {
       "password": "UX82473651",
-      "server": "13.229.59.187",
+      "server": "43.203.120.240",
       "server_port": 443,
-      "tag": "ProxyRift 068",
+      "tag": "ProxyRift 049",
       "tls": {
         "enabled": true,
-        "server_name": "inspired-hound.rooster465.autos",
+        "server_name": "cunning-grub.rooster465.autos",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
         }
       },
       "type": "trojan"
+    },
+    {
+      "packet_encoding": "xudp",
+      "server": "V2rAy.SiMsPeEdUp.CoM",
+      "server_port": 80,
+      "tag": "ProxyRift 050",
+      "transport": {
+        "headers": {
+          "Host": "aIs.SpEeDtEsT.nEt"
+        },
+        "path": "/ws",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "3c52e091-6714-4915-949f-2149fe69951b"
     },
     {
       "password": "UX82473651",
       "server": "3.35.214.220",
       "server_port": 443,
-      "tag": "ProxyRift 069",
+      "tag": "ProxyRift 051",
       "tls": {
         "enabled": true,
         "server_name": "glorious-lark.rooster465.autos",
@@ -1331,12 +935,69 @@
     },
     {
       "password": "UX82473651",
-      "server": "actual-squid.rooster465.autos",
+      "server": "13.229.59.187",
       "server_port": 443,
-      "tag": "ProxyRift 070",
+      "tag": "ProxyRift 052",
       "tls": {
         "enabled": true,
-        "server_name": "actual-squid.rooster465.autos"
+        "server_name": "inspired-hound.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "54.151.181.75",
+      "server_port": 443,
+      "tag": "ProxyRift 053",
+      "tls": {
+        "enabled": true,
+        "server_name": "moral-basilisk.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "method": "aes-256-cfb",
+      "password": "cp8pRSUAyLhTfVWH",
+      "server": "213.183.63.60",
+      "server_port": 9064,
+      "tag": "ProxyRift 054",
+      "type": "shadowsocks"
+    },
+    {
+      "password": "UX82473651",
+      "server": "52.221.222.185",
+      "server_port": 443,
+      "tag": "ProxyRift 055",
+      "tls": {
+        "enabled": true,
+        "server_name": "joint-ewe.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "3.36.52.203",
+      "server_port": 443,
+      "tag": "ProxyRift 056",
+      "tls": {
+        "enabled": true,
+        "server_name": "inviting-rabbit.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
       },
       "type": "trojan"
     },
@@ -1344,7 +1005,7 @@
       "password": "UX82473651",
       "server": "54.179.60.162",
       "server_port": 443,
-      "tag": "ProxyRift 071",
+      "tag": "ProxyRift 057",
       "tls": {
         "enabled": true,
         "server_name": "intense-wildcat.rooster465.autos",
@@ -1356,16 +1017,67 @@
       "type": "trojan"
     },
     {
-      "flow": "xtls-rprx-vision",
-      "server": "148.113.5.44",
+      "password": "UX82473651",
+      "server": "13.125.29.37",
       "server_port": 443,
-      "tag": "ProxyRift 072",
+      "tag": "ProxyRift 058",
+      "tls": {
+        "enabled": true,
+        "server_name": "fancy-skink.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "18.176.52.171",
+      "server_port": 443,
+      "tag": "ProxyRift 059",
+      "tls": {
+        "enabled": true,
+        "server_name": "legible-ram.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "144.172.65.72",
+      "server_port": 8443,
+      "tag": "ProxyRift 060",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "QLjTpkXRB453R9fXhJzKkc_q_gSm2MZrIOuxW4uW-mI",
-          "short_id": "221873918e0bb74d"
+          "public_key": "f25sygANXTpzdc9YPCwkggwSmm3piA3BluSeHdfG-hg",
+          "short_id": ""
+        },
+        "server_name": "www.tradingview.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "type": "vless",
+      "uuid": "8afeb33c-b686-43e9-a629-0d98f991ec28"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "195.123.213.28",
+      "server_port": 443,
+      "tag": "ProxyRift 061",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "NMgy1XgCSXExOg6Tg8xG9lCWttMF6sjdpB41lZy6FWo",
+          "short_id": "5c256336e3b673fa"
         },
         "server_name": "www.cloudflare.com",
         "utls": {
@@ -1374,100 +1086,86 @@
         }
       },
       "type": "vless",
-      "uuid": "72ea5a91-ffcc-43d2-9297-5993c3abf186"
+      "uuid": "02fcc1a4-ee90-4970-8bbb-4ffaa8109d24"
     },
     {
-      "password": "humanity",
-      "server": "5.44.46.142",
+      "password": "UX82473651",
+      "server": "actual-squid.rooster465.autos",
       "server_port": 443,
-      "tag": "ProxyRift 073",
+      "tag": "ProxyRift 062",
       "tls": {
         "enabled": true,
-        "server_name": "www.calmlunch.com"
-      },
-      "transport": {
-        "headers": {
-          "Host": "www.calmlunch.com"
-        },
-        "path": "/assignment",
-        "type": "ws"
+        "server_name": "actual-squid.rooster465.autos"
       },
       "type": "trojan"
     },
     {
-      "flow": "xtls-rprx-vision",
-      "server": "152.70.58.201",
-      "server_port": 443,
-      "tag": "ProxyRift 074",
+      "password": "my_super_password_123",
+      "server": "open.2ml.bid",
+      "server_port": 5443,
+      "tag": "ProxyRift 063",
+      "tls": {
+        "enabled": true,
+        "server_name": "open.2ml.bid"
+      },
+      "type": "hysteria2"
+    },
+    {
+      "server": "77.91.68.70",
+      "server_port": 55983,
+      "tag": "ProxyRift 064",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "Hg_ivwbClYmR-SEHdoGgq4yEk6ltbjS5c4yiQRa4_28",
-          "short_id": "52c723e0fad49689"
+          "public_key": "nWQ7b9l9X6N3PrXLgIzOvMM8iSYrqjVHEb9ikWxqYSg",
+          "short_id": "0e"
         },
-        "server_name": "www.nvidia.com",
+        "server_name": "yahoo.com",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
         }
       },
       "type": "vless",
-      "uuid": "8892e34a-339b-4526-b88d-cf68c516231c"
+      "uuid": "f667a096-5231-4cfb-8759-92bb32473139"
     },
     {
-      "server": "91.215.43.248",
-      "server_port": 443,
-      "tag": "ProxyRift 075",
-      "tls": {
-        "enabled": true,
-        "server_name": "my.kempekl.online",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "transport": {
-        "headers": {
-          "Host": "my.kempekl.online"
-        },
-        "path": "/gateway/v1/ws/a64eb463966ba9c4bfd628f1de0362ae",
-        "type": "ws"
-      },
-      "type": "vless",
-      "uuid": "a5893c8b-28a2-4947-9a1c-708db25506c3"
-    },
-    {
-      "alter_id": 0,
-      "network": "tcp",
-      "packet_encoding": "xudp",
-      "security": "auto",
-      "server": "47.250.135.244",
-      "server_port": 10000,
-      "tag": "ProxyRift 076",
-      "type": "vmess",
-      "uuid": "aedc66b8-99d7-4a21-8310-61870e7f870d"
-    },
-    {
-      "method": "chacha20-ietf-poly1305",
-      "password": "aduB9HGxQHjA2SBMRjkHX6",
-      "server": "102.37.156.224",
-      "server_port": 443,
-      "tag": "ProxyRift 077",
+      "method": "aes-256-cfb",
+      "password": "aLpQtfEZe445QyHk",
+      "server": "213.183.63.60",
+      "server_port": 9098,
+      "tag": "ProxyRift 065",
       "type": "shadowsocks"
     },
     {
-      "server": "152.69.192.144",
-      "server_port": 20802,
-      "tag": "ProxyRift 078",
-      "type": "vless",
-      "uuid": "ac76a374-7447-4dab-bfa9-b7f83a7a7946"
+      "password": "UX82473651",
+      "server": "13.212.35.242",
+      "server_port": 443,
+      "tag": "ProxyRift 066",
+      "tls": {
+        "enabled": true,
+        "server_name": "ace-liger.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "method": "aes-256-cfb",
+      "password": "PRBf4BS2HvJqtWxY",
+      "server": "213.183.63.60",
+      "server_port": 9049,
+      "tag": "ProxyRift 067",
+      "type": "shadowsocks"
     },
     {
       "password": "UX82473651",
       "server": "13.193.213.184",
       "server_port": 443,
-      "tag": "ProxyRift 079",
+      "tag": "ProxyRift 068",
       "tls": {
         "enabled": true,
         "server_name": "stable-python.rooster465.autos",
@@ -1480,486 +1178,52 @@
     },
     {
       "flow": "xtls-rprx-vision",
-      "server": "107.149.159.190",
-      "server_port": 4433,
-      "tag": "ProxyRift 080",
+      "server": "ww2.levikogjgfdd.ir",
+      "server_port": 443,
+      "tag": "ProxyRift 069",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "ptrxM_lwiuXte-ynRSfM7AyayGbWrfCzkV1gQ5EgeSw",
-          "short_id": "0fa5bc397af019a2"
+          "public_key": "SVgtyuD9khylgHuB0treGekxVSHPOS-wPZTNHUf6zj8",
+          "short_id": "85c86a9863"
         },
-        "server_name": "www.postgresql.org",
+        "server_name": "www.intel.com",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
         }
       },
       "type": "vless",
-      "uuid": "443d55c9-9b78-4ad4-ac34-5ada5b98e97e"
+      "uuid": "9015f0bc-2053-4ca1-9b9b-a018b97b32d2"
     },
     {
-      "password": "UX82473651",
-      "server": "16.144.66.136",
-      "server_port": 443,
-      "tag": "ProxyRift 081",
+      "server": "139.162.27.96",
+      "server_port": 2096,
+      "tag": "ProxyRift 070",
       "tls": {
         "enabled": true,
-        "server_name": "alert-titmouse.rooster465.autos",
+        "server_name": "free-server.techsonic.dev",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
         }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "humanity",
-      "server": "85.31.102.163",
-      "server_port": 443,
-      "tag": "ProxyRift 082",
-      "tls": {
-        "enabled": true,
-        "server_name": "www.calmlunch.com"
       },
       "transport": {
         "headers": {
-          "Host": "www.calmlunch.com"
+          "Host": "free-server.techsonic.dev"
         },
-        "path": "/assignment",
-        "type": "ws"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "8bdfa4e8dac99c57decdd8bf55d2da4c",
-      "server": "107.149.159.190",
-      "server_port": 10443,
-      "tag": "ProxyRift 083",
-      "tls": {
-        "enabled": true,
-        "server_name": "cf.shiranyu.xyz",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "13.125.69.162",
-      "server_port": 443,
-      "tag": "ProxyRift 084",
-      "tls": {
-        "enabled": true,
-        "server_name": "engaging-toucan.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "54.250.237.143",
-      "server_port": 443,
-      "tag": "ProxyRift 085",
-      "tls": {
-        "enabled": true,
-        "server_name": "accurate-frog.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "160.16.139.182",
-      "server_port": 443,
-      "tag": "ProxyRift 086",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "0i_xAxYgSNx5NMpK2lOaWGS-CvAiD_LneYPO0MF0owo",
-          "short_id": "1a"
-        },
-        "server_name": "www.amazon.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "firefox"
-        }
-      },
-      "type": "vless",
-      "uuid": "b98d4c6e-6770-4a31-8256-a4750cdea0e7"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "154.31.114.248",
-      "server_port": 50159,
-      "tag": "ProxyRift 087",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "j4QXngGuJkUGwRj4XIrfHRohYYuEfnJlX4cvCE-WklA",
-          "short_id": "091e1c5db8451757"
-        },
-        "server_name": "www.cloudflare.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "d56624b2-35bb-468c-9b2a-e0b0df7230c1"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "43.247.132.42",
-      "server_port": 41563,
-      "tag": "ProxyRift 088",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "HrcXRHtsitc_AVlN-_8fZuRgaP-Mqa_9JJotI9OnkVc",
-          "short_id": "25c79e5856c7"
-        },
-        "server_name": "iosapps.itunes.apple.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "57beeeb0-03fc-4fc9-94da-7604488a7134"
-    },
-    {
-      "password": "UX82473651",
-      "server": "176.34.5.100",
-      "server_port": 443,
-      "tag": "ProxyRift 089",
-      "tls": {
-        "enabled": true,
-        "server_name": "assuring-skink.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "method": "aes-256-gcm",
-      "password": "618a13eda4b4d208a4bcdc85fcb8996df812d59dd48419f75ae3f5f5b46a94fb",
-      "server": "45.76.9.57",
-      "server_port": 8393,
-      "tag": "ProxyRift 090",
-      "type": "shadowsocks"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "s251.wagahaha.xyz",
-      "server_port": 443,
-      "tag": "ProxyRift 091",
-      "tls": {
-        "alpn": [
-          "h2",
-          "http/1.1"
-        ],
-        "enabled": true,
-        "server_name": "u695098u47d2e9bes71.gogocs.xyz"
-      },
-      "type": "vless",
-      "uuid": "30e52776-55ac-3cb4-8d36-e2910f07e2c3"
-    },
-    {
-      "password": "UX82473651",
-      "server": "13.212.35.242",
-      "server_port": 443,
-      "tag": "ProxyRift 092",
-      "tls": {
-        "enabled": true,
-        "server_name": "ace-liger.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "212.109.196.123",
-      "server_port": 443,
-      "tag": "ProxyRift 093",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "IBbBWAFM5_ZvoudwNh_09i461W0SLjLxHeRo1TMWMHY",
-          "short_id": "d574a560c675152e"
-        },
-        "server_name": "maple.hubnori.ink",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "random"
-        }
-      },
-      "type": "vless",
-      "uuid": "6c21cf57-a9a9-4075-ad9f-631152bd911e"
-    },
-    {
-      "password": "UX82473651",
-      "server": "54.249.36.167",
-      "server_port": 443,
-      "tag": "ProxyRift 094",
-      "tls": {
-        "enabled": true,
-        "server_name": "comic-poodle.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "alter_id": 0,
-      "network": "tcp",
-      "packet_encoding": "xudp",
-      "security": "auto",
-      "server": "hk2.998998.best",
-      "server_port": 443,
-      "tag": "ProxyRift 095",
-      "tls": {
-        "enabled": true,
-        "server_name": "server15.9966338.xyz"
-      },
-      "transport": {
-        "early_data_header_name": "Sec-WebSocket-Protocol",
-        "headers": {
-          "Host": "server15.9966338.xyz"
-        },
-        "max_early_data": 2560,
-        "path": "/asivewritten",
-        "type": "ws"
-      },
-      "type": "vmess",
-      "uuid": "5504eaa8-1395-402f-8e0e-75ecd762e627"
-    },
-    {
-      "password": "UX82473651",
-      "server": "18.176.52.171",
-      "server_port": 443,
-      "tag": "ProxyRift 096",
-      "tls": {
-        "enabled": true,
-        "server_name": "legible-ram.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "18.183.167.216",
-      "server_port": 443,
-      "tag": "ProxyRift 097",
-      "tls": {
-        "enabled": true,
-        "server_name": "amazed-mako.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "method": "aes-256-cfb",
-      "password": "VcFuyXvND2yQWSFY",
-      "server": "213.183.63.60",
-      "server_port": 9054,
-      "tag": "ProxyRift 098",
-      "type": "shadowsocks"
-    },
-    {
-      "method": "aes-256-cfb",
-      "password": "4R3hUfZ2FHhDmNcP",
-      "server": "213.183.63.60",
-      "server_port": 9061,
-      "tag": "ProxyRift 099",
-      "type": "shadowsocks"
-    },
-    {
-      "method": "aes-256-cfb",
-      "password": "2KUaE2a8NWTvuCZ3",
-      "server": "213.183.63.60",
-      "server_port": 9066,
-      "tag": "ProxyRift 100",
-      "type": "shadowsocks"
-    },
-    {
-      "password": "UX82473651",
-      "server": "52.221.222.185",
-      "server_port": 443,
-      "tag": "ProxyRift 101",
-      "tls": {
-        "enabled": true,
-        "server_name": "joint-ewe.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "method": "aes-256-gcm",
-      "password": "zDNVedRFPQexG9v",
-      "server": "51.222.141.125",
-      "server_port": 445,
-      "tag": "ProxyRift 102",
-      "type": "shadowsocks"
-    },
-    {
-      "method": "aes-256-cfb",
-      "password": "9eeJ2fwnZA5Fxgz8",
-      "server": "213.183.63.60",
-      "server_port": 9028,
-      "tag": "ProxyRift 103",
-      "type": "shadowsocks"
-    },
-    {
-      "password": "UX82473651",
-      "server": "54.151.181.75",
-      "server_port": 443,
-      "tag": "ProxyRift 104",
-      "tls": {
-        "enabled": true,
-        "server_name": "moral-basilisk.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "humanity",
-      "server": "185.255.179.166",
-      "server_port": 443,
-      "tag": "ProxyRift 105",
-      "tls": {
-        "enabled": true,
-        "server_name": "www.calmlunch.com"
-      },
-      "transport": {
-        "headers": {
-          "Host": "www.calmlunch.com"
-        },
-        "path": "/assignment",
-        "type": "ws"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "humanity",
-      "server": "185.114.72.31",
-      "server_port": 2053,
-      "tag": "ProxyRift 106",
-      "tls": {
-        "enabled": true,
-        "server_name": "www.calmlunch.com"
-      },
-      "transport": {
-        "headers": {
-          "Host": "www.calmlunch.com"
-        },
-        "path": "/assignment",
-        "type": "ws"
-      },
-      "type": "trojan"
-    },
-    {
-      "server": "104.19.33.237",
-      "server_port": 443,
-      "tag": "ProxyRift 107",
-      "tls": {
-        "enabled": true,
-        "server_name": "jp3.yohototo.top"
-      },
-      "transport": {
-        "headers": {
-          "Host": "jp3.yohototo.top"
-        },
-        "path": "/tyxyws",
+        "path": "/free-server.techsonic.dev",
         "type": "ws"
       },
       "type": "vless",
-      "uuid": "4e4f1f70-5e56-4a76-bb9d-db087f4690c4"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "208.67.106.154",
-      "server_port": 443,
-      "tag": "ProxyRift 108",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "_0fpFqEEuCso3B8K7AAcMjctwG_xfCxO2PdKzGd_-hg",
-          "short_id": "c9677d3b7dea"
-        },
-        "server_name": "www.microsoft.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "firefox"
-        }
-      },
-      "type": "vless",
-      "uuid": "96ee55ac-d534-4502-878a-468c7896360b"
-    },
-    {
-      "password": "UX82473651",
-      "server": "3.35.207.188",
-      "server_port": 443,
-      "tag": "ProxyRift 109",
-      "tls": {
-        "enabled": true,
-        "server_name": "main-fawn.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "56.10.9.77",
-      "server_port": 443,
-      "tag": "ProxyRift 110",
-      "tls": {
-        "enabled": true,
-        "server_name": "inviting-ferret.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
+      "uuid": "6e59d5c5-7aa3-4c36-a4c4-e3b899525ed2"
     },
     {
       "password": "UX82473651",
       "server": "52.221.220.227",
       "server_port": 443,
-      "tag": "ProxyRift 111",
+      "tag": "ProxyRift 071",
       "tls": {
         "enabled": true,
         "server_name": "pet-antelope.rooster465.autos",
@@ -1971,100 +1235,408 @@
       "type": "trojan"
     },
     {
-      "flow": "xtls-rprx-vision",
-      "server": "94.156.79.93",
+      "password": "UX82473651",
+      "server": "176.34.5.100",
       "server_port": 443,
-      "tag": "ProxyRift 112",
+      "tag": "ProxyRift 072",
       "tls": {
         "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "_0fpFqEEuCso3B8K7AAcMjctwG_xfCxO2PdKzGd_-hg",
-          "short_id": "f129dcdbf64f"
-        },
-        "server_name": "www.microsoft.com",
+        "server_name": "assuring-skink.rooster465.autos",
         "utls": {
           "enabled": true,
-          "fingerprint": "firefox"
+          "fingerprint": "chrome"
         }
-      },
-      "type": "vless",
-      "uuid": "1a5e7720-abf3-4b9b-bc9b-9a900a04b434"
-    },
-    {
-      "password": "UX82473651",
-      "server": "kind-stork.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 113",
-      "tls": {
-        "enabled": true,
-        "server_name": "kind-stork.rooster465.autos"
       },
       "type": "trojan"
     },
     {
-      "method": "rc4-md5",
-      "password": "14fFPrbezE3HDZzsMOr6",
-      "server": "137.184.174.93",
-      "server_port": 8080,
-      "tag": "ProxyRift 114",
+      "method": "aes-256-cfb",
+      "password": "9ej82EKe2gq7gLAM",
+      "server": "213.183.63.60",
+      "server_port": 9085,
+      "tag": "ProxyRift 073",
       "type": "shadowsocks"
     },
     {
-      "method": "rc4-md5",
-      "password": "14fFPrbezE3HDZzsMOr6",
-      "server": "107.155.57.51",
-      "server_port": 8080,
-      "tag": "ProxyRift 115",
-      "type": "shadowsocks"
-    },
-    {
-      "flow": "xtls-rprx-vision",
-      "server": "44.248.233.99",
+      "password": "humanity",
+      "server": "185.255.179.166",
       "server_port": 443,
-      "tag": "ProxyRift 116",
+      "tag": "ProxyRift 074",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.calmlunch.com"
+      },
+      "transport": {
+        "headers": {
+          "Host": "www.calmlunch.com"
+        },
+        "path": "/assignment",
+        "type": "ws"
+      },
+      "type": "trojan"
+    },
+    {
+      "method": "aes-256-cfb",
+      "password": "1234!@#$",
+      "server": "49.254.204.134",
+      "server_port": 1774,
+      "tag": "ProxyRift 075",
+      "type": "shadowsocks"
+    },
+    {
+      "server": "118.167.248.243",
+      "server_port": 24215,
+      "tag": "ProxyRift 076",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "p8VhFzvFOBAhWAEAeWmwDxT3xBSRsGYixqi0qnLFnBM",
-          "short_id": "21270a66"
+          "public_key": "mdWKUPMVTtTbDqK10BPb89OcqBC2-Lx-4NOYtqc1GWE",
+          "short_id": ""
         },
-        "server_name": "aws.amazon.com",
+        "server_name": "addons.mozilla.org",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
         }
       },
       "type": "vless",
-      "uuid": "37615d66-5467-44a3-bc23-f2c3bef7f761"
+      "uuid": "19d5a678-8396-4e3b-93da-ece618d0e83a"
     },
     {
-      "server": "69.48.201.136",
-      "server_port": 30016,
-      "tag": "ProxyRift 117",
-      "transport": {
-        "headers": {
-          "Host": "uspanel.unixzone.us"
+      "password": "UX82473651",
+      "server": "3.75.93.113",
+      "server_port": 443,
+      "tag": "ProxyRift 077",
+      "tls": {
+        "enabled": true,
+        "server_name": "meet-goshawk.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "18.141.136.8",
+      "server_port": 443,
+      "tag": "ProxyRift 078",
+      "tls": {
+        "enabled": true,
+        "server_name": "musical-mouse.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "16.144.66.136",
+      "server_port": 443,
+      "tag": "ProxyRift 079",
+      "tls": {
+        "enabled": true,
+        "server_name": "alert-titmouse.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "3.112.188.176",
+      "server_port": 443,
+      "tag": "ProxyRift 080",
+      "tls": {
+        "enabled": true,
+        "server_name": "live-stallion.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "method": "chacha20-ietf-poly1305",
+      "password": "hCCWOcIsK5wrFz4OX70rWf",
+      "server": "216.105.168.18",
+      "server_port": 443,
+      "tag": "ProxyRift 081",
+      "type": "shadowsocks"
+    },
+    {
+      "password": "UX82473651",
+      "server": "52.78.42.192",
+      "server_port": 443,
+      "tag": "ProxyRift 082",
+      "tls": {
+        "enabled": true,
+        "server_name": "working-tomcat.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "8bd04756-3beb-4348-82c9-d35453df50ce",
+      "server": "alb1337.zaebalsanoproxyklinus.lol",
+      "server_port": 28152,
+      "tag": "ProxyRift 083",
+      "tls": {
+        "enabled": true,
+        "server_name": "alb1337.zaebalsanoproxyklinus.lol"
+      },
+      "type": "hysteria2"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "maple.hubnori.ink",
+      "server_port": 443,
+      "tag": "ProxyRift 084",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "IBbBWAFM5_ZvoudwNh_09i461W0SLjLxHeRo1TMWMHY",
+          "short_id": "d574a560c675152e"
         },
-        "path": "/usserver",
-        "type": "ws"
+        "server_name": "maple.hubnori.ink",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
       },
       "type": "vless",
-      "uuid": "03dc60cb-a8d4-4226-93fe-0e6cbf77fe5a"
+      "uuid": "6c21cf57-a9a9-4075-ad9f-631152bd911e"
+    },
+    {
+      "method": "aes-256-cfb",
+      "password": "1234!@#$",
+      "server": "49.254.204.133",
+      "server_port": 1774,
+      "tag": "ProxyRift 085",
+      "type": "shadowsocks"
+    },
+    {
+      "password": "UX82473651",
+      "server": "52.221.219.241",
+      "server_port": 443,
+      "tag": "ProxyRift 086",
+      "tls": {
+        "enabled": true,
+        "server_name": "fond-mammoth.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "humanity",
+      "server": "85.31.102.163",
+      "server_port": 443,
+      "tag": "ProxyRift 087",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.calmlunch.com"
+      },
+      "transport": {
+        "headers": {
+          "Host": "www.calmlunch.com"
+        },
+        "path": "/assignment",
+        "type": "ws"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "54.249.36.167",
+      "server_port": 443,
+      "tag": "ProxyRift 088",
+      "tls": {
+        "enabled": true,
+        "server_name": "comic-poodle.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "3.114.220.22",
+      "server_port": 10583,
+      "tag": "ProxyRift 089",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "k2hPp0tTW0Da-HK94wYpSCLbuK44LfGqC2MSJIM1Ti0",
+          "short_id": "48050fab"
+        },
+        "server_name": "www.apple.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "814bd064-544d-4255-a070-5705c03f6da9"
+    },
+    {
+      "password": "humanity",
+      "server": "185.114.72.31",
+      "server_port": 2053,
+      "tag": "ProxyRift 090",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.calmlunch.com"
+      },
+      "transport": {
+        "headers": {
+          "Host": "www.calmlunch.com"
+        },
+        "path": "/assignment",
+        "type": "ws"
+      },
+      "type": "trojan"
+    },
+    {
+      "alter_id": 0,
+      "network": "tcp",
+      "packet_encoding": "xudp",
+      "security": "auto",
+      "server": "67.220.95.3",
+      "server_port": 18000,
+      "tag": "ProxyRift 091",
+      "type": "vmess",
+      "uuid": "f8c8dc3d-0d37-46b0-8b34-a7232882fcfe"
+    },
+    {
+      "method": "rc4-md5",
+      "password": "14fFPrbezE3HDZzsMOr6",
+      "server": "137.184.174.93",
+      "server_port": 8080,
+      "tag": "ProxyRift 092",
+      "type": "shadowsocks"
+    },
+    {
+      "method": "aes-128-gcm",
+      "password": "shadowsocks",
+      "server": "156.146.38.170",
+      "server_port": 443,
+      "tag": "ProxyRift 093",
+      "type": "shadowsocks"
+    },
+    {
+      "alter_id": 0,
+      "network": "tcp",
+      "packet_encoding": "xudp",
+      "security": "auto",
+      "server": "84.17.41.2",
+      "server_port": 18000,
+      "tag": "ProxyRift 094",
+      "type": "vmess",
+      "uuid": "f8c8dc3d-0d37-46b0-8b34-a7232882fcfe"
+    },
+    {
+      "password": "UX82473651",
+      "server": "adapting-basilisk.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 095",
+      "tls": {
+        "enabled": true,
+        "server_name": "adapting-basilisk.rooster465.autos"
+      },
+      "type": "trojan"
     },
     {
       "method": "aes-256-gcm",
       "password": "g5h5jleTRSyO3Rk4",
       "server": "149.102.132.184",
       "server_port": 80,
-      "tag": "ProxyRift 118",
+      "tag": "ProxyRift 096",
       "type": "shadowsocks"
+    },
+    {
+      "method": "chacha20-ietf-poly1305",
+      "password": "oZIoA69Q8yhcQV8ka3Pa3A",
+      "server": "82.38.31.170",
+      "server_port": 443,
+      "tag": "ProxyRift 097",
+      "type": "shadowsocks"
+    },
+    {
+      "method": "chacha20-ietf-poly1305",
+      "password": "k1dBOmOB4oqi7Ump37a1bQ",
+      "server": "82.38.31.183",
+      "server_port": 8080,
+      "tag": "ProxyRift 098",
+      "type": "shadowsocks"
+    },
+    {
+      "alter_id": 0,
+      "network": "tcp",
+      "packet_encoding": "xudp",
+      "security": "auto",
+      "server": "38.91.107.49",
+      "server_port": 18000,
+      "tag": "ProxyRift 099",
+      "type": "vmess",
+      "uuid": "f8c8dc3d-0d37-46b0-8b34-a7232882fcfe"
+    },
+    {
+      "method": "aes-256-gcm",
+      "password": "ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4=",
+      "server": "82.110.60.9",
+      "server_port": 19999,
+      "tag": "ProxyRift 100",
+      "type": "shadowsocks"
+    },
+    {
+      "method": "chacha20-ietf-poly1305",
+      "password": "k1dBOmOB4oqi7Ump37a1bQ",
+      "server": "82.38.31.213",
+      "server_port": 8080,
+      "tag": "ProxyRift 101",
+      "type": "shadowsocks"
+    },
+    {
+      "server": "80.47.12.94",
+      "server_port": 443,
+      "tag": "ProxyRift 102",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "gS0qvWKumWcOVoAgf8SHt6Sm3tqpBw07c5sA_Clb1hg",
+          "short_id": ""
+        },
+        "server_name": "pl-1-1.unturned-rust-dead.lol",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "type": "vless",
+      "uuid": "c6e3c24c-ce20-4ad5-8c8c-68cb05890ea8"
     },
     {
       "server": "31.58.95.10",
       "server_port": 443,
-      "tag": "ProxyRift 119",
+      "tag": "ProxyRift 103",
       "tls": {
         "enabled": true,
         "reality": {
@@ -2086,90 +1658,41 @@
       "uuid": "c6e3c24c-ce20-4ad5-8c8c-68cb05890ea8"
     },
     {
-      "method": "chacha20-ietf-poly1305",
-      "password": "k1dBOmOB4oqi7Ump37a1bQ",
-      "server": "82.38.31.185",
-      "server_port": 8080,
-      "tag": "ProxyRift 120",
-      "type": "shadowsocks"
+      "server": "104.18.0.181",
+      "server_port": 2082,
+      "tag": "ProxyRift 104",
+      "transport": {
+        "headers": {
+          "Host": "hhlfy.twiladaphne.ndjp.net"
+        },
+        "path": "/fp",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "e5cc16a6-ea42-46b2-82ae-ad2157e1641b"
     },
     {
-      "method": "aes-256-gcm",
-      "password": "FoOiGlkAA9yPEGP",
-      "server": "15.204.246.132",
-      "server_port": 7307,
-      "tag": "ProxyRift 121",
-      "type": "shadowsocks"
-    },
-    {
-      "method": "chacha20-ietf-poly1305",
-      "password": "k1dBOmOB4oqi7Ump37a1bQ",
-      "server": "82.38.31.183",
-      "server_port": 8080,
-      "tag": "ProxyRift 122",
-      "type": "shadowsocks"
+      "password": "UX82473651",
+      "server": "alert-titmouse.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 105",
+      "tls": {
+        "enabled": true,
+        "server_name": "alert-titmouse.rooster465.autos"
+      },
+      "type": "trojan"
     },
     {
       "flow": "xtls-rprx-vision",
-      "server": "2.27.69.128",
+      "server": "5.34.178.120",
       "server_port": 443,
-      "tag": "ProxyRift 123",
+      "tag": "ProxyRift 106",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "RTG-xTU5UuKTRrkk8_COe04GiUWrqrSdt9mqSak_XEc",
-          "short_id": "e696e744"
-        },
-        "server_name": "addons.mozilla.org",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "vless",
-      "uuid": "df53b6c2-8005-475c-9eb9-74e1be785dc8"
-    },
-    {
-      "password": "UX82473651",
-      "server": "adapting-basilisk.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 124",
-      "tls": {
-        "enabled": true,
-        "server_name": "adapting-basilisk.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "cuddly-sheepdog.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 125",
-      "tls": {
-        "enabled": true,
-        "server_name": "cuddly-sheepdog.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "method": "aes-256-gcm",
-      "password": "ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4=",
-      "server": "82.110.60.9",
-      "server_port": 19999,
-      "tag": "ProxyRift 126",
-      "type": "shadowsocks"
-    },
-    {
-      "server": "66.70.179.198",
-      "server_port": 2053,
-      "tag": "ProxyRift 127",
-      "tls": {
-        "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "k4l6TxwkBbx9DhZAFpByq5rfCWFSgyOex3f_eFe9CWU",
-          "short_id": "83f8317a948bb769"
+          "public_key": "EVhq2BxKuw2Cody1DmF_HPvUYKwzdXbHP47blUv-eRM",
+          "short_id": "55ab5559e3a6d10a"
         },
         "server_name": "www.cloudflare.com",
         "utls": {
@@ -2178,36 +1701,275 @@
         }
       },
       "type": "vless",
-      "uuid": "dc620cd6-a9d8-4a0f-8f18-006b895db77e"
+      "uuid": "9063f9fb-e88a-4ee0-b4a4-a92ca7316a9f"
     },
     {
-      "server": "107.173.237.146",
-      "server_port": 8443,
-      "tag": "ProxyRift 128",
+      "method": "aes-256-gcm",
+      "password": "kDWvXYZoTBcGkC4",
+      "server": "15.204.233.41",
+      "server_port": 8882,
+      "tag": "ProxyRift 107",
+      "type": "shadowsocks"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "44.248.233.99",
+      "server_port": 443,
+      "tag": "ProxyRift 108",
       "tls": {
         "enabled": true,
         "reality": {
           "enabled": true,
-          "public_key": "D3ojIs3AUKP_tV0E4TEjh90HBVJp24Nq3qMfdxD30kc",
-          "short_id": "df8611c07d"
+          "public_key": "p8VhFzvFOBAhWAEAeWmwDxT3xBSRsGYixqi0qnLFnBM",
+          "short_id": "21270a66"
         },
-        "server_name": "updates.cdn-apple.com",
+        "server_name": "aws.amazon.com",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"
         }
       },
       "type": "vless",
-      "uuid": "1d39f715-2740-4d99-bc3b-197cc48dcee7"
+      "uuid": "37615d66-5467-44a3-bc23-f2c3bef7f761"
+    },
+    {
+      "method": "aes-256-gcm",
+      "password": "LXchLsIwtCeUAUgu",
+      "server": "149.102.149.207",
+      "server_port": 80,
+      "tag": "ProxyRift 109",
+      "type": "shadowsocks"
+    },
+    {
+      "password": "UX82473651",
+      "server": "legible-ram.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 110",
+      "tls": {
+        "enabled": true,
+        "server_name": "legible-ram.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "live-stallion.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 111",
+      "tls": {
+        "enabled": true,
+        "server_name": "live-stallion.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "equipped-stingray.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 112",
+      "tls": {
+        "enabled": true,
+        "server_name": "equipped-stingray.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "method": "aes-256-gcm",
+      "password": "FoOiGlkAA9yPEGP",
+      "server": "15.204.246.132",
+      "server_port": 7307,
+      "tag": "ProxyRift 113",
+      "type": "shadowsocks"
+    },
+    {
+      "password": "UX82473651",
+      "server": "13.230.91.226",
+      "server_port": 443,
+      "tag": "ProxyRift 114",
+      "tls": {
+        "enabled": true,
+        "server_name": "musical-terrier.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "cunning-grub.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 115",
+      "tls": {
+        "enabled": true,
+        "server_name": "cunning-grub.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "glorious-lark.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 116",
+      "tls": {
+        "enabled": true,
+        "server_name": "glorious-lark.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "pure-kodiak.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 117",
+      "tls": {
+        "enabled": true,
+        "server_name": "pure-kodiak.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "fancy-skink.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 118",
+      "tls": {
+        "enabled": true,
+        "server_name": "fancy-skink.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "54.249.55.154",
+      "server_port": 443,
+      "tag": "ProxyRift 119",
+      "tls": {
+        "enabled": true,
+        "server_name": "prime-corgi.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "obliging-louse.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 120",
+      "tls": {
+        "enabled": true,
+        "server_name": "obliging-louse.rooster465.autos"
+      },
+      "type": "trojan"
     },
     {
       "password": "UX82473651",
       "server": "warm-krill.rooster465.autos",
       "server_port": 443,
-      "tag": "ProxyRift 129",
+      "tag": "ProxyRift 121",
       "tls": {
         "enabled": true,
         "server_name": "warm-krill.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "34.220.15.24",
+      "server_port": 443,
+      "tag": "ProxyRift 122",
+      "tls": {
+        "enabled": true,
+        "server_name": "guided-ferret.rooster465.autos",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "rested-seahorse.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 123",
+      "tls": {
+        "enabled": true,
+        "server_name": "rested-seahorse.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "XuMweB2PWs",
+      "server": "2.27.109.179",
+      "server_port": 45464,
+      "tag": "ProxyRift 124",
+      "tls": {
+        "enabled": true,
+        "server_name": "2.27.109.179.sslip.io",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "simple-molly.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 125",
+      "tls": {
+        "enabled": true,
+        "server_name": "simple-molly.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "intense-wildcat.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 126",
+      "tls": {
+        "enabled": true,
+        "server_name": "intense-wildcat.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "inviting-rabbit.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 127",
+      "tls": {
+        "enabled": true,
+        "server_name": "inviting-rabbit.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "sacred-anemone.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 128",
+      "tls": {
+        "enabled": true,
+        "server_name": "sacred-anemone.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "joint-ewe.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 129",
+      "tls": {
+        "enabled": true,
+        "server_name": "joint-ewe.rooster465.autos"
       },
       "type": "trojan"
     },
@@ -2224,143 +1986,28 @@
     },
     {
       "password": "UX82473651",
-      "server": "fancy-skink.rooster465.autos",
+      "server": "evident-ant.rooster465.autos",
       "server_port": 443,
       "tag": "ProxyRift 131",
       "tls": {
         "enabled": true,
-        "server_name": "fancy-skink.rooster465.autos"
+        "server_name": "evident-ant.rooster465.autos"
       },
       "type": "trojan"
     },
     {
       "method": "aes-256-cfb",
-      "password": "amazonskr05",
-      "server": "13.40.25.145",
-      "server_port": 443,
+      "password": "GeregetR8cvQHzYr",
+      "server": "213.183.63.60",
+      "server_port": 9030,
       "tag": "ProxyRift 132",
       "type": "shadowsocks"
     },
     {
       "password": "UX82473651",
-      "server": "cunning-grub.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 133",
-      "tls": {
-        "enabled": true,
-        "server_name": "cunning-grub.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "intense-wildcat.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 134",
-      "tls": {
-        "enabled": true,
-        "server_name": "intense-wildcat.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "simple-molly.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 135",
-      "tls": {
-        "enabled": true,
-        "server_name": "simple-molly.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "method": "aes-256-gcm",
-      "password": "LXchLsIwtCeUAUgu",
-      "server": "149.102.149.207",
-      "server_port": 80,
-      "tag": "ProxyRift 136",
-      "type": "shadowsocks"
-    },
-    {
-      "password": "UX82473651",
-      "server": "glorious-lark.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 137",
-      "tls": {
-        "enabled": true,
-        "server_name": "glorious-lark.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "pure-kodiak.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 138",
-      "tls": {
-        "enabled": true,
-        "server_name": "pure-kodiak.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "XuMweB2PWs",
-      "server": "2.27.109.179",
-      "server_port": 45464,
-      "tag": "ProxyRift 139",
-      "tls": {
-        "enabled": true,
-        "server_name": "2.27.109.179.sslip.io",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "inviting-rabbit.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 140",
-      "tls": {
-        "enabled": true,
-        "server_name": "inviting-rabbit.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "34.220.15.24",
-      "server_port": 443,
-      "tag": "ProxyRift 141",
-      "tls": {
-        "enabled": true,
-        "server_name": "guided-ferret.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "brave-tomcat.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 142",
-      "tls": {
-        "enabled": true,
-        "server_name": "brave-tomcat.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
       "server": "13.230.139.12",
       "server_port": 443,
-      "tag": "ProxyRift 143",
+      "tag": "ProxyRift 133",
       "tls": {
         "enabled": true,
         "server_name": "brief-glider.rooster465.autos"
@@ -2368,31 +2015,43 @@
       "type": "trojan"
     },
     {
-      "flow": "xtls-rprx-vision",
-      "server": "dghk2610.supertoolify.com",
-      "server_port": 21033,
-      "tag": "ProxyRift 144",
+      "password": "UX82473651",
+      "server": "normal-macaque.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 134",
       "tls": {
         "enabled": true,
-        "reality": {
-          "enabled": true,
-          "public_key": "EG-jzQw1RyOwAM4L9rMKondSx7cyFmPyv1OP7xXkIk4",
-          "short_id": "cbd39bea0805e2"
-        },
-        "server_name": "www.kaidee.com",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "ios"
-        }
+        "server_name": "normal-macaque.rooster465.autos"
       },
-      "type": "vless",
-      "uuid": "57beeeb0-03fc-4fc9-94da-7604488a7134"
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "amazed-mako.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 135",
+      "tls": {
+        "enabled": true,
+        "server_name": "amazed-mako.rooster465.autos"
+      },
+      "type": "trojan"
+    },
+    {
+      "password": "UX82473651",
+      "server": "cuddly-sheepdog.rooster465.autos",
+      "server_port": 443,
+      "tag": "ProxyRift 136",
+      "tls": {
+        "enabled": true,
+        "server_name": "cuddly-sheepdog.rooster465.autos"
+      },
+      "type": "trojan"
     },
     {
       "password": "UX82473651",
       "server": "34.242.77.118",
       "server_port": 443,
-      "tag": "ProxyRift 145",
+      "tag": "ProxyRift 137",
       "tls": {
         "enabled": true,
         "server_name": "sacred-anemone.rooster465.autos",
@@ -2405,86 +2064,12 @@
     },
     {
       "password": "UX82473651",
-      "server": "54.249.55.154",
+      "server": "3.34.131.153",
       "server_port": 443,
-      "tag": "ProxyRift 146",
+      "tag": "ProxyRift 138",
       "tls": {
         "enabled": true,
-        "server_name": "prime-corgi.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "sacred-anemone.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 147",
-      "tls": {
-        "enabled": true,
-        "server_name": "sacred-anemone.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "13.230.91.226",
-      "server_port": 443,
-      "tag": "ProxyRift 148",
-      "tls": {
-        "enabled": true,
-        "server_name": "musical-terrier.rooster465.autos",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "chrome"
-        }
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "joint-ewe.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 149",
-      "tls": {
-        "enabled": true,
-        "server_name": "joint-ewe.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "moral-basilisk.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 150",
-      "tls": {
-        "enabled": true,
-        "server_name": "moral-basilisk.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "legible-ram.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 151",
-      "tls": {
-        "enabled": true,
-        "server_name": "legible-ram.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "rested-seahorse.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 152",
-      "tls": {
-        "enabled": true,
-        "server_name": "rested-seahorse.rooster465.autos"
+        "server_name": "pretty-rat.rooster465.autos"
       },
       "type": "trojan"
     },
@@ -2492,7 +2077,7 @@
       "password": "UX82473651",
       "server": "musical-mouse.rooster465.autos",
       "server_port": 443,
-      "tag": "ProxyRift 153",
+      "tag": "ProxyRift 139",
       "tls": {
         "enabled": true,
         "server_name": "musical-mouse.rooster465.autos"
@@ -2501,45 +2086,12 @@
     },
     {
       "password": "UX82473651",
-      "server": "amazed-mako.rooster465.autos",
+      "server": "brave-tomcat.rooster465.autos",
       "server_port": 443,
-      "tag": "ProxyRift 154",
+      "tag": "ProxyRift 140",
       "tls": {
         "enabled": true,
-        "server_name": "amazed-mako.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "live-stallion.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 155",
-      "tls": {
-        "enabled": true,
-        "server_name": "live-stallion.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "equipped-stingray.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 156",
-      "tls": {
-        "enabled": true,
-        "server_name": "equipped-stingray.rooster465.autos"
-      },
-      "type": "trojan"
-    },
-    {
-      "password": "UX82473651",
-      "server": "evident-ant.rooster465.autos",
-      "server_port": 443,
-      "tag": "ProxyRift 157",
-      "tls": {
-        "enabled": true,
-        "server_name": "evident-ant.rooster465.autos"
+        "server_name": "brave-tomcat.rooster465.autos"
       },
       "type": "trojan"
     }
