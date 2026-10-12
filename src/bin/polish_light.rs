@@ -1392,7 +1392,7 @@ async fn validate_light_transfer_stability_batch(
         if xray_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            validate_candidates_with_target_pool_once_with_minimum_body(
+            validate_candidates_with_ordered_target_pool_once_with_minimum_body(
                 xray,
                 &xray_candidates,
                 LIGHT_TRANSFER_STABILITY_TARGETS,
@@ -1417,7 +1417,7 @@ async fn validate_light_transfer_stability_batch(
         .collect::<Vec<_>>();
 
     if !fallback_retry.is_empty() {
-        let fallback_xray = validate_candidates_with_target_pool_once_with_minimum_body(
+        let fallback_xray = validate_candidates_with_ordered_target_pool_once_with_minimum_body(
             xray,
             &fallback_retry,
             LIGHT_TRANSFER_STABILITY_TARGETS,
