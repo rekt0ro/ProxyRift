@@ -4318,22 +4318,31 @@ mod tests {
     fn final_stream_ranking_prefers_measured_throughput_over_history() {
         let mut metrics = HashMap::new();
         metrics.insert("slow".to_string(), ProxyMetrics {
-            throughput_kbps: 7_000.0,
+            successes: 1,
+            attempts: 1,
             median_ms: 4_000.0,
+            min_ms: 3_900.0,
             jitter_ms: 20.0,
-            ..ProxyMetrics::default()
+            throughput_kbps: 7_000.0,
+            successful_targets: Vec::new(),
         });
         metrics.insert("fast".to_string(), ProxyMetrics {
-            throughput_kbps: 22_000.0,
+            successes: 1,
+            attempts: 1,
             median_ms: 8_000.0,
+            min_ms: 7_900.0,
             jitter_ms: 100.0,
-            ..ProxyMetrics::default()
+            throughput_kbps: 22_000.0,
+            successful_targets: Vec::new(),
         });
         metrics.insert("fastest".to_string(), ProxyMetrics {
-            throughput_kbps: 35_000.0,
+            successes: 1,
+            attempts: 1,
             median_ms: 9_000.0,
+            min_ms: 8_900.0,
             jitter_ms: 200.0,
-            ..ProxyMetrics::default()
+            throughput_kbps: 35_000.0,
+            successful_targets: Vec::new(),
         });
         let mut configs = vec!["slow".to_string(), "fast".to_string(), "fastest".to_string()];
         sort_by_measured_stream_speed(&mut configs, &metrics);
