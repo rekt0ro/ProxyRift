@@ -869,12 +869,26 @@ fn rank_discovery_candidates(
     candidates: &[String],
     light_gbm_scores: &LightGbmScores,
     seed: u64,
+    recent_families: &HashSet<String>,
 ) -> Vec<String> {
     if candidates.is_empty() {
         return Vec::new();
     }
 
-    let mut ranked = candidates.to_vec();
+    let mut fresh_candidates = Vec::new();
+    let mut recent_candidates = Vec::new();
+    for config in candidates {
+        if recent_families.contains(&family_key(config)) {
+            recent_candidates.push(config.clone());
+        } else {
+            fresh_candidates.push(config.clone());
+        }
+    }
+    if fresh_candidates.is_empty() {
+        fresh_candidates = std::mem::take(&mut recent_candidates);
+    }
+
+    let mut ranked = fresh_candidates.clone();
     ranked.sort_unstable_by(|a, b| {
         light_gbm_scores
             .score(b)
@@ -882,52 +896,61 @@ fn rank_discovery_candidates(
             .then_with(|| a.cmp(b))
     });
 
-    let mut exploration = candidates.to_vec();
+    let mut exploration = fresh_candidates;
     exploration.sort_unstable_by_key(|config| exploration_sort_key(config, seed));
 
-    let exploration_target = ranked
-        .len()
-        .saturating_mul(RECHECK_EXPLORATION_PERCENT)
-        .div_ceil(100)
-        .clamp(1, ranked.len());
+    let mut ordered = Vec::with_capacity(candidates.len());
+    if !ranked.is_empty() {
+        let exploration_target = ranked
+            .len()
+            .saturating_mul(RECHECK_EXPLORATION_PERCENT)
+            .div_ceil(100)
+            .clamp(1, ranked.len());
 
-    let mut ordered = Vec::with_capacity(ranked.len());
-    let mut selected = HashSet::with_capacity(ranked.len());
-    let mut ranked_index = 0usize;
-    let mut exploration_index = 0usize;
-    let mut exploration_selected = 0usize;
+        let mut selected = HashSet::with_capacity(ranked.len());
+        let mut ranked_index = 0usize;
+        let mut exploration_index = 0usize;
+        let mut exploration_selected = 0usize;
 
-    for position in 0..ranked.len() {
-        let exploration_due = ((position + 1) * exploration_target) / ranked.len()
-            > (position * exploration_target) / ranked.len();
+        for position in 0..ranked.len() {
+            let exploration_due = ((position + 1) * exploration_target) / ranked.len()
+                > (position * exploration_target) / ranked.len();
 
-        if exploration_due && exploration_selected < exploration_target {
-            while exploration_index < exploration.len()
-                && selected.contains(&exploration[exploration_index])
-            {
-                exploration_index += 1;
+            if exploration_due && exploration_selected < exploration_target {
+                while exploration_index < exploration.len()
+                    && selected.contains(&exploration[exploration_index])
+                {
+                    exploration_index += 1;
+                }
+
+                if let Some(config) = exploration.get(exploration_index) {
+                    selected.insert(config.clone());
+                    ordered.push(config.clone());
+                    exploration_selected += 1;
+                    exploration_index += 1;
+                    continue;
+                }
             }
 
-            if let Some(config) = exploration.get(exploration_index) {
+            while ranked_index < ranked.len() && selected.contains(&ranked[ranked_index]) {
+                ranked_index += 1;
+            }
+
+            if let Some(config) = ranked.get(ranked_index) {
                 selected.insert(config.clone());
                 ordered.push(config.clone());
-                exploration_selected += 1;
-                exploration_index += 1;
-                continue;
+                ranked_index += 1;
             }
-        }
-
-        while ranked_index < ranked.len() && selected.contains(&ranked[ranked_index]) {
-            ranked_index += 1;
-        }
-
-        if let Some(config) = ranked.get(ranked_index) {
-            selected.insert(config.clone());
-            ordered.push(config.clone());
-            ranked_index += 1;
         }
     }
 
+    recent_candidates.sort_unstable_by(|a, b| {
+        light_gbm_scores
+            .score(b)
+            .total_cmp(&light_gbm_scores.score(a))
+            .then_with(|| a.cmp(b))
+    });
+    ordered.extend(recent_candidates);
     ordered
 }
 
@@ -3170,13 +3193,13 @@ async fn main() -> Result<(), String> {
         .map(|config| family_key(config))
         .collect::<HashSet<_>>();
     println!(
-        "[INFO] 🧭 [Light discovery] {} candidates | {} recently published families | {}% score-independent exploration",
+        "[INFO] 🧭 [Light discovery] {} candidates | {} recently published families | Fresh families first | {}% score-independent exploration",
         candidates.len(),
         recent_families.len(),
         RECHECK_EXPLORATION_PERCENT
     );
     let discovery_candidates =
-        rank_discovery_candidates(&candidates, &light_gbm_scores, discovery_seed);
+        rank_discovery_candidates(&candidates, &light_gbm_scores, discovery_seed, &recent_families);
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
     let mut stagnant_waves = 0usize;
@@ -4340,7 +4363,7 @@ mod tests {
             .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
             .collect::<Vec<_>>();
         let light_gbm = LightGbmScores::default();
-        let ranked = rank_discovery_candidates(&configs, &light_gbm, 123);
+        let ranked = rank_discovery_candidates(&configs, &light_gbm, 123, &HashSet::new());
         let mut score_only = configs.clone();
         score_only.sort_unstable();
 
@@ -4356,6 +4379,34 @@ mod tests {
             .filter(|config| !score_only_prefix.contains(*config))
             .count();
         assert!(explored_in_prefix >= 20, "{explored_in_prefix}");
+    }
+
+    #[test]
+    fn discovery_tests_fresh_families_before_recent_families() {
+        let recent = (0..3)
+            .map(|index| format!("vless://old{index}@old{index}.example.com:443"))
+            .collect::<Vec<_>>();
+        let fresh = (0..8)
+            .map(|index| format!("vless://new{index}@new{index}.example.com:443"))
+            .collect::<Vec<_>>();
+        let mut configs = recent.clone();
+        configs.extend(fresh.clone());
+        let recent_families = recent
+            .iter()
+            .map(|config| super::family_key(config))
+            .collect::<HashSet<_>>();
+
+        let ranked = rank_discovery_candidates(
+            &configs,
+            &LightGbmScores::default(),
+            123,
+            &recent_families,
+        );
+
+        assert_eq!(ranked.len(), configs.len());
+        assert!(ranked[..fresh.len()]
+            .iter()
+            .all(|config| !recent_families.contains(&super::family_key(config))));
     }
 
     #[test]
