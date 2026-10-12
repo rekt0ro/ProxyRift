@@ -2150,6 +2150,77 @@ async fn run_transfer_gate_consumer(
     .len())
 }
 
+struct TransferGateSnapshot {
+    stability_verified: HashMap<String, ProxyMetrics>,
+    stability_tested: HashSet<String>,
+    transfer_verified: HashMap<String, ProxyMetrics>,
+    transfer_tested: HashSet<String>,
+}
+
+struct TransferGateRequest {
+    xray: String,
+    singbox: String,
+    final_verified: Vec<String>,
+    final_metadata: HashMap<String, ProxyMetrics>,
+    stability_verified: HashMap<String, ProxyMetrics>,
+    stability_tested: HashSet<String>,
+    transfer_verified: HashMap<String, ProxyMetrics>,
+    transfer_tested: HashSet<String>,
+    global_positions: HashMap<String, usize>,
+    history: HashMap<String, HistoryEntry>,
+    selection_limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+}
+
+type TransferGateTask = tokio::task::JoinHandle<Result<TransferGateSnapshot, String>>;
+
+fn spawn_transfer_gate(request: TransferGateRequest) -> TransferGateTask {
+    tokio::spawn(async move {
+        let mut stability_verified = request.stability_verified;
+        let mut stability_tested = request.stability_tested;
+        let mut transfer_verified = request.transfer_verified;
+        let mut transfer_tested = request.transfer_tested;
+
+        let _ = fill_transfer_gate(
+            &request.xray,
+            &request.singbox,
+            &request.final_verified,
+            &request.final_metadata,
+            &mut stability_verified,
+            &mut stability_tested,
+            &mut transfer_verified,
+            &mut transfer_tested,
+            &request.global_positions,
+            &request.history,
+            request.selection_limit,
+            request.max_per_endpoint,
+            request.max_per_family,
+        )
+        .await?;
+
+        Ok(TransferGateSnapshot {
+            stability_verified,
+            stability_tested,
+            transfer_verified,
+            transfer_tested,
+        })
+    })
+}
+
+fn apply_transfer_gate_snapshot(
+    snapshot: TransferGateSnapshot,
+    stability_verified: &mut HashMap<String, ProxyMetrics>,
+    stability_tested: &mut HashSet<String>,
+    transfer_verified: &mut HashMap<String, ProxyMetrics>,
+    transfer_tested: &mut HashSet<String>,
+) {
+    *stability_verified = snapshot.stability_verified;
+    *stability_tested = snapshot.stability_tested;
+    *transfer_verified = snapshot.transfer_verified;
+    *transfer_tested = snapshot.transfer_tested;
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn fill_transfer_gate(
     xray: &str,
@@ -3243,6 +3314,8 @@ async fn main() -> Result<(), String> {
     let mut wave = 0usize;
     let mut stagnant_waves = 0usize;
     let mut strict_pool_ready_logged = false;
+    let mut downstream_gate: Option<TransferGateTask> = None;
+    let mut downstream_gate_candidate_count = 0usize;
     let mut discovery_batch_floor = DISCOVERY_BATCH_MIN;
     let mut last_funnel_snapshot = None;
 
@@ -3254,6 +3327,29 @@ async fn main() -> Result<(), String> {
     );
 
     loop {
+        if let Some(task) = downstream_gate.take() {
+            if task.is_finished() {
+                let snapshot = task
+                    .await
+                    .map_err(|error| format!("Light transfer gate task failed: {error}"))??;
+                apply_transfer_gate_snapshot(
+                    snapshot,
+                    &mut stability_verified,
+                    &mut stability_tested,
+                    &mut transfer_verified,
+                    &mut transfer_tested,
+                );
+                mirror_sustained_stream_results(
+                    &transfer_tested,
+                    &transfer_verified,
+                    &mut stream_tested,
+                    &mut stream_verified,
+                );
+            } else {
+                downstream_gate = Some(task);
+            }
+        }
+
         let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
             &mut transfer_ranked,
@@ -3504,22 +3600,24 @@ async fn main() -> Result<(), String> {
                 strict_pool_ready_logged = true;
             }
 
-            let _ = fill_transfer_gate(
-                &xray,
-                &singbox,
-                &final_verified,
-                &final_metadata,
-                &mut stability_verified,
-                &mut stability_tested,
-                &mut transfer_verified,
-                &mut transfer_tested,
-                &global_positions,
-                &history,
-                selection_limit,
-                max_per_endpoint,
-                max_per_family,
-            )
-            .await?;
+            if downstream_gate.is_none() && final_verified.len() > downstream_gate_candidate_count {
+                downstream_gate = Some(spawn_transfer_gate(TransferGateRequest {
+                    xray: xray.clone(),
+                    singbox: singbox.clone(),
+                    final_verified: final_verified.clone(),
+                    final_metadata: final_metadata.clone(),
+                    stability_verified: stability_verified.clone(),
+                    stability_tested: stability_tested.clone(),
+                    transfer_verified: transfer_verified.clone(),
+                    transfer_tested: transfer_tested.clone(),
+                    global_positions: global_positions.clone(),
+                    history: history.clone(),
+                    selection_limit,
+                    max_per_endpoint,
+                    max_per_family,
+                }));
+                downstream_gate_candidate_count = final_verified.len();
+            }
             mirror_sustained_stream_results(
                 &transfer_tested,
                 &transfer_verified,
@@ -3628,7 +3726,7 @@ async fn main() -> Result<(), String> {
             );
 
             if strict_selected.len() >= selection_limit {
-                if progressed {
+                if downstream_gate.is_some() || progressed {
                     stagnant_waves = 0;
                 } else {
                     stagnant_waves = stagnant_waves.saturating_add(1);
@@ -3677,6 +3775,25 @@ async fn main() -> Result<(), String> {
         &global_positions,
         &history,
     );
+    if let Some(task) = downstream_gate.take() {
+        let snapshot = task
+            .await
+            .map_err(|error| format!("Light transfer gate task failed: {error}"))??;
+        apply_transfer_gate_snapshot(
+            snapshot,
+            &mut stability_verified,
+            &mut stability_tested,
+            &mut transfer_verified,
+            &mut transfer_tested,
+        );
+        mirror_sustained_stream_results(
+            &transfer_tested,
+            &transfer_verified,
+            &mut stream_tested,
+            &mut stream_verified,
+        );
+    }
+
     let transfer_selected = fill_transfer_gate(
         &xray,
         &singbox,
