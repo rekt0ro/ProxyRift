@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DATASET_VERSION: u64 = 2;
 pub const FEATURE_EXTRACTION_VERSION: u64 = 3;
+const STRICT_VALIDATION_CONTRACT_VERSION: u64 = 2;
 pub const FEATURE_COUNT: usize = 19;
 
 const MAX_ROWS: usize = 50_000;
@@ -93,6 +94,20 @@ fn parse_compatible_stored_row(
     upgrade_stored_row(&mut value);
     if !valid_stored_row(&value) {
         return None;
+    }
+    if value
+        .get("strict_validation_contract_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        < STRICT_VALIDATION_CONTRACT_VERSION
+    {
+        let backend = value
+            .pointer("/features/backend")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if matches!(backend, "xray" | "fallback") {
+            return None;
+        }
     }
 
     let observed_at = value.get("observed_at").and_then(Value::as_u64)?;
@@ -402,6 +417,10 @@ impl TrainingRow {
             Value::from(FEATURE_EXTRACTION_VERSION),
         );
         root.insert(
+            "strict_validation_contract_version".to_string(),
+            Value::from(STRICT_VALIDATION_CONTRACT_VERSION),
+        );
+        root.insert(
             "observation_id".to_string(),
             Value::from(self.observation_id.clone()),
         );
@@ -695,6 +714,12 @@ mod tests {
                 .and_then(Value::as_u64),
             Some(FEATURE_EXTRACTION_VERSION)
         );
+        assert_eq!(
+            value
+                .get("strict_validation_contract_version")
+                .and_then(Value::as_u64),
+            Some(STRICT_VALIDATION_CONTRACT_VERSION)
+        );
         assert_eq!(value["label"]["stream_tested"].as_bool(), Some(false));
         assert!(value["label"]["stream_pass"].is_null());
         assert_eq!(
@@ -764,6 +789,29 @@ mod tests {
         assert_eq!(stats.stream_tests, 0);
         assert_eq!(stats.stream_passes, 0);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn legacy_xray_and_fallback_rows_are_excluded_from_training() {
+        for backend in ["xray", "fallback"] {
+            let mut legacy = row("legacy-backend", 1_000, true, Some(true)).to_value();
+            legacy["features"]["backend"] = Value::from(backend);
+            legacy
+                .as_object_mut()
+                .expect("legacy row")
+                .remove("strict_validation_contract_version");
+            let serialized = serde_json::to_string(&legacy).expect("serialize row");
+            assert!(super::parse_compatible_stored_row(&serialized, 1_000, false).is_none());
+        }
+
+        let mut legacy_singbox = row("legacy-singbox", 1_000, true, Some(true)).to_value();
+        legacy_singbox["features"]["backend"] = Value::from("sing-box");
+        legacy_singbox
+            .as_object_mut()
+            .expect("legacy row")
+            .remove("strict_validation_contract_version");
+        let serialized = serde_json::to_string(&legacy_singbox).expect("serialize row");
+        assert!(super::parse_compatible_stored_row(&serialized, 1_000, false).is_some());
     }
 
     #[test]

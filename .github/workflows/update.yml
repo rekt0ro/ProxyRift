@@ -199,6 +199,16 @@ jobs:
           PROXYRIFT_LOG_MODE: "compact"
         run: bash scripts/update/build_light_subscription.sh
 
+
+      - name: "📎 Upload Light validation report"
+        if: always() && steps.build_light.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: light-validation-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/proxyrift/light-validation-report.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: "🧬 Generate subscriptions"
         id: generate_base64
         run: |

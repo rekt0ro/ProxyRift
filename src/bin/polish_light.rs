@@ -7,14 +7,14 @@ use proxyrift::light_training::{
 use proxyrift::singbox::{
     validate_candidates_with_consumer_targets as validate_singbox_consumer_targets,
     validate_candidates_with_target_once as validate_singbox_target_once,
-    validate_candidates_with_target_pool_once_with_minimum_body as validate_singbox_target_pool_once_with_minimum_body,
+    validate_candidates_with_ordered_target_pool_once_with_minimum_body as validate_singbox_target_pool_once_with_minimum_body,
     validate_candidates_with_target_pool_once_with_sustained_stream as validate_singbox_target_pool_once_with_sustained_stream,
 };
 use proxyrift::validator::{
     endpoint, is_light_consumer_compatible, read_lines, target_is_rate_limited,
     target_rate_limit_events, validate_candidates_with_consumer_targets,
     validate_candidates_with_target_once,
-    validate_candidates_with_target_pool_once_with_minimum_body,
+    validate_candidates_with_ordered_target_pool_once_with_minimum_body,
     validate_candidates_with_target_pool_once_with_sustained_stream, write_lines, ProxyMetrics,
     LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_MINIMUM_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES,
     LIGHT_TRANSFER_STABILITY_TARGETS, PRIMARY_TARGET,
@@ -1339,7 +1339,7 @@ async fn validate_light_transfer_batch(
         }
     }
 
-    Ok(merge_light_metadata(xray_metadata, singbox_metadata))
+    Ok(singbox_qualified_metadata(xray_metadata, singbox_metadata))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1432,7 +1432,7 @@ async fn validate_light_transfer_stability_batch(
         xray_metadata.extend(fallback_xray);
     }
 
-    Ok(merge_light_metadata(xray_metadata, singbox_metadata))
+    Ok(singbox_qualified_metadata(xray_metadata, singbox_metadata))
 }
 
 const FINAL_TRANSFER_RATE_LIMIT_TOLERANCE_PERCENT: u64 = 25;
@@ -2741,6 +2741,91 @@ fn light_training_features(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn write_light_validation_report(
+    selected: &[String],
+    stability_verified: &HashMap<String, ProxyMetrics>,
+    transfer_verified: &HashMap<String, ProxyMetrics>,
+    light_gbm_scores: &LightGbmScores,
+) -> Result<String, String> {
+    let output_dir =
+        env::var("PROXYRIFT_TMP_DIR").unwrap_or_else(|_| "/tmp/proxyrift".to_string());
+    std::fs::create_dir_all(&output_dir)
+        .map_err(|error| format!("failed to create Light validation report directory: {error}"))?;
+
+    let configurations = selected
+        .iter()
+        .map(|config| {
+            let stability = stability_verified.get(config).ok_or_else(|| {
+                format!(
+                    "published config {} has no 1 MiB validation record",
+                    observation_fingerprint(config)
+                )
+            })?;
+            let transfer = transfer_verified.get(config).ok_or_else(|| {
+                format!(
+                    "published config {} has no 9 MiB validation record",
+                    observation_fingerprint(config)
+                )
+            })?;
+            if stability.successful_targets.is_empty() || transfer.successful_targets.is_empty() {
+                return Err(format!(
+                    "published config {} is missing a successful download destination",
+                    observation_fingerprint(config)
+                ));
+            }
+
+            let protocol = config
+                .split_once("://")
+                .map(|(scheme, _)| scheme.to_ascii_lowercase())
+                .unwrap_or_else(|| "unknown".to_string());
+            Ok(serde_json::json!({
+                "config_id": observation_fingerprint(config),
+                "protocol": protocol,
+                "validated_core": "sing-box",
+                "one_mib": {
+                    "passed": true,
+                    "bytes": LIGHT_TRANSFER_STABILITY_BYTES,
+                    "successful_targets": stability.successful_targets.clone(),
+                },
+                "nine_mib_sustained": {
+                    "passed": true,
+                    "bytes": STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
+                    "successful_targets": transfer.successful_targets.clone(),
+                },
+                "total_download_bytes": LIGHT_TRANSFER_STABILITY_BYTES
+                    + STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
+                "lightgbm_score": light_gbm_scores.score(config),
+                "published": true
+            }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let report = serde_json::json!({
+        "version": 1,
+        "validated_core": "sing-box",
+        "primary_targets": [
+            proxyrift::validator::LIGHT_TRANSFER_STABILITY_TARGETS[0],
+            proxyrift::validator::LIGHT_TRANSFER_STABILITY_TARGETS[1]
+        ],
+        "backup_targets": [
+            proxyrift::validator::LIGHT_TRANSFER_STABILITY_TARGETS[2],
+            proxyrift::validator::LIGHT_TRANSFER_STABILITY_TARGETS[3]
+        ],
+        "required_download_bytes": LIGHT_TRANSFER_STABILITY_BYTES
+            + STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
+        "configurations": configurations
+    });
+    let path = std::path::Path::new(&output_dir).join("light-validation-report.json");
+    let temporary = path.with_extension("json.tmp");
+    let body = serde_json::to_vec_pretty(&report)
+        .map_err(|error| format!("failed to serialize Light validation report: {error}"))?;
+    std::fs::write(&temporary, body)
+        .map_err(|error| format!("failed to write Light validation report: {error}"))?;
+    std::fs::rename(&temporary, &path)
+        .map_err(|error| format!("failed to publish Light validation report: {error}"))?;
+    Ok(path.display().to_string())
+}
+
 fn persist_light_training_data(
     history: &HashMap<String, HistoryEntry>,
     final_attempts: &HashMap<String, usize>,
@@ -2815,13 +2900,21 @@ fn persist_light_training_data(
     Ok(stats)
 }
 
-fn merge_light_metadata(
+fn singbox_qualified_metadata(
     xray_metadata: HashMap<String, ProxyMetrics>,
     singbox_metadata: HashMap<String, ProxyMetrics>,
 ) -> HashMap<String, ProxyMetrics> {
-    let mut verified = singbox_metadata;
-    verified.extend(xray_metadata);
-    verified
+    let xray_only = xray_metadata
+        .keys()
+        .filter(|config| !singbox_metadata.contains_key(*config))
+        .count();
+    if xray_only > 0 {
+        println!(
+            "[INFO] 🧹 [Light compatibility] Excluding {} configs verified only by Xray from sing-box publication",
+            xray_only
+        );
+    }
+    singbox_metadata
 }
 
 async fn validate_light_batch(
@@ -2947,7 +3040,7 @@ async fn validate_light_batch(
         xray_metadata.extend(fallback_xray);
     }
 
-    let verified = merge_light_metadata(xray_metadata, singbox_metadata);
+    let verified = singbox_qualified_metadata(xray_metadata, singbox_metadata);
 
     let stage = if settings.strict {
         "CONSUMER"
@@ -3730,6 +3823,18 @@ async fn main() -> Result<(), String> {
         selected.len(),
     )?;
 
+    let validation_report_path = write_light_validation_report(
+        &selected,
+        &stability_verified,
+        &transfer_verified,
+        &light_gbm_scores,
+    )?;
+    println!(
+        "[INFO] 📋 [Light] Per-config validation report written | Configs: {} | Path: {}",
+        selected.len(),
+        validation_report_path
+    );
+
     let mut protocol_counts = BTreeMap::<String, usize>::new();
     let mut backend_counts = BTreeMap::<&str, usize>::new();
     for config in &selected {
@@ -3805,7 +3910,7 @@ mod tests {
         adaptive_stability_target, adaptive_strict_validation_target, adaptive_transfer_test_limit,
         adjust_discovery_batch_for_yield, adjust_transfer_workers, final_publication_limit,
         has_disabled_tls_verification, history_fingerprint, light_backend, light_training_features,
-        merge_light_metadata, mirror_sustained_stream_results, normalize_light_config,
+        singbox_qualified_metadata, mirror_sustained_stream_results, normalize_light_config,
         observation_fingerprint, rank_discovery_candidates, recheck_exploration_limit,
         select_recheck_candidates, select_stability_test_batch, select_transfer_target,
         select_verified_configs, select_verified_configs_with_cohort_floor,
@@ -3845,6 +3950,7 @@ mod tests {
             min_ms: 10.0,
             jitter_ms: 0.0,
             throughput_kbps: 1000.0,
+                    successful_targets: Vec::new(),
         };
         let transfer_tested = HashSet::from([passing.clone(), failed.clone()]);
         let transfer_verified = HashMap::from([(passing.clone(), metrics)]);
@@ -3953,6 +4059,7 @@ mod tests {
             min_ms: 10.0,
             jitter_ms: 1.0,
             throughput_kbps: 100.0,
+                    successful_targets: Vec::new(),
         };
         let stream_verified = configs
             .iter()
@@ -3986,6 +4093,27 @@ mod tests {
                 3,
             ),
             2
+        );
+    }
+
+    #[test]
+    fn transfer_target_selection_uses_iranian_endpoints_before_backups() {
+        let mut states = vec![
+            TransferTargetState::default();
+            proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()
+        ];
+        assert_eq!(select_transfer_target(&states, 0), Some(0));
+        states[0].quarantined = true;
+        assert_eq!(select_transfer_target(&states, 0), Some(1));
+        states[1].quarantined = true;
+        assert_eq!(select_transfer_target(&states, 0), Some(2));
+        assert_eq!(
+            proxyrift::validator::STRICT_THROUGHPUT_TARGETS[0],
+            proxyrift::validator::ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
+        );
+        assert_eq!(
+            proxyrift::validator::STRICT_THROUGHPUT_TARGETS[1],
+            proxyrift::validator::MOBINHOST_SPEEDTEST_100MB_TARGET
         );
     }
 
@@ -4819,6 +4947,7 @@ mod tests {
             min_ms: 80.0,
             jitter_ms: 10.0,
             throughput_kbps: 900.0,
+                    successful_targets: Vec::new(),
         };
 
         let features = super::light_training_features(
@@ -4890,7 +5019,7 @@ mod tests {
     }
 
     #[test]
-    fn backend_metadata_accepts_either_core() {
+    fn only_sing_box_verified_configs_are_publishable() {
         let xray = HashMap::from([(
             "xray-only".to_string(),
             ProxyMetrics {
@@ -4900,6 +5029,7 @@ mod tests {
                 min_ms: 4.0,
                 jitter_ms: 2.0,
                 throughput_kbps: 80.0,
+                successful_targets: Vec::new(),
             },
         )]);
         let singbox = HashMap::from([(
@@ -4911,15 +5041,15 @@ mod tests {
                 min_ms: 6.0,
                 jitter_ms: 1.5,
                 throughput_kbps: 70.0,
+                successful_targets: Vec::new(),
             },
         )]);
 
-        let merged = merge_light_metadata(xray, singbox);
+        let publishable = singbox_qualified_metadata(xray, singbox);
 
-        assert!(merged.contains_key("xray-only"));
-        assert!(merged.contains_key("singbox-only"));
+        assert!(!publishable.contains_key("xray-only"));
+        assert!(publishable.contains_key("singbox-only"));
     }
-
     #[test]
     fn recheck_diversity_limits_are_not_relaxed_by_fallback() {
         let configs = vec![
