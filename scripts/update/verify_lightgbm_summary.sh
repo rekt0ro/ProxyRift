@@ -75,7 +75,7 @@ format_decision() {
     model_did_not_beat_temporal_speed_baseline) printf 'Not promoted — did not beat temporal baseline' ;;
     top_20pct_speed_ranking_did_not_improve) printf 'Not promoted — top-20%% ranking did not improve speed' ;;
     final_model_fit_failed) printf 'Not promoted — final regression fit failed' ;;
-    *) local readable="${reason//_/ }"; printf 'Not promoted — ${readable:-not evaluated}' ;;
+    *) local readable="${reason//_/ }"; printf 'Not promoted — %s' "${readable:-not evaluated}" ;;
   esac
 }
 
