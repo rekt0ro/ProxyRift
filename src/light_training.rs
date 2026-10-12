@@ -463,9 +463,15 @@ fn valid_stored_row(value: &Value) -> bool {
             .is_none_or(str::is_empty)
         || value.get("observed_at").and_then(Value::as_u64).is_none()
         || !finite_number(value.get("stream_throughput_kbps"))
-        || value.get("stream_throughput_kbps").and_then(Value::as_f64).is_none_or(|n| n <= 0.0)
+        || value
+            .get("stream_throughput_kbps")
+            .and_then(Value::as_f64)
+            .is_none_or(|n| n <= 0.0)
         || !finite_number(value.get("stream_duration_ms"))
-        || value.get("stream_duration_ms").and_then(Value::as_f64).is_none_or(|n| n <= 0.0)
+        || value
+            .get("stream_duration_ms")
+            .and_then(Value::as_f64)
+            .is_none_or(|n| n <= 0.0)
     {
         return false;
     }
@@ -533,12 +539,18 @@ fn valid_stored_row(value: &Value) -> bool {
     };
 
     label.get("strict_pass").and_then(Value::as_bool) == Some(true)
-        && label.get("strict_checks").and_then(Value::as_u64).is_some_and(|checks| checks > 0)
+        && label
+            .get("strict_checks")
+            .and_then(Value::as_u64)
+            .is_some_and(|checks| checks > 0)
         && label.get("transfer_tested").and_then(Value::as_bool) == Some(true)
         && label.get("transfer_pass").and_then(Value::as_bool) == Some(true)
         && label.get("stream_tested").and_then(Value::as_bool) == Some(true)
         && label.get("stream_pass").and_then(Value::as_bool) == Some(true)
-        && label.get("stream_validation_version").and_then(Value::as_u64) == Some(3)
+        && label
+            .get("stream_validation_version")
+            .and_then(Value::as_u64)
+            == Some(3)
 }
 
 #[cfg(test)]
@@ -624,8 +636,14 @@ mod tests {
         assert_eq!(body.lines().count(), 1);
         let value: Value = serde_json::from_str(body.lines().next().unwrap()).unwrap();
         assert_eq!(value["schema_version"].as_u64(), Some(DATASET_VERSION));
-        assert_eq!(value["feature_extraction_version"].as_u64(), Some(FEATURE_EXTRACTION_VERSION));
-        assert_eq!(value["strict_validation_contract_version"].as_u64(), Some(STRICT_VALIDATION_CONTRACT_VERSION));
+        assert_eq!(
+            value["feature_extraction_version"].as_u64(),
+            Some(FEATURE_EXTRACTION_VERSION)
+        );
+        assert_eq!(
+            value["strict_validation_contract_version"].as_u64(),
+            Some(STRICT_VALIDATION_CONTRACT_VERSION)
+        );
         assert_eq!(value["label"]["strict_pass"].as_bool(), Some(true));
         assert_eq!(value["label"]["transfer_pass"].as_bool(), Some(true));
         assert_eq!(value["label"]["stream_pass"].as_bool(), Some(true));
