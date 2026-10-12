@@ -987,6 +987,7 @@ fn rank_strict_recheck_candidates(
     ranked
 }
 
+#[allow(clippy::too_many_arguments)]
 fn adaptive_discovery_batch_size(
     selection_limit: usize,
     publishable_selected: usize,
@@ -2797,6 +2798,7 @@ fn write_light_validation_report(
     Ok(path.display().to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn persist_light_training_data(
     history: &HashMap<String, HistoryEntry>,
     final_attempts: &HashMap<String, usize>,
