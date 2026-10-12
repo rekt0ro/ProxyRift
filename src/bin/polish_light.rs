@@ -82,7 +82,7 @@ const HISTORY_RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
 const LIGHT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
 const LIGHT_TRAINING_STATS_PATH: &str = "subscriptions/light-training-stats.json";
 const LIGHT_SUBSCRIPTION_PATH: &str = "subscriptions/light.txt";
-const HISTORICAL_LIGHT_COHORTS: usize = 2;
+const HISTORICAL_LIGHT_COHORTS: usize = 7;
 const FRESH_FAMILY_TARGET_PERCENT: usize = 70;
 
 fn final_publication_limit(selection_target: usize) -> usize {
