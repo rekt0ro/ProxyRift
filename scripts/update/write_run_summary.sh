@@ -135,7 +135,7 @@ format_yes_no() {
 format_ranking_strategy() {
   case "$1" in
     end_to_end) printf 'End-to-end model' ;;
-    stage_blend_fallback) printf 'Stage-model blend' ;;
+    stage_model_fallback) printf 'Stage-model fallback' ;;
     neutral_default) printf 'Neutral fallback' ;;
     *) printf 'Not evaluated' ;;
   esac
@@ -223,6 +223,13 @@ transfer_passed="unknown"
 stream_tested="unknown"
 stream_passed="unknown"
 published="unknown"
+historical_subscription_revisions="unknown"
+recent_family_keys="unknown"
+fresh_family_target_percent="unknown"
+score_independent_exploration_percent="unknown"
+published_from_fresh_families="unknown"
+published_from_recent_families="unknown"
+fresh_family_actual_percent="n/a"
 
 score_file="$PROXYRIFT_TMP_DIR/lightgbm-scores.json"
 lightgbm_model_state="Not evaluated"
@@ -357,6 +364,16 @@ if [ -s "$PROXYRIFT_TMP_DIR/light-stats.json" ]; then
   stream_tested="$(jq -r '.stream_continuity_tested // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   stream_passed="$(jq -r '.stream_continuity_passed // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   published="$(jq -r '.published // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  historical_subscription_revisions="$(jq -r '.historical_subscription_revisions // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  recent_family_keys="$(jq -r '.recent_family_keys // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  fresh_family_target_percent="$(jq -r '.fresh_family_target_percent // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  score_independent_exploration_percent="$(jq -r '.score_independent_exploration_percent // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  published_from_fresh_families="$(jq -r '.published_from_fresh_families // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  published_from_recent_families="$(jq -r '.published_from_recent_families // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+fi
+
+if [[ "$published_from_fresh_families" =~ ^[0-9]+$ && "$published" =~ ^[0-9]+$ ]] && (( published > 0 )); then
+  fresh_family_actual_percent="$(awk -v fresh="$published_from_fresh_families" -v total="$published" 'BEGIN { printf "%.1f%%", (fresh / total) * 100 }')"
 fi
 
 current_jobs=""
@@ -558,6 +575,11 @@ mkdir -p "$(dirname "$summary_output_file")"
   echo "| Check | Result |"
   echo "|---|---:|"
   echo "| Candidates considered | $(format_count "$input_candidates") |"
+  echo "| Recent subscription revisions considered | $(format_count "$historical_subscription_revisions") |"
+  echo "| Recent family keys | $(format_count "$recent_family_keys") |"
+  echo "| Configs from fresh families | $(format_count "$published_from_fresh_families") of $(format_count "$published") ($fresh_family_actual_percent; target: ${fresh_family_target_percent}%) |"
+  echo "| Configs from recent families | $(format_count "$published_from_recent_families") |"
+  echo "| Score-independent discovery exploration | ${score_independent_exploration_percent}% |"
   echo "| Strict validation | $(format_count "$strict_verified") of $(format_count "$strict_attempts") passed |"
   echo "| 10 MiB transfer | $(format_count "$transfer_passed") of $(format_count "$transfer_tested") passed |"
   echo "| Sustained stream | $(format_count "$stream_passed") of $(format_count "$stream_tested") passed |"

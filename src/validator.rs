@@ -346,6 +346,7 @@ pub struct ProxyMetrics {
     pub min_ms: f64,
     pub jitter_ms: f64,
     pub throughput_kbps: f64,
+    pub successful_targets: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -361,6 +362,7 @@ pub(crate) struct ValidationPolicy {
     pub(crate) secondary_min_successful_attempts: usize,
     pub(crate) fresh_connections_each_request: bool,
     pub(crate) target_pool_mode: bool,
+    pub(crate) preserve_target_order: bool,
 }
 
 impl ValidationPolicy {
@@ -382,6 +384,7 @@ impl ValidationPolicy {
             secondary_min_successful_attempts: STRICT_SECONDARY_MIN_SUCCESSFUL_ATTEMPTS,
             fresh_connections_each_request: false,
             target_pool_mode: false,
+            preserve_target_order: false,
         }
     }
 
@@ -398,6 +401,7 @@ impl ValidationPolicy {
             secondary_min_successful_attempts: 1,
             fresh_connections_each_request: true,
             target_pool_mode: false,
+            preserve_target_order: false,
         }
     }
 
@@ -408,6 +412,12 @@ impl ValidationPolicy {
 
     pub(crate) const fn with_target_pool(mut self) -> Self {
         self.target_pool_mode = true;
+        self
+    }
+
+    pub(crate) const fn with_ordered_target_pool(mut self) -> Self {
+        self.target_pool_mode = true;
+        self.preserve_target_order = true;
         self
     }
 
@@ -2555,7 +2565,7 @@ fn compatibility_security_bucket(value: &str) -> &'static str {
         .to_ascii_lowercase()
         .as_str()
     {
-        "" | "none" => "none",
+        "none" => "none",
         "tls" | "t" | "tl" => "tls",
         "reality" => "reality",
         "tls-required" => "tls-required",
@@ -3873,6 +3883,7 @@ pub(crate) async fn validate_clients_with_target_pool(
     let mut attempts = vec![0usize; count];
     let mut latencies = vec![Vec::<f64>::new(); count];
     let mut throughputs = vec![Vec::<f64>::new(); count];
+    let mut successful_target_urls = vec![Vec::<String>::new(); count];
 
     for target in targets {
         if successful_targets
@@ -3934,6 +3945,7 @@ pub(crate) async fn validate_clients_with_target_pool(
                 attempts[index] = attempts[index].saturating_add(1);
                 match result {
                     Ok(sample) if sample.latency_ms <= policy.max_latency_ms => {
+                        successful_target_urls[index].push(target.as_str().to_string());
                         chunk_successes = chunk_successes.saturating_add(1);
                         chunk_successful_latency_ms_per_mib += sample.latency_ms
                             * LIGHT_TRANSFER_STABILITY_BYTES as f64
@@ -4007,6 +4019,7 @@ pub(crate) async fn validate_clients_with_target_pool(
                 min_ms: values[0],
                 jitter_ms: latency_jitter(&values),
                 throughput_kbps: throughput_kbps(&throughputs[index]),
+                successful_targets: std::mem::take(&mut successful_target_urls[index]),
             })
         })
         .collect()
@@ -4251,6 +4264,7 @@ async fn check_batch(
                         throughput_kbps: throughput_kbps(
                             throughputs.get(config).map(Vec::as_slice).unwrap_or(&[]),
                         ),
+                        successful_targets: vec![target.as_str().to_string()],
                     },
                 );
             }
@@ -4546,6 +4560,36 @@ pub async fn validate_candidates_with_target_pool_once_with_minimum_body(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub async fn validate_candidates_with_ordered_target_pool_once_with_minimum_body(
+    binary: &str,
+    candidates: &[String],
+    targets: &[&str],
+    workers: usize,
+    batch_size: usize,
+    timeout_seconds: f64,
+    max_latency_ms: f64,
+    minimum_body_bytes: usize,
+    minimum_successful_targets: usize,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    if minimum_successful_targets == 0 || minimum_successful_targets > targets.len() {
+        return Err("target-pool minimum must be between 1 and the number of targets".to_string());
+    }
+
+    validate_candidates_targets_inner(
+        binary,
+        candidates,
+        targets,
+        workers,
+        batch_size,
+        timeout_seconds,
+        ValidationPolicy::new(max_latency_ms, 1, 1, minimum_successful_targets)
+            .with_minimum_body_bytes(minimum_body_bytes)
+            .with_ordered_target_pool(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn validate_candidates_with_targets_once_with_sustained_stream(
     binary: &str,
     candidates: &[String],
@@ -4720,8 +4764,11 @@ async fn validate_candidates_targets_inner(
     }
 
     let original_target_count = targets.len();
-    targets = healthy_targets(&targets, policy.min_successful_targets).await;
-    if targets.len() != original_target_count
+    if !policy.preserve_target_order {
+        targets = healthy_targets(&targets, policy.min_successful_targets).await;
+    }
+    if !policy.preserve_target_order
+        && targets.len() != original_target_count
         && should_log_target_health_summary(targets.len(), original_target_count)
     {
         println!(
@@ -5185,6 +5232,16 @@ async fn check_batch_targets(
                         min_ms: values[0],
                         jitter_ms: latency_jitter(&values),
                         throughput_kbps: throughput_kbps(&throughputs[index]),
+                        successful_targets: {
+                            let mut passed = Vec::new();
+                            if successes[index] > 0 {
+                                passed.push(targets[0].as_str().to_string());
+                            }
+                            if secondary_success[index] && targets.len() > 1 {
+                                passed.push(targets[1].as_str().to_string());
+                            }
+                            passed
+                        },
                     },
                 );
             }
@@ -5617,6 +5674,17 @@ mod tests {
         assert!(!target_status_is_healthy(429));
         assert!(!target_status_is_healthy(500));
         assert!(!target_status_is_healthy(404));
+    }
+
+    #[test]
+    fn ordered_target_pool_preserves_the_requested_priority() {
+        let ordered = ValidationPolicy::new(100.0, 1, 1, 1).with_ordered_target_pool();
+        assert!(ordered.target_pool_mode);
+        assert!(ordered.preserve_target_order);
+
+        let adaptive = ValidationPolicy::new(100.0, 1, 1, 1).with_target_pool();
+        assert!(adaptive.target_pool_mode);
+        assert!(!adaptive.preserve_target_order);
     }
 
     #[test]
@@ -6381,6 +6449,22 @@ mod tests {
         assert!(is_cheaply_supported_config("socks4a://example.com:1080"));
         assert!(is_light_consumer_compatible("socks4://example.com:1080"));
         assert!(is_light_consumer_compatible("socks4a://example.com:1080"));
+    }
+
+    #[test]
+    fn unsupported_security_context_preserves_invalid_empty_normalizations() {
+        for security in [".", "..", "%20", "%20%20"] {
+            let config = format!("trojan://secret@example.com:443?type=tcp&security={security}");
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                Some("unsupported-security"),
+                "{security}"
+            );
+
+            let context = cheap_compatibility_rejection_context(&config, "unsupported-security");
+            assert_eq!(context.security, "other", "{security}");
+            assert_eq!(context.detail, "security=other", "{security}");
+        }
     }
 
     #[test]

@@ -2,7 +2,7 @@ use crate::validator::{
     adaptive_batch_size, config_label, healthy_targets, is_throughput_target,
     read_response_body_at_least, read_response_body_at_least_with_max_idle,
     read_response_body_limited_to, record_target_rate_limit, response_limit_for_target,
-    uses_udp_transport, ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
+    target_is_rate_limited, uses_udp_transport, ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
     MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS,
     STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS,
     STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
@@ -1852,6 +1852,16 @@ async fn check_batch_targets(
                         min_ms: values[0],
                         jitter_ms: crate::validator::latency_jitter(&values),
                         throughput_kbps: crate::validator::throughput_kbps(&throughputs[index]),
+                        successful_targets: {
+                            let mut passed = Vec::new();
+                            if successes[index] > 0 {
+                                passed.push(targets[0].to_string());
+                            }
+                            if secondary_success[index] && targets.len() > 1 {
+                                passed.push(targets[1].to_string());
+                            }
+                            passed
+                        },
                     },
                 );
             }
@@ -2022,6 +2032,7 @@ async fn check_batch(
                         min_ms: values[0],
                         jitter_ms: crate::validator::latency_jitter(&values),
                         throughput_kbps: 0.0,
+                        successful_targets: vec![target.to_string()],
                     },
                 );
             }
@@ -2163,6 +2174,34 @@ pub async fn validate_candidates_with_target_pool_once_with_minimum_body(
         ValidationPolicy::new(max_latency_ms, 1, 1, minimum_successful_targets)
             .with_minimum_body_bytes(minimum_body_bytes)
             .with_target_pool(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn validate_candidates_with_ordered_target_pool_once_with_minimum_body(
+    binary: &str,
+    candidates: &[String],
+    targets: &[&str],
+    workers: usize,
+    request_timeout: Duration,
+    max_latency_ms: f64,
+    minimum_body_bytes: usize,
+    minimum_successful_targets: usize,
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    if minimum_successful_targets == 0 || minimum_successful_targets > targets.len() {
+        return Err("target-pool minimum must be between 1 and the number of targets".to_string());
+    }
+
+    validate_candidates_with_targets_policy(
+        binary,
+        candidates,
+        targets,
+        workers,
+        request_timeout,
+        ValidationPolicy::new(max_latency_ms, 1, 1, minimum_successful_targets)
+            .with_minimum_body_bytes(minimum_body_bytes)
+            .with_ordered_target_pool(),
     )
     .await
 }
@@ -2328,7 +2367,14 @@ async fn validate_candidates_with_targets_policy(
         .iter()
         .map(|target| Url::parse(target).map_err(|error| error.to_string()))
         .collect::<Result<Vec<_>, _>>()?;
-    let parsed_targets = healthy_targets(&parsed_targets, policy.min_successful_targets).await;
+    let parsed_targets = if policy.preserve_target_order {
+        parsed_targets
+            .into_iter()
+            .filter(|target| !target_is_rate_limited(target.as_str()))
+            .collect::<Vec<_>>()
+    } else {
+        healthy_targets(&parsed_targets, policy.min_successful_targets).await
+    };
     if parsed_targets.len() < policy.min_successful_targets {
         println!(
             "[WARN] ⚠️ [Targets] Not enough non-throttled targets | Available: {} | Required: {} | Skipping Sing-box batch",

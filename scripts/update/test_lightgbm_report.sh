@@ -19,7 +19,7 @@ cat > "$score_file" <<'JSON'
   "model_report": {
     "validation": "single_temporal_holdout_unseen_candidates_first_observation",
     "baseline": "training_prevalence_brier",
-    "ranking_strategy": "stage_blend_fallback",
+    "ranking_strategy": "stage_model_fallback",
     "model_feature_count": 66,
     "targets": {
       "strict": {
@@ -76,7 +76,7 @@ cat > "$score_file" <<'JSON'
 JSON
 
 cat > "$summary_file" <<'MD'
-**Ranking:** Model-based ranking active — Stage-model blend (1 of 4 targets accepted).
+**Ranking:** Model-based ranking active — Stage-model fallback (1 of 4 targets accepted).
 **Training:** 5,000 rows · 66 features · Candidates scored: 1.
 **Evaluation:** Single temporal holdout on unseen candidates (first observations) · Baseline: Training-prevalence Brier score.
 | Strict validation | Promoted after temporal validation | 0.14000 / 0.15000 | 90.0% / 80.0% |
