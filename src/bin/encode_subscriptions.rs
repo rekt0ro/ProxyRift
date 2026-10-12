@@ -171,6 +171,16 @@ fn render_singbox_file(input: &str, output: &str) -> Result<usize, String> {
     Ok(rendered)
 }
 
+fn ensure_complete_light_render(source_count: usize, rendered_count: usize) -> Result<(), String> {
+    if source_count == rendered_count {
+        Ok(())
+    } else {
+        Err(format!(
+            "Light sing-box output is incomplete: rendered {rendered_count}/{source_count} configs; refusing to publish entries that the consumer cannot import"
+        ))
+    }
+}
+
 fn main() -> Result<(), String> {
     rename_subscription_file("subscriptions/all.txt")?;
     rename_subscription_file("subscriptions/light.txt")?;
@@ -189,6 +199,7 @@ fn main() -> Result<(), String> {
         "subscriptions/light.txt",
         "subscriptions/light-singbox.json",
     )?;
+    ensure_complete_light_render(light_source_count, light_singbox_count)?;
 
     let counts = serde_json::json!({
         "all": {
@@ -215,7 +226,9 @@ fn main() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_vmess_payload, output_path, rename_subscription_configs};
+    use super::{
+        decode_vmess_payload, ensure_complete_light_render, output_path, rename_subscription_configs,
+    };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use serde_json::Value;
@@ -271,5 +284,11 @@ mod tests {
             output.file_name().unwrap().to_str().unwrap()
         ));
         assert_eq!(temporary, Path::new("subscriptions/.all-base64.txt.tmp"));
+    }
+
+    #[test]
+    fn light_singbox_output_must_preserve_all_source_entries() {
+        assert!(ensure_complete_light_render(200, 200).is_ok());
+        assert!(ensure_complete_light_render(200, 199).is_err());
     }
 }
