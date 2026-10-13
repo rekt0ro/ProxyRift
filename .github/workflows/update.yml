@@ -1,6 +1,5 @@
 name: Update Configs
 
-# External scheduler: cron-job.org triggers workflow_dispatch on the desired cadence.
 on:
   workflow_dispatch:
 
@@ -14,7 +13,7 @@ permissions:
 env:
   XRAY_REPOSITORY: "XTLS/Xray-core"
   SINGBOX_REPOSITORY: "SagerNet/sing-box"
-  LIGHT_MIN_PUBLISH: "1"
+  LIGHT_MIN_PUBLISH: "50"
   LIGHT_SELECTION_LIMIT: "200"
   ALL_MAX_PUBLISH: "2000"
 

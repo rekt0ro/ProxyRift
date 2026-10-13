@@ -89,29 +89,41 @@ run_summary() {
 }
 
 run_summary "$tmp/summary.md"
+grep -Fq '| Candidates checked | 15,000 |' "$tmp/summary.md"
+grep -Fq '| Strict validation | 300 / 317 |' "$tmp/summary.md"
+grep -Fq '| 10 MiB transfer | 211 / 232 |' "$tmp/summary.md"
+grep -Fq '| Sustained stream | 209 / 211 |' "$tmp/summary.md"
+grep -Fq '| Fresh families | 140 of 200 (70.0%; target 70%) |' "$tmp/summary.md"
+grep -Fq '| New or expired candidates | 160 |' "$tmp/summary.md"
+grep -Fq '| Recently reused | 40 of 200 (max 20%; active and checked within 24 hours) |' "$tmp/summary.md"
+grep -Fq '| Light published | 200 of 200 target |' "$tmp/summary.md"
+grep -Fq '**Mode:** Speed model.' "$tmp/summary.md"
+grep -Fq '**Training:** 1,200 samples from the last 72 hours (120 new this run).' "$tmp/summary.md"
+grep -Fq '**Evaluation:** Prediction error (model / baseline) 0.100 / 0.130 (23.1% lower); top 20% averaged 1.24x holdout speed.' "$tmp/summary.md"
+grep -Fq '**Decision:** Active.' "$tmp/summary.md"
 grep -Fq '| All | 1 |' "$tmp/summary.md"
 grep -Fq '| Light | 1 |' "$tmp/summary.md"
-grep -Fq '| Candidates considered | 15,000 |' "$tmp/summary.md"
-grep -Fq '| Recent subscription revisions considered | 8 |' "$tmp/summary.md"
-grep -Fq '| Recent family keys | 400 |' "$tmp/summary.md"
-grep -Fq '| Configs from fresh families | 140 of 200 (70.0%; ranking preference: 70%) |' "$tmp/summary.md"
-grep -Fq '| Score-independent discovery exploration | 15% |' "$tmp/summary.md"
-grep -Fq '| Strict validation | 300 of 317 passed |' "$tmp/summary.md"
-grep -Fq '| 10 MiB transfer | 211 of 232 passed |' "$tmp/summary.md"
-grep -Fq '| Sustained stream | 209 of 211 passed |' "$tmp/summary.md"
-grep -Fq '| Light configs published | 200 of 200 target |' "$tmp/summary.md"
-grep -Fq '**Ranking:** Model-based ranking active — Stream-speed regression.' "$tmp/summary.md"
-grep -Fq '**Training:** 1,200 speed samples (72-hour retention) · 61 features · Candidates scored: 1.' "$tmp/summary.md"
-grep -Fq '**Evaluation:** Chronological 80/20 holdout on first observations of unseen candidates · Target: log stream throughput (kbps) · Baseline: Training median log stream throughput.' "$tmp/summary.md"
-grep -Fq '| Holdout log-MAE (model / baseline) | 0.10000 / 0.13000 |' "$tmp/summary.md"
-grep -Fq '| Relative log-MAE improvement | 23.1% |' "$tmp/summary.md"
-grep -Fq '| Top-20% measured speed lift | 1.24x |' "$tmp/summary.md"
-grep -Fq '| Train / unseen holdout rows | 960 / 240 |' "$tmp/summary.md"
-grep -Fq '| Unique candidates / timestamps | 1,100 / 15 |' "$tmp/summary.md"
-grep -Fq '**Model decision:** Accepted — promoted after temporal speed validation.' "$tmp/summary.md"
-grep -Fq '**Training data:** 1,200 speed samples retained for 72 hours (120 new this run) · 1,100 unique candidates · 12 runs. Speed model: Ready.' "$tmp/summary.md"
-grep -Fq '| Newly discovered / expired published candidates | 160 |' "$tmp/summary.md"
-grep -Fq '| Revalidated candidates published | 40 of 200 (max 20%; validated within 86400s and still active) |' "$tmp/summary.md"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 jq '
   .trained = false
@@ -127,10 +139,10 @@ jq '
 ' "$work/proxyrift/lightgbm-scores.json" > "$tmp/fallback-scores.json"
 cp "$tmp/fallback-scores.json" "$work/proxyrift/lightgbm-scores.json"
 run_summary "$tmp/fallback-summary.md"
-grep -Fq '**Ranking:** Historical speed-prior ranking active — Historical stream-speed priors.' "$tmp/fallback-summary.md"
-grep -Fq '**Model decision:** Not promoted — insufficient speed samples or temporal coverage.' "$tmp/fallback-summary.md"
+grep -Fq '**Mode:** Recent speed estimates.' "$tmp/fallback-summary.md"
+grep -Fq '**Decision:** Not enabled — collecting more recent speed measurements.' "$tmp/fallback-summary.md"
 
-if grep -Eq 'training_prevalence_brier|Brier score \(model / baseline\)|Strict model:|End-to-end model:' "$tmp/summary.md"; then
+if grep -Eq 'stream_speed_regression|training_prevalence_brier|Brier score|Strict model:|End-to-end model:|model_log_mae|selected_strategy' "$tmp/summary.md"; then
   printf '[ERROR] Summary still contains legacy pass-fail model output.\n' >&2
   exit 1
 fi

@@ -756,7 +756,6 @@ fn interleave_repeat_candidates(
         }
     }
 
-    // For 20% repeats, each repeat must be backed by at least four non-repeat candidates.
     let repeat_budget = fresh.len() / 4;
     let mut ordered = Vec::with_capacity(candidates.len());
     let mut used_repeats = 0usize;
@@ -796,7 +795,7 @@ fn persist_candidate_ledger(
             .iter()
             .map(|(key, value)| (key.clone(), *value))
             .collect::<Vec<_>>();
-        entries.sort_unstable_by(|left, right| right.1.cmp(&left.1));
+        entries.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.1));
         entries.truncate(MAX_CANDIDATE_LEDGER_ENTRIES);
         ledger.clear();
         ledger.extend(entries);
@@ -2583,6 +2582,7 @@ fn select_verified_configs_with_freshness_quota(
 fn select_verified_configs_with_repeat_cap(
     configs: &[String],
     repeat_fingerprints: &HashSet<String>,
+    recent_families: &HashSet<String>,
     limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
@@ -2598,7 +2598,15 @@ fn select_verified_configs_with_repeat_cap(
         .cloned()
         .collect::<Vec<_>>();
 
-    let mut selected = select_verified_configs(&fresh, limit, max_per_endpoint, max_per_family);
+    let mut selected =
+        select_verified_configs_with_freshness_quota(
+            &fresh,
+            recent_families,
+            limit,
+            max_per_endpoint,
+            max_per_family,
+        )
+        .0;
     let selected_fresh = selected.len();
     if selected.len() >= limit || limit == 0 {
         return (selected, selected_fresh);
@@ -3197,13 +3205,17 @@ fn persist_light_training_data(
     let stats = persist_light_training(LIGHT_TRAINING_PATH, &rows)?;
     write_readiness_report(LIGHT_TRAINING_STATS_PATH, &stats)?;
 
+    let model_status = if stats.speed_model_ready() {
+        "ready"
+    } else {
+        "collecting data"
+    };
     println!(
-        "[INFO] 🧠 [Light ml data] +{} speed samples | Retained: {} / 72h | Runs: {} | Candidates: {} | Speed model ready: {}",
+        "[INFO] Training data: {} new samples, {} retained over 72 hours across {} runs and {} candidates. Model: {model_status}.",
         stats.new_rows,
         stats.rows,
         stats.unique_runs,
-        stats.unique_candidates,
-        stats.speed_model_ready()
+        stats.unique_candidates
     );
 
     Ok(stats)
@@ -3524,11 +3536,13 @@ async fn main() -> Result<(), String> {
         .model_report()
         .get("ranking_strategy")
         .and_then(Value::as_str)
-        .unwrap_or("legacy_stage_model_fallback");
-    println!(
-        "[INFO] 🧠 [LightGBM] Loaded collection scores | Ranking strategy: {}",
-        ranking_strategy
-    );
+        .unwrap_or("neutral_default");
+    let ranking_label = match ranking_strategy {
+        "stream_speed_regression" => "speed model",
+        "historical_stream_speed_prior_fallback" => "recent speed estimates",
+        _ => "neutral ranking",
+    };
+    println!("[INFO] Light ranking: {ranking_label}.");
 
     if candidates.is_empty() {
         return Err("no Light candidates available".to_string());
@@ -3569,7 +3583,7 @@ async fn main() -> Result<(), String> {
     let (discovery_candidates, scheduled_repeat_count) =
         interleave_repeat_candidates(&ranked_discovery_candidates, &repeat_candidate_fingerprints);
     println!(
-        "[INFO] 🔁 [Light reuse] Candidate test order | New/expired candidates: {} | Recently validated active candidates: {} (max 20%, within 24h)",
+        "[INFO] Candidate checks: {} new or expired, {} recently validated and still active.",
         discovery_candidates.len().saturating_sub(scheduled_repeat_count),
         scheduled_repeat_count
     );
@@ -3583,9 +3597,8 @@ async fn main() -> Result<(), String> {
     let mut last_funnel_snapshot = None;
 
     println!(
-        "[INFO] 🔬 [Light] Validation started | {} Candidates | Targets: {} | ML/history ranked with {}% exploration",
+        "[INFO] Checking {} candidates with {}% exploratory sampling.",
         discovery_candidates.len(),
-        early_targets.len(),
         RECHECK_EXPLORATION_PERCENT
     );
 
@@ -4082,12 +4095,12 @@ async fn main() -> Result<(), String> {
     );
 
     let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
-    // Once fully validated, actual sustained-stream throughput outranks historical priors.
     sort_by_measured_stream_speed(&mut stream_ranked, &stream_verified);
     let publication_limit = final_publication_limit(selection_limit);
     let (selected, selected_new_count) = select_verified_configs_with_repeat_cap(
         &stream_ranked,
         &repeat_candidate_fingerprints,
+        &recent_families,
         publication_limit,
         max_per_endpoint,
         max_per_family,
@@ -4098,10 +4111,10 @@ async fn main() -> Result<(), String> {
         .count();
     let selected_revalidated_count = selected.len().saturating_sub(selected_new_count);
     println!(
-        "[INFO] 🧭 [Light reuse] Final selection | New/expired: {} | Fully validated in previous 24h and still active: {} (max {}%) | Fresh families: {}",
+        "[INFO] Light output: {} configs, {} new, {} revalidated, {} from newer families.",
+        selected.len(),
         selected_new_count,
         selected_revalidated_count,
-        REVALIDATED_CANDIDATE_PERCENT,
         fresh_family_selected
     );
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(
@@ -4113,19 +4126,19 @@ async fn main() -> Result<(), String> {
 
     if selected.is_empty() {
         println!(
-            "[WARN] ⚠️ [Light] No configs passed 10 MiB sustained validation | Output 0 | Workflow will preserve previous subscription | Transfer qualified: {} | Stream tested: {} | Stream passes: {}",
+            "[WARN] No configs passed all required checks; the previous subscription will be kept. Transfer qualified: {}. Sustained stream passed: {} of {}.",
             transfer_selected,
-            stream_tested.len(),
-            stream_selected
+            stream_selected,
+            stream_tested.len()
         );
     } else if selected.len() < selection_limit {
         println!(
-            "[WARN] ⚠️ [Light] Stream target not reached | Publishing {} configs that passed 10 MiB validation | Target/max: {} | Transfer target/max: {} | Stream tested: {} | Stream passes: {} | Endpoint cap exclusions: {} | Family cap exclusions: {}",
+            "[WARN] Light is below its target: {} of {} configs passed all required checks. Transfer qualified: {}; sustained stream passed: {} of {}. Endpoint and family limits excluded {} and {} configs.",
             selected.len(),
             selection_limit,
             transfer_selected,
-            stream_tested.len(),
             stream_selected,
+            stream_tested.len(),
             endpoint_rejected,
             family_rejected
         );
@@ -4433,7 +4446,7 @@ mod tests {
             .map(|config| history_fingerprint(config))
             .collect::<HashSet<_>>();
         let (selected, fresh_count) =
-            select_verified_configs_with_repeat_cap(&configs, &repeats, 10, 1, 3);
+            select_verified_configs_with_repeat_cap(&configs, &repeats, &HashSet::new(), 10, 1, 3);
         assert_eq!(selected.len(), 6);
         assert_eq!(fresh_count, 5);
         let revalidated = selected

@@ -85,9 +85,7 @@ impl LightGbmScores {
         let observations = match load_speed_observations(DEFAULT_TRAINING_PATH) {
             Ok(rows) => rows,
             Err(error) => {
-                eprintln!(
-                    "[WARN] [LightGBM] Speed history unavailable; using neutral fallback: {error}"
-                );
+                eprintln!("Speed history unavailable; using the default ranking: {error}");
                 Vec::new()
             }
         };
@@ -110,7 +108,7 @@ impl LightGbmScores {
             {
                 Ok(model) => booster = Some(model),
                 Err(error) => {
-                    eprintln!("[WARN] [LightGBM] Final speed model failed; using historical speed priors: {error}");
+                    eprintln!("Speed model training failed; using recent speed measurements: {error}");
                     report["accepted"] = Value::Bool(false);
                     report["reason"] = Value::String("final_model_fit_failed".to_string());
                     report["fit_error"] = Value::String(error);
@@ -210,12 +208,18 @@ impl LightGbmScores {
             model_report: report,
         };
         result.save(DEFAULT_SCORE_PATH)?;
+        let ranking_label = match ranking_strategy {
+            "stream_speed_regression" => "speed model",
+            "historical_stream_speed_prior_fallback" => "recent speed estimates",
+            _ => "neutral ranking",
+        };
+        let model_status = if result.trained { "active" } else { "not enabled" };
         println!(
-            "[INFO] [LightGBM] Stream-speed ranking | Samples: {} / 72h | Candidates: {} | Promoted regression: {} | Ranking: {}",
+            "Speed ranking: {} samples from the last 72 hours across {} candidates. Model: {} ({}).",
             result.training_rows,
             result.model_report.get("unique_candidates").and_then(Value::as_u64).unwrap_or(0),
-            result.trained,
-            ranking_strategy
+            ranking_label,
+            model_status
         );
         Ok(result)
     }
@@ -455,6 +459,33 @@ fn speed_history_by_key(
     history
 }
 
+fn speed_features_for_observation(
+    row: &SpeedObservation,
+    timestamp: u64,
+    exact_history: &HashMap<String, SpeedHistory>,
+    family_history: &HashMap<String, SpeedHistory>,
+    fallback_log_speed: f64,
+) -> Vec<f64> {
+    let mut features = row.structural.clone();
+    features.extend(
+        exact_history
+            .get(&row.fingerprint)
+            .map(|history| history.feature_values(timestamp, fallback_log_speed))
+            .unwrap_or_else(|| {
+                SpeedHistory::default().feature_values(timestamp, fallback_log_speed)
+            }),
+    );
+    features.extend(
+        family_history
+            .get(&row.family)
+            .map(|history| history.feature_values(timestamp, fallback_log_speed))
+            .unwrap_or_else(|| {
+                SpeedHistory::default().feature_values(timestamp, fallback_log_speed)
+            }),
+    );
+    features
+}
+
 fn build_speed_training_features(
     observations: &[SpeedObservation],
     fallback_log_speed: f64,
@@ -470,24 +501,13 @@ fn build_speed_training_features(
             end += 1;
         }
         for row in &observations[start..end] {
-            let mut features = row.structural.clone();
-            features.extend(
-                exact
-                    .get(&row.fingerprint)
-                    .map(|history| history.feature_values(timestamp, fallback_log_speed))
-                    .unwrap_or_else(|| {
-                        SpeedHistory::default().feature_values(timestamp, fallback_log_speed)
-                    }),
-            );
-            features.extend(
-                family
-                    .get(&row.family)
-                    .map(|history| history.feature_values(timestamp, fallback_log_speed))
-                    .unwrap_or_else(|| {
-                        SpeedHistory::default().feature_values(timestamp, fallback_log_speed)
-                    }),
-            );
-            result.push(features);
+            result.push(speed_features_for_observation(
+                row,
+                timestamp,
+                &exact,
+                &family,
+                fallback_log_speed,
+            ));
         }
         for row in &observations[start..end] {
             exact
@@ -638,9 +658,22 @@ fn evaluate_speed_regressor(
                 return (false, report);
             }
         };
+    let exact_training_history =
+        speed_history_by_key(&train_rows, |row| row.fingerprint.clone());
+    let family_training_history =
+        speed_history_by_key(&train_rows, |row| row.family.clone());
     let holdout_features = holdout_indices
         .iter()
-        .map(|i| feature_rows[*i].clone())
+        .map(|i| {
+            let row = &observations[*i];
+            speed_features_for_observation(
+                row,
+                row.observed_at,
+                &exact_training_history,
+                &family_training_history,
+                10_000.0_f64.ln(),
+            )
+        })
         .collect::<Vec<_>>();
     let predictions = match predict_speed_regression(&model, &holdout_features) {
         Ok(predictions) => predictions,
@@ -1424,8 +1457,9 @@ fn structural_vector(
 #[cfg(test)]
 mod tests {
     use super::{
-        candidate_fingerprint, feature_signature, speed_ranking_score, top_quintile_speed_lift,
-        LightGbmScores, SPEED_MODEL_FEATURE_COUNT,
+        candidate_fingerprint, feature_signature, speed_features_for_observation,
+        speed_history_by_key, speed_ranking_score, top_quintile_speed_lift, LightGbmScores,
+        SpeedObservation, SPEED_MODEL_FEATURE_COUNT, STRUCTURAL_FEATURE_COUNT,
     };
     use serde_json::Value;
     use std::fs;
@@ -1451,6 +1485,38 @@ mod tests {
         assert!(slow < median && median < fast);
         assert!((0.0..=1.0).contains(&slow) && (0.0..=1.0).contains(&fast));
         assert!((median - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn holdout_features_use_training_history_only() {
+        let training = vec![SpeedObservation {
+            observed_at: 100,
+            fingerprint: "training".to_string(),
+            family: "shared-family".to_string(),
+            structural: vec![0.0; STRUCTURAL_FEATURE_COUNT],
+            speed_kbps: 1_000.0,
+        }];
+        let exact_history = speed_history_by_key(&training, |row| row.fingerprint.clone());
+        let family_history = speed_history_by_key(&training, |row| row.family.clone());
+        let holdout = SpeedObservation {
+            observed_at: 200,
+            fingerprint: "holdout".to_string(),
+            family: "shared-family".to_string(),
+            structural: vec![0.0; STRUCTURAL_FEATURE_COUNT],
+            speed_kbps: 1_000_000.0,
+        };
+
+        let features = speed_features_for_observation(
+            &holdout,
+            200,
+            &exact_history,
+            &family_history,
+            10_000.0_f64.ln(),
+        );
+
+        assert_eq!(features.len(), SPEED_MODEL_FEATURE_COUNT);
+        assert!((features[STRUCTURAL_FEATURE_COUNT + 4] - 1_000.0_f64.ln()).abs() < f64::EPSILON);
+        assert!((features[STRUCTURAL_FEATURE_COUNT + 5] - 1_000.0_f64.ln()).abs() < f64::EPSILON);
     }
 
     #[test]
