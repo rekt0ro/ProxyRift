@@ -669,6 +669,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut seen_http_candidates = HashSet::with_capacity(http_handshake_candidates.len());
     http_handshake_candidates.retain(|config| seen_http_candidates.insert(config.clone()));
 
+    let unique_http_probe_count = http_handshake_candidates
+        .iter()
+        .map(|config| dedup_key(config))
+        .collect::<HashSet<_>>()
+        .len();
+    println!(
+        "[INFO] 🔎 [HTTP handshake] Plan | {} candidate variants | {} unique probe identities | Target: {}",
+        http_handshake_candidates.len(),
+        unique_http_probe_count,
+        HTTP_HANDSHAKE_TARGET
+    );
+
     let http_probe_results = test_http_handshakes(&http_handshake_candidates).await?;
     let mut http_latency_by_key = HashMap::<String, u64>::with_capacity(http_probe_results.len());
     for (config, metrics) in &http_probe_results {
@@ -697,8 +709,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     println!(
-        "[INFO] ✅ [HTTP handshake] Complete | {} tested unique configs | {} candidate configs passed",
-        http_probe_results.len(),
+        "[INFO] ✅ [HTTP handshake] Complete | {} unique probe identities | {} candidate configs passed",
+        unique_http_probe_count,
         ranked_working_configs.len()
     );
 
