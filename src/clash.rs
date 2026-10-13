@@ -1044,10 +1044,6 @@ fn convert_hysteria2(config: &str, index: usize) -> Result<String, String> {
 
 fn convert_socks(config: &str, index: usize) -> Result<String, String> {
     let url = Url::parse(clean(config)).map_err(|error| error.to_string())?;
-    let scheme = url.scheme().to_ascii_lowercase();
-    if matches!(scheme.as_str(), "socks4" | "socks4a") {
-        return Err(format!("unsupported SOCKS variant {scheme}"));
-    }
     let (server, port) = endpoint_from_url(&url)?;
 
     let mut lines = vec![format!(
@@ -1110,6 +1106,7 @@ fn convert_config(config: &str, index: usize) -> Result<String, String> {
         "hysteria" => convert_hysteria(config, index),
         "hysteria2" | "hy2" => convert_hysteria2(config, index),
         "socks" | "socks5" | "socks5h" => convert_socks(config, index),
+        "socks4" | "socks4a" => Err(format!("unsupported SOCKS variant {scheme}")),
         "http" => convert_http(config, index),
         scheme => Err(format!("unsupported Clash/Mihomo proxy type {scheme}")),
     }
@@ -1224,8 +1221,21 @@ mod tests {
     use super::{render, summarize_skipped_configs};
 
     #[test]
+    fn reports_socks4_variants_as_unsupported_for_clash_output() {
+        for (config, expected) in [
+            ("socks4://127.0.0.1:1080", "unsupported SOCKS variant socks4"),
+            ("socks4a://127.0.0.1:1080", "unsupported SOCKS variant socks4a"),
+        ] {
+            assert_eq!(
+                super::convert_config(config, 0).unwrap_err(),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn aggregates_repeated_skip_reasons_with_bounded_config_samples() {
-        let reason = "unsupported Clash/Mihomo proxy type socks4";
+        let reason = "unsupported SOCKS variant socks4";
         let skipped = (1691..=1750)
             .map(|index| (index, reason.to_string()))
             .collect::<Vec<_>>();
