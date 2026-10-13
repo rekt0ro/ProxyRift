@@ -49,8 +49,6 @@ const MAX_SOURCE_REDIRECTS: usize = 2;
 const MAX_COLLECTED_CONFIGS: usize = 30_000;
 const MAX_ALL_CONFIGS: usize = 2000;
 const MAX_ALL_PER_ENDPOINT: usize = 5;
-const MAX_LIGHT_CANDIDATES: usize = 20_000;
-const MAX_LIGHT_ENDPOINT_VARIANTS: usize = 6;
 const HTTP_HANDSHAKE_TARGET: &str = "https://www.google.com/generate_204";
 const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 5;
 const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = 5000.0;
@@ -189,23 +187,11 @@ async fn safe_source_redirect(current_url: &Url, location: &str) -> Result<Url, 
     Ok(target_url)
 }
 
-fn push_light_candidate(
-    config: &str,
-    light_candidates: &mut Vec<String>,
-    endpoint_counts: &mut HashMap<(String, u16), usize>,
-) -> bool {
-    let Some(config_endpoint) = endpoint(config) else {
-        return false;
-    };
-
-    let count = endpoint_counts.entry(config_endpoint).or_default();
-    if *count >= MAX_LIGHT_ENDPOINT_VARIANTS {
-        return false;
-    }
-
-    *count += 1;
-    light_candidates.push(config.to_string());
-    true
+fn light_candidate_configs(ranked_working_configs: &[(String, u64)]) -> Vec<String> {
+    ranked_working_configs
+        .iter()
+        .map(|(config, _)| config.clone())
+        .collect()
 }
 
 async fn write_atomic(
@@ -240,6 +226,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let sources = load_sources(&sources_path).await?;
     println!("[INFO] 📡 Loaded {} sources", sources.len());
 
+    macro_rules! source_detail {
+        ($($arg:tt)*) => {
+            proxyrift::emit_log_if!(!proxyrift::compact_logs_enabled(); $($arg)*);
+        };
+    }
+
     let mut source_configs = HashMap::<String, HashSet<String>>::new();
     let source_http_warnings = Arc::new(Mutex::new(Vec::<(usize, u16)>::new()));
 
@@ -253,7 +245,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     Ok(url) if matches!(url.scheme(), "http" | "https") => url,
 
                     _ => {
-                        println!(
+                        source_detail!(
                             "[WARN] ⚠️ Source #{source_number} has an invalid or unsupported URL."
                         );
                         return (source_index, Vec::new(), CollectionOutcome::Failed);
@@ -264,7 +256,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     Ok(client) => client,
 
                     Err(reason) => {
-                        println!(
+                        source_detail!(
                             "[WARN] ⚠️ Source #{source_number} rejected by safety policy: {reason}."
                         );
                         return (source_index, Vec::new(), CollectionOutcome::Failed);
@@ -280,7 +272,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                             if status.is_redirection() {
                                 if redirect_count == MAX_SOURCE_REDIRECTS {
-                                    println!(
+                                    source_detail!(
                                         "[WARN] ⚠️ Source #{source_number} exceeded the {}-redirect limit.",
                                         MAX_SOURCE_REDIRECTS
                                     );
@@ -288,7 +280,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 }
 
                                 let Some(location) = response.headers().get(LOCATION) else {
-                                    println!(
+                                    source_detail!(
                                         "[WARN] ⚠️ Source #{source_number} returned HTTP status {status} without a Location header."
                                     );
                                     return (source_index, Vec::new(), CollectionOutcome::Failed);
@@ -298,7 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                     Ok(location) => location,
 
                                     Err(_) => {
-                                        println!(
+                                        source_detail!(
                                             "[WARN] ⚠️ Source #{source_number} returned an invalid redirect Location header."
                                         );
                                         return (source_index, Vec::new(), CollectionOutcome::Failed);
@@ -313,7 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                             Ok(client) => client,
 
                                             Err(reason) => {
-                                                println!(
+                                                source_detail!(
                                                     "[WARN] ⚠️ Source #{source_number} redirect rejected by safety policy: {reason}."
                                                 );
                                                 return (source_index, Vec::new(), CollectionOutcome::Failed);
@@ -326,7 +318,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                     }
 
                                     Err(reason) => {
-                                        println!(
+                                        source_detail!(
                                             "[WARN] ⚠️ Source #{source_number} redirect rejected by safety policy: {reason}."
                                         );
                                         return (source_index, Vec::new(), CollectionOutcome::Failed);
@@ -386,7 +378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 }
 
                                 Err(SourceBodyError::Read) => {
-                                    println!("[INFO] ↪️ Failed to read source #{source_number}.");
+                                    source_detail!("[INFO] ↪️ Failed to read source #{source_number}.");
                                     return (source_index, Vec::new(), CollectionOutcome::Failed);
                                 }
                             }
@@ -403,7 +395,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 continue;
                             }
 
-                            println!(
+                            source_detail!(
                                 "[WARN] ⚠️ Failed to download source #{source_number}: {error}"
                             );
                             return (source_index, Vec::new(), CollectionOutcome::Failed);
@@ -435,6 +427,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .lock()
         .map(|warnings| warnings.clone())
         .unwrap_or_default();
+    let http_status_failures = warnings.len();
+    let failed_sources = source_health
+        .iter()
+        .filter(|(_, outcome)| {
+            matches!(
+                outcome,
+                CollectionOutcome::Failed | CollectionOutcome::PermanentlyFailed(_)
+            )
+        })
+        .count();
+    let non_http_source_failures = failed_sources.saturating_sub(http_status_failures);
+    if non_http_source_failures > 0 {
+        println!(
+            "[WARN] ⚠️ [Sources] {non_http_source_failures} fetch failures without an HTTP status"
+        );
+    }
 
     if !warnings.is_empty() {
         warnings.sort_unstable();
@@ -454,18 +462,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .and_then(|status| status.canonical_reason())
                 .unwrap_or("UNKNOWN")
                 .to_ascii_uppercase();
+            let source_count = source_numbers.len();
             let sources = source_numbers
                 .iter()
+                .take(8)
                 .map(|number| format!("#{number}"))
                 .collect::<Vec<_>>()
                 .join(", ");
+            let suffix = if source_count > 8 { ", ..." } else { "" };
 
             if matches!(status_code, 404 | 410) {
                 println!(
-                    "[INFO] 🔭 [Sources] Permanently unavailable | HTTP {status_code} {reason} | Sources: {sources}"
+                    "[INFO] 🔭 [Sources] HTTP {status_code} {reason} | Failed: {source_count} | Samples: {sources}{suffix}"
                 );
             } else {
-                println!("[WARN] ⚠️ [Sources] HTTP {status_code} {reason} | Sources: {sources}");
+                println!(
+                    "[WARN] ⚠️ [Sources] HTTP {status_code} {reason} | Failed: {source_count} | Samples: {sources}{suffix}"
+                );
             }
         }
     }
@@ -541,10 +554,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     if collected_before_global_cap > MAX_COLLECTED_CONFIGS {
         println!(
-            "[INFO] 🧮 [Collection] Global cap | Retained {} of {} configs | Cap: {} | No protocol caps",
-            configs.len(),
-            collected_before_global_cap,
-            MAX_COLLECTED_CONFIGS
+            "[INFO] 🧮 [Collection] Global cap: 30k | {} configs",
+            collected_before_global_cap
         );
     }
 
@@ -750,26 +761,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .collect::<HashSet<_>>();
     deferred_transport_candidates.retain(|config| http_passed_keys.contains(&dedup_key(config)));
 
-    let light_target = MAX_LIGHT_CANDIDATES.min(ranked_working_configs.len());
-    let mut light_candidates = Vec::with_capacity(light_target);
-    let mut light_candidate_endpoint_counts = HashMap::<(String, u16), usize>::new();
-
-    for (config, _) in &ranked_working_configs {
-        if light_candidates.len() >= light_target || light_candidates.len() >= MAX_LIGHT_CANDIDATES
-        {
-            break;
-        }
-
-        push_light_candidate(
-            config,
-            &mut light_candidates,
-            &mut light_candidate_endpoint_counts,
-        );
-    }
+    let light_candidates = light_candidate_configs(&ranked_working_configs);
 
     let selected_light_candidates = light_candidates.iter().cloned().collect::<HashSet<_>>();
     deferred_transport_candidates.retain(|config| selected_light_candidates.contains(config));
-    let deferred_candidates_added_count = deferred_transport_candidates.len();
 
     let mut light_source_map = serde_json::Map::new();
     for config in &light_candidates {
@@ -794,13 +789,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let source_map_path = output_dir.join(".source-config-map.json");
     let source_map = serde_json::to_string_pretty(&Value::Object(light_source_map))?;
     write_atomic(&source_map_path, format!("{source_map}\n")).await?;
-
-    println!(
-        "[INFO] 🧠 [Light candidate selection] Selected {} HTTP-handshake-verified candidates | Deferred subset: {} | Source provenance entries: {}",
-        light_candidates.len(),
-        deferred_candidates_added_count,
-        light_candidates.len()
-    );
 
     let light_candidates_path = output_dir.join(".light-candidates.txt");
 
@@ -863,18 +851,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .len();
 
     println!(
-        "[INFO] 📦 [All] {} Configs ready | Unique endpoints: {}",
+        "[INFO] ✅ [Collection] Complete | Light candidates: {} | All configs: {}/{} | Unique All endpoints: {}",
+        light_candidates.len(),
         working_configs.len(),
+        MAX_ALL_CONFIGS,
         all_unique_endpoints
     );
-
-    println!(
-        "[INFO] 🎯 [Light] {} Candidates ready | Cap: {}",
-        light_candidates.len(),
-        MAX_LIGHT_CANDIDATES
-    );
-
-    println!("[INFO] ✅ [Collection] Complete");
 
     Ok(())
 }
@@ -2062,8 +2044,8 @@ fn decode_base64_variants(text: &str) -> Vec<String> {
 mod tests {
     use super::{
         append_limited_chunk, assign_config_names, compatibility_rejection_artifact_record,
-        decode_base64_variants, extract_configs, normalize_config, parse_source_redirect,
-        push_light_candidate, safe_source_client, safe_source_redirect, select_all_candidates,
+        decode_base64_variants, extract_configs, light_candidate_configs, normalize_config,
+        parse_source_redirect, safe_source_client, safe_source_redirect, select_all_candidates,
         split_concatenated_configs, tcp_endpoint_groups, transport_probe_key, trim_config,
         wireguard_key, MAX_SOURCE_BYTES,
     };
@@ -2116,23 +2098,22 @@ mod tests {
     }
 
     #[test]
-    fn light_candidates_allow_six_variants_per_endpoint() {
-        let configs = [
-            "vless://00000000-0000-0000-0000-000000000001@example.com:443".to_string(),
-            "vless://00000000-0000-0000-0000-000000000002@example.com:443".to_string(),
-            "vless://00000000-0000-0000-0000-000000000003@example.com:443".to_string(),
-        ];
-        let mut selected = Vec::new();
-        let mut endpoint_counts = std::collections::HashMap::new();
+    fn light_candidate_pool_has_no_global_or_per_endpoint_cap() {
+        let ranked = (0..20_001u64)
+            .map(|index| {
+                (
+                    format!(
+                        "vless://00000000-0000-0000-0000-000000000001@example.com:443?variant={index}"
+                    ),
+                    index,
+                )
+            })
+            .collect::<Vec<_>>();
 
-        for config in &configs {
-            assert!(push_light_candidate(
-                config,
-                &mut selected,
-                &mut endpoint_counts
-            ));
-        }
-        assert_eq!(selected.len(), 3);
+        let selected = light_candidate_configs(&ranked);
+
+        assert_eq!(selected.len(), ranked.len());
+        assert_eq!(selected.last(), ranked.last().map(|(config, _)| config));
     }
 
     #[test]
@@ -3342,7 +3323,8 @@ async fn validate_singbox_http_candidates(
             }
             Err(_) => {
                 setup_failures += 1;
-                println!(
+                proxyrift::emit_log_if!(
+                    !proxyrift::compact_logs_enabled();
                     "[INFO] 🧹 [HTTP handshake] Candidate rejected by probe setup | {}",
                     config_label(&batch[0])
                 );
@@ -3356,6 +3338,11 @@ async fn validate_singbox_http_candidates(
         }
     }
 
+    if setup_failures > 0 {
+        println!(
+            "[WARN] ⚠️ [HTTP handshake] sing-box setup failures: {setup_failures} candidates omitted"
+        );
+    }
     Ok(verified)
 }
 
@@ -3390,7 +3377,8 @@ async fn validate_xray_http_candidates(
             }
             Err(_) => {
                 setup_failures += 1;
-                println!(
+                proxyrift::emit_log_if!(
+                    !proxyrift::compact_logs_enabled();
                     "[INFO] 🧹 [HTTP handshake] Candidate rejected by probe setup | {}",
                     config_label(&batch[0])
                 );
@@ -3404,6 +3392,11 @@ async fn validate_xray_http_candidates(
         }
     }
 
+    if setup_failures > 0 {
+        println!(
+            "[WARN] ⚠️ [HTTP handshake] Xray setup failures: {setup_failures} candidates omitted"
+        );
+    }
     Ok(verified)
 }
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 minimum_light="${LIGHT_MIN_PUBLISH:-50}"
-minimum_all="${ALL_MIN_PUBLISH:-1}"
+minimum_all="${ALL_MIN_PUBLISH:-1000}"
 maximum_light="${LIGHT_SELECTION_LIMIT:-200}"
 maximum_all="${ALL_MAX_PUBLISH:-2000}"
 counts_file="subscriptions/.output-counts.json"

@@ -14,7 +14,8 @@ permissions:
 env:
   XRAY_REPOSITORY: "XTLS/Xray-core"
   SINGBOX_REPOSITORY: "SagerNet/sing-box"
-  LIGHT_MIN_PUBLISH: "100"
+  LIGHT_MIN_PUBLISH: "50"
+  ALL_MIN_PUBLISH: "1000"
   LIGHT_SELECTION_LIMIT: "200"
   ALL_MAX_PUBLISH: "2000"
 
@@ -23,6 +24,8 @@ jobs:
     name: "🔎 Collect & Validate"
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      PROXYRIFT_LOG_MODE: "compact"
     permissions:
       actions: read
       contents: write
@@ -199,9 +202,6 @@ jobs:
 
       - name: "💡 Build Light subscription"
         id: build_light
-        env:
-          LIGHT_MAX_CANDIDATES: "20000"
-          PROXYRIFT_LOG_MODE: "compact"
         run: bash scripts/update/build_light_subscription.sh
 
 

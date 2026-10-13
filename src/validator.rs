@@ -3881,7 +3881,8 @@ pub(crate) async fn validate_clients_with_target_pool(
             break;
         }
         if target_is_rate_limited(target.as_str()) {
-            println!(
+            crate::emit_log_if!(
+                !crate::compact_logs_enabled();
                 "[INFO] ⏭️ [Targets] Switching away from cooling-down host | {}",
                 target.host_str().unwrap_or(target.as_str())
             );
@@ -3974,7 +3975,8 @@ pub(crate) async fn validate_clients_with_target_pool(
         }
 
         if target_throttled {
-            println!(
+            crate::emit_log_if!(
+                !crate::compact_logs_enabled();
                 "[WARN] 🔁 [Targets] Switching to an alternate download host | {}",
                 target.host_str().unwrap_or(target.as_str())
             );
@@ -4110,7 +4112,7 @@ async fn check_batch(
                     .rev()
                     .collect::<String>();
 
-                println!(
+                crate::emit_log_if!(!crate::compact_logs_enabled();
                     "[INFO] 🧹 [Xray] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
                 );
@@ -4119,7 +4121,7 @@ async fn check_batch(
                         "The feature HTTP transport (without header padding, etc.) has been removed"
                     )
                 {
-                    println!("[INFO] ℹ️ [Xray] Core log | {tail}");
+                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] ℹ️ [Xray] Core log | {tail}");
                 }
             }
 
@@ -4184,7 +4186,7 @@ async fn check_batch(
                     pending_batches.push(batch_entries[..mid].to_vec());
                     pending_batches.push(batch_entries[mid..].to_vec());
                 } else {
-                    println!(
+                    crate::emit_log_if!(!crate::compact_logs_enabled();
                         "[WARN] ⚠️ [Xray] Core exited | {}",
                         config_label(&batch_entries[0].0)
                     );
@@ -4348,7 +4350,8 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
     }
 
     if available.len() < minimum {
-        println!(
+        crate::emit_log_if!(
+            !crate::compact_logs_enabled();
             "[WARN] ⚠️ [Targets] Rate limits leave too few alternate hosts | Available: {} | Required: {}",
             available.len(),
             minimum
@@ -4766,7 +4769,8 @@ async fn validate_candidates_targets_inner(
         );
     }
     if targets.len() < policy.min_successful_targets {
-        println!(
+        crate::emit_log_if!(
+            !crate::compact_logs_enabled();
             "[WARN] ⚠️ [Targets] Not enough non-throttled targets | Available: {} | Required: {} | Skipping this batch",
             targets.len(),
             policy.min_successful_targets
@@ -4797,7 +4801,11 @@ async fn validate_candidates_targets_inner(
         for (config, _) in &rejected {
             *counts.entry(scheme_of(clean(config))).or_insert(0) += 1;
         }
-        println!("[INFO] 📊 [Xray] Rejected by scheme | {:?}", counts);
+        crate::emit_log_if!(
+            !crate::compact_logs_enabled();
+            "[INFO] 📊 [Xray] Rejected by scheme | {:?}",
+            counts
+        );
     }
 
     if parsed.is_empty() {
@@ -4931,14 +4939,14 @@ async fn check_batch_targets(
                     .rev()
                     .collect::<String>();
 
-                println!(
+                crate::emit_log_if!(!crate::compact_logs_enabled();
                     "[INFO] 🧹 [Xray] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty() {
-                    println!("[INFO] ℹ️ [Xray] Core log | {tail}");
+                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] ℹ️ [Xray] Core log | {tail}");
                 } else {
-                    println!("[INFO] ℹ️ [Xray] Core log | No diagnostic output captured");
+                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] ℹ️ [Xray] Core log | No diagnostic output captured");
                 }
             }
 
@@ -4976,7 +4984,7 @@ async fn check_batch_targets(
                     pending_batches.push(batch_entries[..mid].to_vec());
                     pending_batches.push(batch_entries[mid..].to_vec());
                 } else {
-                    println!(
+                    crate::emit_log_if!(!crate::compact_logs_enabled();
                         "[WARN] ⚠️ [Xray] Core exited during pooled validation | {}",
                         config_label(&batch_entries[0].0)
                     );
@@ -5174,19 +5182,23 @@ async fn check_batch_targets(
                 policy.sustained_stream_segments,
                 policy.sustained_stream_max_idle,
             ) {
-                println!(
+                crate::emit_log_if!(
+                    !crate::compact_logs_enabled();
                     "[INFO] 🔎 [Stream] Target 1 | {primary_successes}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
-                println!(
+                crate::emit_log_if!(
+                    !crate::compact_logs_enabled();
                     "[INFO] 🔎 [Stream] Target 2 | {secondary_successes_count}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
             } else {
-                println!(
+                crate::emit_log_if!(
+                    !crate::compact_logs_enabled();
                     "[INFO] 🔎 [Transfer] Target 1 | {primary_successes}/{count} Responded | Min body: {minimum} bytes"
                 );
-                println!(
+                crate::emit_log_if!(
+                    !crate::compact_logs_enabled();
                     "[INFO] 🔎 [Transfer] Target 2 | {secondary_successes_count}/{count} Responded | Min body: {minimum} bytes"
                 );
             }
@@ -5273,7 +5285,11 @@ async fn validate_candidates_inner(
         for (config, _) in &rejected {
             *counts.entry(scheme_of(clean(config))).or_insert(0) += 1;
         }
-        println!("[INFO] 📊 [Xray] Rejected by scheme | {:?}", counts);
+        crate::emit_log_if!(
+            !crate::compact_logs_enabled();
+            "[INFO] 📊 [Xray] Rejected by scheme | {:?}",
+            counts
+        );
     }
 
     if parsed.is_empty() {
