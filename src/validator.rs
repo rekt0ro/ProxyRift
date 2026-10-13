@@ -2408,7 +2408,7 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("unsupported-shadowsocks-plugin");
             }
             if !ss_has_nonempty_password(config) {
-                return Some("missing-shadowsocks-password");
+                return Some("missing-shadowsocks-credential");
             }
             None
         }
@@ -2711,7 +2711,7 @@ pub fn cheap_compatibility_rejection_context(
         "unsupported-shadowsocks-plugin" => {
             compatibility_shadowsocks_plugin_bucket(parsed_url.as_ref())
         }
-        "missing-shadowsocks-password" => "credential=missing",
+        "missing-shadowsocks-credential" => "credential=missing",
         "invalid-hysteria-bandwidth" => {
             compatibility_hysteria_bandwidth_detail(parsed_url.as_ref())
         }
@@ -7021,9 +7021,9 @@ mod tests {
         let config = "ss://aes-256-gcm%3A@example.com:8388";
         assert_eq!(
             cheap_compatibility_rejection_reason(config),
-            Some("missing-shadowsocks-password")
+            Some("missing-shadowsocks-credential")
         );
-        let context = cheap_compatibility_rejection_context(config, "missing-shadowsocks-password");
+        let context = cheap_compatibility_rejection_context(config, "missing-shadowsocks-credential");
         assert_eq!(context.detail, "credential=missing");
         assert!(!format!("{context:?}").contains("password="));
     }
