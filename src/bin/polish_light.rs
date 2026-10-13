@@ -3381,8 +3381,9 @@ async fn main() -> Result<(), String> {
     let output = required(&args, "--output")?;
     let stats_path = value(&args, "--stats", "");
     let prevalidated_http_metrics_path = value(&args, "--prevalidated-http-metrics", "");
-    let prevalidated_http_latencies: HashMap<String, u64> =
-        if prevalidated_http_metrics_path.trim().is_empty() {
+    let prevalidated_http_metrics_enabled = !prevalidated_http_metrics_path.trim().is_empty();
+    let singbox_prevalidated_http_latencies: HashMap<String, u64> =
+        if !prevalidated_http_metrics_enabled {
             HashMap::new()
         } else {
             let contents =
@@ -3487,6 +3488,8 @@ async fn main() -> Result<(), String> {
         );
     }
 
+    let current_run_candidate_set = current_candidates.iter().cloned().collect::<HashSet<_>>();
+
     let history_path = "subscriptions/light-history.json";
     let history = load_history(history_path)?;
     let run_timestamp = SystemTime::now()
@@ -3535,8 +3538,8 @@ async fn main() -> Result<(), String> {
     );
 
     println!(
-        "[INFO] 🔁 [Light HTTP precheck] Current-run Google results available: {} | Duplicate target checks: disabled for matched candidates | Unmatched/cohort candidates use the Google target only (timeout: {:.1}s; backend fallback may retry)",
-        prevalidated_http_latencies.len(),
+        "[INFO] 🔁 [Light HTTP precheck] Sing-box-qualified Google results available: {} | Xray-only current-run passes are skipped without another request | Cohort-only candidates use Google once (timeout: {:.1}s; backend fallback may retry)",
+        singbox_prevalidated_http_latencies.len(),
         precheck_timeout
     );
 
@@ -3731,21 +3734,26 @@ async fn main() -> Result<(), String> {
         let mut target_metadata = HashMap::with_capacity(chunk.len());
         let mut unprevalidated_chunk = Vec::new();
 
+        let mut xray_only_current_run_passes = 0usize;
         for config in chunk {
-            if let Some(latency_ms) = prevalidated_http_latencies.get(config) {
-                let latency_ms = *latency_ms as f64;
-                target_metadata.insert(
-                    config.clone(),
-                    ProxyMetrics {
-                        successes: 1,
-                        attempts: 1,
-                        median_ms: latency_ms,
-                        min_ms: latency_ms,
-                        jitter_ms: 0.0,
-                        throughput_kbps: 0.0,
-                        successful_targets: vec![target.to_string()],
-                    },
-                );
+            if prevalidated_http_metrics_enabled && current_run_candidate_set.contains(config) {
+                if let Some(latency_ms) = singbox_prevalidated_http_latencies.get(config) {
+                    let latency_ms = *latency_ms as f64;
+                    target_metadata.insert(
+                        config.clone(),
+                        ProxyMetrics {
+                            successes: 1,
+                            attempts: 1,
+                            median_ms: latency_ms,
+                            min_ms: latency_ms,
+                            jitter_ms: 0.0,
+                            throughput_kbps: 0.0,
+                            successful_targets: vec![target.to_string()],
+                        },
+                    );
+                } else {
+                    xray_only_current_run_passes += 1;
+                }
             } else {
                 unprevalidated_chunk.push(config.clone());
             }
@@ -3753,9 +3761,10 @@ async fn main() -> Result<(), String> {
 
         let reused_prechecks = target_metadata.len();
         println!(
-            "[INFO] 🔎 [Light discovery] Wave {wave} | Candidates: {} | Reused Google handshakes: {} | New Google handshakes: {} | Ordered cursor: {}/{} | Transfer qualified: {} | Publishable: {}",
+            "[INFO] 🔎 [Light discovery] Wave {wave} | Candidates: {} | Reused sing-box Google handshakes: {} | Skipped Xray-only passes: {} | New/cohort Google handshakes: {} | Ordered cursor: {}/{} | Transfer qualified: {} | Publishable: {}",
             chunk.len(),
             reused_prechecks,
+            xray_only_current_run_passes,
             unprevalidated_chunk.len(),
             discovery_cursor,
             discovery_candidates.len(),
