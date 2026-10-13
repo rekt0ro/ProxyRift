@@ -4383,10 +4383,9 @@ mod tests {
         persist_candidate_ledger, rank_discovery_candidates, recheck_exploration_limit,
         select_current_publication, select_recheck_candidates, select_stability_test_batch,
         select_transfer_target, select_verified_configs,
-        select_verified_configs_with_freshness_quota,
-        select_verified_configs_with_repeat_cap, selection_additional_potential_count,
-        selection_eligible_count, selection_potential_count, selection_rejection_counts,
-        should_quarantine_transfer_target, singbox_qualified_metadata,
+        select_verified_configs_with_freshness_quota, select_verified_configs_with_repeat_cap,
+        selection_additional_potential_count, selection_eligible_count, selection_potential_count,
+        selection_rejection_counts, should_quarantine_transfer_target, singbox_qualified_metadata,
         sort_by_measured_stream_speed, stream_selection_count, strict_validation_batch_limit,
         strict_validation_target, transfer_target_batch_limit, transfer_validation_target,
         update_transfer_target_state, AdaptiveStrictValidationInputs, LightBackend, LightGbmScores,
@@ -4659,9 +4658,7 @@ mod tests {
             successful_targets: Vec::new(),
         };
         let configs = (0..200)
-            .map(|index| {
-                format!("vless://id{index}@node{index}.example.com:443?path=%2F{index}")
-            })
+            .map(|index| format!("vless://id{index}@node{index}.example.com:443?path=%2F{index}"))
             .collect::<Vec<_>>();
         let repeats = configs[150..]
             .iter()
@@ -4672,21 +4669,13 @@ mod tests {
             .cloned()
             .map(|config| (config, metrics.clone()))
             .collect::<HashMap<_, _>>();
-        let (selected, fresh) = select_current_publication(
-            &verified,
-            &repeats,
-            &HashSet::new(),
-            200,
-            1,
-            3,
-        );
+        let (selected, fresh) =
+            select_current_publication(&verified, &repeats, &HashSet::new(), 200, 1, 3);
         assert_eq!(selected.len(), 187);
         assert_eq!(fresh, 150);
 
         let configs = (0..213)
-            .map(|index| {
-                format!("vless://id{index}@node{index}.example.com:443?path=%2F{index}")
-            })
+            .map(|index| format!("vless://id{index}@node{index}.example.com:443?path=%2F{index}"))
             .collect::<Vec<_>>();
         let repeats = configs[163..]
             .iter()
