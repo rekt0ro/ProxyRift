@@ -135,14 +135,6 @@ format_count() {
   printf '%s%s' "$value" "$grouped"
 }
 
-format_readiness() {
-  case "$1" in
-    true) printf 'Ready' ;;
-    false) printf 'Not ready' ;;
-    *) printf 'Not reported' ;;
-  esac
-}
-
 all_count="$(count_configs subscriptions/all.txt)"
 light_count="$(count_configs subscriptions/light.txt)"
 
@@ -431,7 +423,11 @@ mkdir -p "$(dirname "$summary_output_file")"
   echo
   echo "**Training:** $(format_count "$lightgbm_training_rows") samples from the last 72 hours ($(format_count "$ml_new_rows") new this run)."
   echo
-  echo "**Evaluation:** Prediction error (model / baseline) $(format_decimal "$lightgbm_model_mae") / $(format_decimal "$lightgbm_baseline_mae") ($(format_percentage "$lightgbm_relative_improvement") lower); top 20% averaged $(format_multiplier "$lightgbm_top20_lift") holdout speed."
+  if [[ "$lightgbm_model_accepted" == "true" ]]; then
+    echo "**Evaluation:** Prediction error (model / baseline) $(format_decimal "$lightgbm_model_mae") / $(format_decimal "$lightgbm_baseline_mae") ($(format_percentage "$lightgbm_relative_improvement") lower); top 20% averaged $(format_multiplier "$lightgbm_top20_lift") holdout speed."
+  else
+    echo "**Evaluation:** Not enough recent measurements to validate a speed model."
+  fi
   echo
   echo "**Decision:** $(format_model_decision "$lightgbm_model_accepted" "$lightgbm_model_reason")."
   echo

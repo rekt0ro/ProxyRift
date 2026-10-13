@@ -104,27 +104,6 @@ grep -Fq '**Decision:** Active.' "$tmp/summary.md"
 grep -Fq '| All | 1 |' "$tmp/summary.md"
 grep -Fq '| Light | 1 |' "$tmp/summary.md"
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 jq '
   .trained = false
   | .model_report.ranking_strategy = "historical_stream_speed_prior_fallback"
@@ -141,6 +120,7 @@ cp "$tmp/fallback-scores.json" "$work/proxyrift/lightgbm-scores.json"
 run_summary "$tmp/fallback-summary.md"
 grep -Fq '**Mode:** Recent speed estimates.' "$tmp/fallback-summary.md"
 grep -Fq '**Decision:** Not enabled — collecting more recent speed measurements.' "$tmp/fallback-summary.md"
+grep -Fq '**Evaluation:** Not enough recent measurements to validate a speed model.' "$tmp/fallback-summary.md"
 
 if grep -Eq 'stream_speed_regression|training_prevalence_brier|Brier score|Strict model:|End-to-end model:|model_log_mae|selected_strategy' "$tmp/summary.md"; then
   printf '[ERROR] Summary still contains legacy pass-fail model output.\n' >&2
