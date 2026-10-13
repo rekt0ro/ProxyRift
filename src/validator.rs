@@ -6926,10 +6926,12 @@ mod tests {
     #[test]
     fn cheap_compatibility_treats_explicit_vless_flow_none_as_unset() {
         let config =
-            "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=ws&security=none&flow=none";
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=ws&security=tls&flow=none";
 
         assert_eq!(cheap_compatibility_rejection_reason(config), None);
         assert!(is_cheaply_supported_config(config));
+        assert!(is_light_consumer_compatible(config));
+        assert!(is_locally_supported_config(config));
 
         let parsed = parse_config(config).expect("flow=none should behave like an unset flow");
         assert_eq!(
