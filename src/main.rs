@@ -3389,11 +3389,15 @@ async fn test_http_handshakes(
 
     let mut singbox_candidates = Vec::new();
     let mut xray_candidates = Vec::new();
+    let mut fallback_candidates = Vec::new();
     for config in representatives {
-        if backend_for_config(&config) == "xray" {
-            xray_candidates.push(config);
-        } else {
-            singbox_candidates.push(config);
+        match backend_for_config(&config) {
+            "xray" => xray_candidates.push(config),
+            "fallback" => {
+                singbox_candidates.push(config.clone());
+                fallback_candidates.push(config);
+            }
+            _ => singbox_candidates.push(config),
         }
     }
 
@@ -3402,7 +3406,9 @@ async fn test_http_handshakes(
     if !singbox_candidates.is_empty() && !validation_binary_available(&singbox_binary) {
         return Err("sing-box is required for HTTP-handshake candidate screening".to_string());
     }
-    if !xray_candidates.is_empty() && !validation_binary_available(&xray_binary) {
+    if (!xray_candidates.is_empty() || !fallback_candidates.is_empty())
+        && !validation_binary_available(&xray_binary)
+    {
         return Err("Xray is required for HTTP-handshake candidate screening".to_string());
     }
 
@@ -3411,8 +3417,22 @@ async fn test_http_handshakes(
         validate_xray_http_candidates(&xray_binary, &xray_candidates)
     );
 
-    let mut results = singbox_results?;
-    results.extend(xray_results?);
+    let singbox_results = singbox_results?;
+    let mut xray_results = xray_results?;
+    let fallback_retry = fallback_candidates
+        .into_iter()
+        .filter(|config| !singbox_results.contains_key(config))
+        .collect::<Vec<_>>();
+    if !fallback_retry.is_empty() {
+        println!(
+            "[INFO] 🔄 [HTTP handshake fallback] Retrying {} candidates with Xray",
+            fallback_retry.len()
+        );
+        xray_results.extend(validate_xray_http_candidates(&xray_binary, &fallback_retry).await?);
+    }
+
+    let mut results = singbox_results;
+    results.extend(xray_results);
     Ok(results)
 }
 
