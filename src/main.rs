@@ -1279,14 +1279,7 @@ fn compatibility_diagnostic_value(key: &str, value: &str) -> Value {
     }
 
     if key == "plugin" {
-        let name = value.split(';').next().unwrap_or("").trim();
-        let category = match name.to_ascii_lowercase().as_str() {
-            "obfs-local" => "obfs-local",
-            "v2ray-plugin" => "v2ray-plugin",
-            "" => "empty",
-            _ => "other",
-        };
-        return serde_json::json!({ "category": category });
+        return proxyrift::validator::compatibility_shadowsocks_plugin_diagnostics(value);
     }
 
     let value = value.trim();
@@ -2095,6 +2088,26 @@ mod tests {
         assert!(!serialized.contains("private.example"));
         assert!(!serialized.contains("private-uuid"));
         assert!(!serialized.contains("private label"));
+    }
+
+    #[test]
+    fn compatibility_rejection_artifact_preserves_safe_plugin_failure_details() {
+        let config = "ss://YWVzLTI1Ni1nY206c2VjcmV0@example.com:443/?plugin=v2ray-plugin%3Bmode%3Dinvalid%3Bprivate-option%3Dprivate-value";
+        let record =
+            compatibility_rejection_artifact_record(config, "unsupported-shadowsocks-plugin", 1);
+        assert_eq!(record["fields"]["plugin"]["category"], "v2ray-plugin");
+        assert_eq!(
+            record["fields"]["plugin"]["invalid_options"],
+            serde_json::json!(["mode"])
+        );
+        assert_eq!(
+            record["fields"]["plugin"]["unsupported_options"],
+            serde_json::json!(["private-option"])
+        );
+        let serialized = record.to_string();
+        assert!(!serialized.contains("example.com"));
+        assert!(!serialized.contains("private-value"));
+        assert!(!serialized.contains("c2VjcmV0"));
     }
 
     #[test]
