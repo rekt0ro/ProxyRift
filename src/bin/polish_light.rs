@@ -3857,6 +3857,10 @@ async fn main() -> Result<(), String> {
         );
 
         if !final_candidates.is_empty() {
+            if publication_target_reached.load(Ordering::Relaxed) {
+                break;
+            }
+
             println!(
                 "[INFO] 🔁 [Light HTTP gate] Wave {wave} | Reusing successful Google handshake results for {} candidates | Additional HTTP target checks: 0 | Exploration: {}",
                 final_candidates.len(),
@@ -3878,6 +3882,10 @@ async fn main() -> Result<(), String> {
                     final_verified.push(config.clone());
                 }
                 final_metadata.insert(config.clone(), metrics);
+            }
+
+            if publication_target_reached.load(Ordering::Relaxed) {
+                break;
             }
         }
 
