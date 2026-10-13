@@ -140,6 +140,18 @@ if [[ "$EVENT_NAME" == "workflow_run" ]]; then
         } >> "$GITHUB_STEP_SUMMARY"
         exit 0
       fi
+
+      failed_step="$(jq -r '[.jobs[]?.steps[]? | select(.conclusion == "failure") | .name][0] // empty' <<< "$jobs")"
+      state_persisted="$(jq -r '[.jobs[]?.steps[]? | select(.name == "📚 Persist Light learning state") | .conclusion] | any(. == "success")' <<< "$jobs")"
+      if [[ "$failed_step" == "📦 Prepare published outputs" && "$state_persisted" == "true" ]]; then
+        echo "[WARN] Update Configs run $run_id failed the deterministic publication gate after persisting Light learning state; not retrying the expensive collection job."
+        {
+          echo "## ProxyRift Autopilot"
+          echo
+          echo "Update Configs run [$run_id](https://github.com/$repo/actions/runs/$run_id) failed at **Prepare published outputs**, but its Light learning state was persisted. No retry was started because the publication gate is deterministic for the generated files."
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit 0
+      fi
     fi
 
     if (( attempt < 2 )); then
