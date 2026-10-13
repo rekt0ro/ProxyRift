@@ -3865,9 +3865,11 @@ async fn main() -> Result<(), String> {
 
             for config in &final_candidates {
                 let metrics = global_metadata.get(config).cloned().ok_or_else(|| {
+                    let candidate_endpoint = endpoint(config)
+                        .map(|(host, port)| format!("{host}:{port}"))
+                        .unwrap_or_else(|| "unknown endpoint".to_string());
                     format!(
-                        "missing successful Google HTTP precheck metrics for Light candidate {}",
-                        config_label(config)
+                        "missing successful Google HTTP precheck metrics for Light candidate {candidate_endpoint}"
                     )
                 })?;
                 *final_attempts.entry(config.clone()).or_default() += 1;
