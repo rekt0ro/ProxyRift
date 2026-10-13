@@ -23,6 +23,8 @@ jobs:
     name: "🔎 Collect & Validate"
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      PROXYRIFT_LOG_MODE: "compact"
     permissions:
       actions: read
       contents: write
@@ -201,7 +203,6 @@ jobs:
         id: build_light
         env:
           LIGHT_MAX_CANDIDATES: "20000"
-          PROXYRIFT_LOG_MODE: "compact"
         run: bash scripts/update/build_light_subscription.sh
 
 

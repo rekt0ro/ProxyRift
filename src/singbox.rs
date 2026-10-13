@@ -1532,12 +1532,12 @@ async fn check_batch_targets(
                     .rev()
                     .collect::<String>();
 
-                println!(
+                crate::emit_log_if!(!crate::compact_logs_enabled();
                     "[INFO] 🧹 [Sing-Box] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty() {
-                    println!("[INFO] ℹ️ [Sing-Box] Core log | {tail}");
+                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] ℹ️ [Sing-Box] Core log | {tail}");
                 }
             }
 
@@ -1586,7 +1586,7 @@ async fn check_batch_targets(
                     pending.push(batch_entries[..mid].to_vec());
                     pending.push(batch_entries[mid..].to_vec());
                 } else {
-                    println!(
+                    crate::emit_log_if!(!crate::compact_logs_enabled();
                         "[WARN] ⚠️ [Sing-Box] Core exited during pooled validation | {}",
                         config_label(&batch_entries[0].0)
                     );
@@ -1668,7 +1668,7 @@ async fn check_batch_targets(
                     pending.push(batch_entries[..mid].to_vec());
                     pending.push(batch_entries[mid..].to_vec());
                 } else {
-                    println!(
+                    crate::emit_log_if!(!crate::compact_logs_enabled();
                         "[WARN] ⚠️ [Sing-Box] Core exited | {}",
                         config_label(&batch_entries[0].0)
                     );
@@ -1944,12 +1944,12 @@ async fn check_batch(
                     .chars()
                     .rev()
                     .collect::<String>();
-                println!(
+                crate::emit_log_if!(!crate::compact_logs_enabled();
                     "[INFO] 🧹 [Sing-Box] Rejected | {}",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty() {
-                    println!("[INFO] ℹ️ [Sing-Box] Core log | {tail}");
+                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] ℹ️ [Sing-Box] Core log | {tail}");
                 }
             }
 
@@ -2376,7 +2376,8 @@ async fn validate_candidates_with_targets_policy(
         healthy_targets(&parsed_targets, policy.min_successful_targets).await
     };
     if parsed_targets.len() < policy.min_successful_targets {
-        println!(
+        crate::emit_log_if!(
+            !crate::compact_logs_enabled();
             "[WARN] ⚠️ [Targets] Not enough non-throttled targets | Available: {} | Required: {} | Skipping Sing-box batch",
             parsed_targets.len(),
             policy.min_successful_targets
@@ -2622,7 +2623,8 @@ fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize),
                 .join(", ");
             let suffix = if indices.len() > 8 { ", ..." } else { "" };
 
-            println!(
+            crate::emit_log_if!(
+                !crate::compact_logs_enabled();
                 "[INFO]    {} config(s) | {} | indices: {}{}",
                 indices.len(),
                 reason,

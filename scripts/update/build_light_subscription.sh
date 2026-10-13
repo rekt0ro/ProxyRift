@@ -24,16 +24,13 @@ set +e
 status=$?
 set -e
 light_elapsed="$(( $(date +%s) - light_started_epoch ))s"
-echo "[INFO] ✅ [Light] Validation complete | ${light_elapsed}"
-
 if [ "$status" -ne 0 ]; then
-  echo "[WARN] ⚠️ [Light] Validation failed | Preserving previous subscription" >&2
+  echo "[WARN] ⚠️ [Light] Validation failed | Preserving previous subscription | Took: ${light_elapsed}" >&2
   exit "$status"
 fi
 
 if [ -s /tmp/proxyrift/light.next.txt ]; then
   light_count="$(awk 'NF { count++ } END { print count + 0 }' /tmp/proxyrift/light.next.txt)"
-  echo "[INFO] 🎯 [Light] Output | ${light_count} Candidates | Target/max: ${LIGHT_SELECTION_LIMIT} | Min publish: ${LIGHT_MIN_PUBLISH}"
   if [ "$light_count" -ge "$LIGHT_MIN_PUBLISH" ]; then
     cp /tmp/proxyrift/light.next.txt subscriptions/.light.txt.next
     mv -f subscriptions/.light.txt.next subscriptions/light.txt
@@ -84,16 +81,14 @@ if [ -s /tmp/proxyrift/light.next.txt ]; then
           echo "[INFO] ✅ [All] Added $added_count deferred configs verified by Light consumer validation"
         fi
         rm -f "$limited_additions"
-      else
-        echo "[INFO] [All] Config cap reached; deferred configs remain available through Light validation"
       fi
       rm -f "$additions"
     fi
 
-    echo "[INFO] ✅ [Light] Published refreshed subscription"
+    echo "[INFO] ✅ [Light] Published ${light_count} configs | Target: ${LIGHT_SELECTION_LIMIT} | Took: ${light_elapsed}"
   else
-    echo "[WARN] ⚠️ [Light] Pool too small | ${light_count}/${LIGHT_MIN_PUBLISH} minimum | Preserving previous subscription"
+    echo "[WARN] ⚠️ [Light] Pool too small | ${light_count}/${LIGHT_MIN_PUBLISH} minimum | Preserving previous subscription | Took: ${light_elapsed}"
   fi
 else
-  echo "[WARN] ⚠️ [Light] No configs | Preserving previous subscription"
+  echo "[WARN] ⚠️ [Light] No configs | Preserving previous subscription | Took: ${light_elapsed}"
 fi
