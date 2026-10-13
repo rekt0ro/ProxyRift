@@ -689,7 +689,9 @@ fn vmess_tls_security(value: Option<&Value>) -> String {
 
 fn normalize_vless_flow(value: &str) -> Option<String> {
     let flow = value.trim().to_ascii_lowercase();
-    if matches!(
+    if flow == "none" {
+        Some(String::new())
+    } else if matches!(
         flow.as_str(),
         "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
     ) {
@@ -2399,7 +2401,7 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("unsupported-shadowsocks-plugin");
             }
             if !ss_has_nonempty_password(config) {
-                return Some("missing-shadowsocks-password");
+                return Some("missing-shadowsocks-credential");
             }
             None
         }
@@ -2702,7 +2704,7 @@ pub fn cheap_compatibility_rejection_context(
         "unsupported-shadowsocks-plugin" => {
             compatibility_shadowsocks_plugin_bucket(parsed_url.as_ref())
         }
-        "missing-shadowsocks-password" => "password=missing",
+        "missing-shadowsocks-credential" => "credential=missing",
         "invalid-hysteria-bandwidth" => {
             compatibility_hysteria_bandwidth_detail(parsed_url.as_ref())
         }
@@ -6876,6 +6878,26 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_treats_explicit_vless_flow_none_as_unset() {
+        let config =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=ws&security=tls&flow=none";
+
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        assert!(is_cheaply_supported_config(config));
+        assert!(is_light_consumer_compatible(config));
+        assert!(is_locally_supported_config(config));
+
+        let parsed = parse_config(config).expect("flow=none should behave like an unset flow");
+        assert_eq!(
+            parsed["settings"]["vnext"][0]["users"][0]
+                .get("flow")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            ""
+        );
+    }
+
+    #[test]
     fn cheap_compatibility_rejects_unsupported_vless_flow() {
         assert!(!is_cheaply_supported_config(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?flow=xtls-rprx-vision-legacy"
@@ -6955,8 +6977,12 @@ mod tests {
         let config = "ss://aes-256-gcm%3A@example.com:8388";
         assert_eq!(
             cheap_compatibility_rejection_reason(config),
-            Some("missing-shadowsocks-password")
+            Some("missing-shadowsocks-credential")
         );
+        let context =
+            cheap_compatibility_rejection_context(config, "missing-shadowsocks-credential");
+        assert_eq!(context.detail, "credential=missing");
+        assert!(!format!("{context:?}").contains("password="));
     }
 
     #[test]

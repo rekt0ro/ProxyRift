@@ -40,6 +40,9 @@ jobs:
           fetch-depth: 0
           show-progress: false
 
+      - name: "Initialize compatibility rejection artifacts"
+        run: mkdir -p /tmp/proxyrift && : > /tmp/proxyrift/compatibility-rejections.jsonl
+
       - name: "🦀 Resolve stable Rust toolchain"
         id: rust-toolchain
         run: bash scripts/update/resolve_stable_rust.sh
@@ -258,6 +261,15 @@ jobs:
           name: lightgbm-evaluation-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/lightgbm-evaluation.json
           if-no-files-found: error
+          retention-days: 14
+
+      - name: "📎 Upload compatibility rejection diagnostics"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compatibility-rejections-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/proxyrift/compatibility-rejections.jsonl
+          if-no-files-found: warn
           retention-days: 14
 
   cleanup:
