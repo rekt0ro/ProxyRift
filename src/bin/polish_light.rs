@@ -5,18 +5,16 @@ use proxyrift::light_training::{
     persist as persist_light_training, write_readiness_report, DatasetStats, TrainingRow,
 };
 use proxyrift::singbox::{
-    validate_candidates_with_consumer_targets as validate_singbox_consumer_targets,
     validate_candidates_with_ordered_target_pool_once_with_minimum_body as validate_singbox_target_pool_once_with_minimum_body,
     validate_candidates_with_target_once as validate_singbox_target_once,
     validate_candidates_with_target_pool_once_with_sustained_stream as validate_singbox_target_pool_once_with_sustained_stream,
 };
 use proxyrift::validator::{
     endpoint, is_light_consumer_compatible, read_lines, target_is_rate_limited,
-    target_rate_limit_events, validate_candidates_with_consumer_targets,
-    validate_candidates_with_ordered_target_pool_once_with_minimum_body,
+    target_rate_limit_events, validate_candidates_with_ordered_target_pool_once_with_minimum_body,
     validate_candidates_with_target_once,
     validate_candidates_with_target_pool_once_with_sustained_stream, write_lines, ProxyMetrics,
-    LIGHT_CONSUMER_TARGETS, LIGHT_TRANSFER_MINIMUM_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES,
+    LIGHT_TRANSFER_MINIMUM_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES,
     LIGHT_TRANSFER_STABILITY_TARGETS, PRIMARY_TARGET,
 };
 use serde_json::Value;
@@ -2765,11 +2763,10 @@ fn stream_selection_count(
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ValidationSettings {
+struct PrecheckSettings {
     workers: usize,
     batch_size: usize,
     timeout_seconds: f64,
-    strict: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3270,12 +3267,12 @@ fn singbox_qualified_metadata(
     singbox_metadata
 }
 
-async fn validate_light_batch(
+async fn validate_light_precheck(
     xray: &str,
     singbox: &str,
     candidates: &[String],
-    targets: &[&str],
-    settings: ValidationSettings,
+    target: &str,
+    settings: PrecheckSettings,
 ) -> Result<HashMap<String, ProxyMetrics>, String> {
     let mut singbox_candidates = Vec::new();
     let mut xray_candidates = Vec::new();
@@ -3291,32 +3288,18 @@ async fn validate_light_batch(
 
     let mut singbox_validation_candidates = singbox_candidates;
     singbox_validation_candidates.extend(fallback_candidates.iter().cloned());
-    let xray_validation_candidates = xray_candidates;
 
     let request_timeout = std::time::Duration::try_from_secs_f64(settings.timeout_seconds)
-        .map_err(|_| "invalid validation timeout: value overflows Duration".to_string())?;
-    let prefilter_target = *targets
-        .first()
-        .ok_or_else(|| "Light validation requires at least one target".to_string())?;
+        .map_err(|_| "invalid precheck timeout: value overflows Duration".to_string())?;
 
     let singbox_future = async {
         if singbox_validation_candidates.is_empty() {
             Ok(HashMap::new())
-        } else if settings.strict {
-            validate_singbox_consumer_targets(
-                singbox,
-                &singbox_validation_candidates,
-                targets,
-                settings.workers.clamp(1, 40),
-                request_timeout,
-                settings.timeout_seconds * 1000.0,
-            )
-            .await
         } else {
             validate_singbox_target_once(
                 singbox,
                 &singbox_validation_candidates,
-                prefilter_target,
+                target,
                 settings.workers.clamp(1, 40),
                 request_timeout,
                 settings.timeout_seconds * 1000.0,
@@ -3326,24 +3309,13 @@ async fn validate_light_batch(
     };
 
     let xray_future = async {
-        if xray_validation_candidates.is_empty() {
+        if xray_candidates.is_empty() {
             Ok(HashMap::new())
-        } else if settings.strict {
-            validate_candidates_with_consumer_targets(
-                xray,
-                &xray_validation_candidates,
-                targets,
-                settings.workers.max(1),
-                settings.batch_size,
-                settings.timeout_seconds,
-                settings.timeout_seconds * 1000.0,
-            )
-            .await
         } else {
             validate_candidates_with_target_once(
                 xray,
-                &xray_validation_candidates,
-                prefilter_target,
+                &xray_candidates,
+                target,
                 settings.workers.max(1),
                 settings.batch_size,
                 settings.timeout_seconds,
@@ -3364,47 +3336,31 @@ async fn validate_light_batch(
 
     if !fallback_retry.is_empty() {
         println!(
-            "[INFO] 🔄 [Light fallback] Retrying {} candidates with xray",
-            fallback_retry.len()
+            "[INFO] 🔄 [Light HTTP precheck] Retrying {} fallback candidates with Xray | Target: {}",
+            fallback_retry.len(),
+            target
         );
-        let fallback_xray = if settings.strict {
-            validate_candidates_with_consumer_targets(
-                xray,
-                &fallback_retry,
-                targets,
-                settings.workers.max(1),
-                settings.batch_size,
-                settings.timeout_seconds,
-                settings.timeout_seconds * 1000.0,
-            )
-            .await?
-        } else {
-            validate_candidates_with_target_once(
-                xray,
-                &fallback_retry,
-                prefilter_target,
-                settings.workers.max(1),
-                settings.batch_size,
-                settings.timeout_seconds,
-                settings.timeout_seconds * 1000.0,
-            )
-            .await?
-        };
+        let fallback_xray = validate_candidates_with_target_once(
+            xray,
+            &fallback_retry,
+            target,
+            settings.workers.max(1),
+            settings.batch_size,
+            settings.timeout_seconds,
+            settings.timeout_seconds * 1000.0,
+        )
+        .await?;
         xray_metadata.extend(fallback_xray);
     }
 
     let verified = singbox_qualified_metadata(xray_metadata, singbox_metadata);
 
-    let stage = if settings.strict {
-        "CONSUMER"
-    } else {
-        "PREFILTER"
-    };
     println!(
-        "[INFO] ✅ [Light {stage}] {}/{} Candidates verified | Targets: {}",
+        "[INFO] ✅ [Light HTTP precheck] {}/{} candidates verified | Target: {} | Timeout: {:.1}s | One request per candidate",
         verified.len(),
         candidates.len(),
-        if settings.strict { targets.len() } else { 1 }
+        target,
+        settings.timeout_seconds
     );
 
     Ok(verified)
@@ -3416,7 +3372,7 @@ async fn main() -> Result<(), String> {
 
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "Usage: polish_light --candidates FILE --output FILE [--prevalidated-http-metrics FILE] [--workers N]              [--batch-size N] [--timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--selected-workers N] [--selected-batch-size N]              [--primary-target URL] [--selection-limit N] [--max-per-endpoint N]              [--max-per-family N]              [--xray PATH] [--singbox PATH] [--stats PATH]"
+            "Usage: polish_light --candidates FILE --output FILE [--prevalidated-http-metrics FILE] [--workers N]              [--batch-size N] [--timeout SECONDS] [--precheck-timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--primary-target URL] [--selection-limit N]              [--max-per-endpoint N] [--max-per-family N]              [--xray PATH] [--singbox PATH] [--stats PATH]"
         );
         return Ok(());
     }
@@ -3444,7 +3400,7 @@ async fn main() -> Result<(), String> {
                     )
                 })?
                 .into_iter()
-                .filter(|(_, latency_ms)| *latency_ms <= 3_000)
+                .filter(|(_, latency_ms)| *latency_ms <= 5_000)
                 .collect()
         };
     let workers = value(&args, "--workers", "32")
@@ -3458,6 +3414,12 @@ async fn main() -> Result<(), String> {
         .map_err(|_| "invalid --timeout".to_string())?;
     if !timeout.is_finite() || timeout <= 0.0 {
         return Err("invalid --timeout: must be a positive finite number".to_string());
+    }
+    let precheck_timeout = value(&args, "--precheck-timeout", "5")
+        .parse::<f64>()
+        .map_err(|_| "invalid --precheck-timeout".to_string())?;
+    if !precheck_timeout.is_finite() || precheck_timeout <= 0.0 {
+        return Err("invalid --precheck-timeout: must be a positive finite number".to_string());
     }
     let final_recheck_limit = value(
         &args,
@@ -3474,19 +3436,7 @@ async fn main() -> Result<(), String> {
     .parse::<usize>()
     .map_err(|_| "invalid --max-candidates".to_string())?
     .clamp(1, MAX_DISCOVERY_CANDIDATES);
-    let final_workers = value(&args, "--selected-workers", "16")
-        .parse::<usize>()
-        .map_err(|_| "invalid --selected-workers".to_string())?;
-    let final_batch_size = value(&args, "--selected-batch-size", "500")
-        .parse::<usize>()
-        .map_err(|_| "invalid --selected-batch-size".to_string())?;
     let primary_target = value(&args, "--primary-target", PRIMARY_TARGET);
-    let early_targets = [primary_target.as_str()];
-    let consumer_targets = {
-        let mut targets = LIGHT_CONSUMER_TARGETS.to_vec();
-        targets[0] = primary_target.as_str();
-        targets
-    };
     let xray = value(&args, "--xray", "xray");
     let selection_limit = value(
         &args,
@@ -3584,12 +3534,11 @@ async fn main() -> Result<(), String> {
         cohort_configs_loaded
     );
 
-    if !prevalidated_http_latencies.is_empty() {
-        println!(
-            "[INFO] 🔁 [Light discovery] Reusing {} HTTP-handshake results; skipping duplicate primary-target checks for matching candidates",
-            prevalidated_http_latencies.len()
-        );
-    }
+    println!(
+        "[INFO] 🔁 [Light HTTP precheck] Current-run Google results available: {} | Repeated HTTP checks: disabled for matched candidates | New/cohort candidates use one Google request with a {:.1}s timeout",
+        prevalidated_http_latencies.len(),
+        precheck_timeout
+    );
 
     let light_gbm_scores =
         LightGbmScores::from_file("/tmp/proxyrift/lightgbm-scores.json").unwrap_or_default();
@@ -3778,16 +3727,7 @@ async fn main() -> Result<(), String> {
         discovery_cursor = batch_end;
         let chunk = &discovery_candidates[batch_start..batch_end];
 
-        println!(
-            "[INFO] 🔎 [Light discovery] Wave {wave} | Testing {} candidates | Ordered cursor: {}/{} | Transfer qualified: {} | Publishable: {}",
-            chunk.len(),
-            discovery_cursor,
-            discovery_candidates.len(),
-            transfer_selected,
-            publishable_selected
-        );
-
-        let target = early_targets[0];
+        let target = primary_target.as_str();
         let mut target_metadata = HashMap::with_capacity(chunk.len());
         let mut unprevalidated_chunk = Vec::new();
 
@@ -3811,17 +3751,28 @@ async fn main() -> Result<(), String> {
             }
         }
 
+        let reused_prechecks = target_metadata.len();
+        println!(
+            "[INFO] 🔎 [Light discovery] Wave {wave} | Candidates: {} | Reused Google handshakes: {} | New Google handshakes: {} | Ordered cursor: {}/{} | Transfer qualified: {} | Publishable: {}",
+            chunk.len(),
+            reused_prechecks,
+            unprevalidated_chunk.len(),
+            discovery_cursor,
+            discovery_candidates.len(),
+            transfer_selected,
+            publishable_selected
+        );
+
         if !unprevalidated_chunk.is_empty() {
-            let unprevalidated_metadata = validate_light_batch(
+            let unprevalidated_metadata = validate_light_precheck(
                 &xray,
                 &singbox,
                 &unprevalidated_chunk,
-                &[target],
-                ValidationSettings {
+                target,
+                PrecheckSettings {
                     workers,
                     batch_size,
-                    timeout_seconds: timeout,
-                    strict: false,
+                    timeout_seconds: precheck_timeout,
                 },
             )
             .await?;
@@ -3906,43 +3857,25 @@ async fn main() -> Result<(), String> {
         );
 
         if !final_candidates.is_empty() {
-            for config in &final_candidates {
-                *final_attempts.entry(config.clone()).or_default() += 1;
-            }
-
             println!(
-                "[INFO] 🔎 [Light recheck] Wave {wave} | Testing {} candidates | Exploration: {}",
+                "[INFO] 🔁 [Light HTTP gate] Wave {wave} | Reusing successful Google handshake results for {} candidates | Additional HTTP target checks: 0 | Exploration: {}",
                 final_candidates.len(),
                 exploration_selected
             );
 
-            let primary_metadata = validate_light_batch(
-                &xray,
-                &singbox,
-                &final_candidates,
-                &consumer_targets,
-                ValidationSettings {
-                    workers: final_workers,
-                    batch_size: final_batch_size,
-                    timeout_seconds: timeout,
-                    strict: true,
-                },
-            )
-            .await?;
-            if publication_target_reached.load(Ordering::Relaxed) {
-                break;
-            }
+            for config in &final_candidates {
+                let metrics = global_metadata.get(config).cloned().ok_or_else(|| {
+                    format!(
+                        "missing successful Google HTTP precheck metrics for Light candidate {}",
+                        config_label(config)
+                    )
+                })?;
+                *final_attempts.entry(config.clone()).or_default() += 1;
 
-            for (config, mut metrics) in primary_metadata {
-                if metrics.throughput_kbps <= 0.0 {
-                    if let Some(early) = global_metadata.get(&config) {
-                        metrics.throughput_kbps = early.throughput_kbps;
-                    }
-                }
-                if !final_metadata.contains_key(&config) {
+                if !final_metadata.contains_key(config) {
                     final_verified.push(config.clone());
                 }
-                final_metadata.insert(config, metrics);
+                final_metadata.insert(config.clone(), metrics);
             }
         }
 
@@ -3967,7 +3900,7 @@ async fn main() -> Result<(), String> {
         .len();
 
         println!(
-            "[INFO] 🧭 [Light discovery] Wave {wave} complete | Prefilter verified: {} | Global verified: {} | Strict verified: {} | Publish-selectable strict: {}",
+            "[INFO] 🧭 [Light discovery] Wave {wave} complete | Google prechecks passed this wave: {} | Global Google-verified: {} | Reachability-qualified: {} | Publish-selectable: {}",
             chunk_verified_count,
             global_verified.len(),
             final_metadata.len(),
@@ -3977,7 +3910,7 @@ async fn main() -> Result<(), String> {
         if strict_selected.len() >= selection_limit {
             if !strict_pool_ready_logged {
                 println!(
-                    "[INFO] 🚀 [Light] Strict pool reached {} | Starting downstream validation",
+                    "[INFO] 🚀 [Light] Google-prechecked pool reached {} | Starting stability and transfer validation",
                     selection_limit
                 );
                 strict_pool_ready_logged = true;
@@ -4049,7 +3982,7 @@ async fn main() -> Result<(), String> {
             );
             if last_funnel_snapshot != Some(funnel_snapshot) {
                 println!(
-                    "[INFO] 📈 [Light adaptive funnel] Strict: {} | 1 MiB: {}/{} | 9 MiB sustained: {}/{} | Sub-light-ready: {}/{}",
+                    "[INFO] 📈 [Light adaptive funnel] Google HTTP gate: {} | 1 MiB: {}/{} | 9 MiB sustained: {}/{} | Sub-light-ready: {}/{}",
                     final_metadata.len(),
                     stability_verified.len(),
                     stability_tested.len(),
@@ -4097,7 +4030,7 @@ async fn main() -> Result<(), String> {
             );
             if next_batch > estimated_next_batch {
                 println!(
-                    "[INFO] 🚀 [Light discovery] Low selectable yield | New strict-selectable: {}/{} | Expanding next batch: {} -> {}",
+                    "[INFO] 🚀 [Light discovery] Low selectable yield | New reachability-selectable: {}/{} | Expanding next batch: {} -> {}",
                     newly_selectable,
                     chunk.len(),
                     estimated_next_batch,
@@ -4127,7 +4060,7 @@ async fn main() -> Result<(), String> {
 
                 if stagnant_waves >= DISCOVERY_STAGNATION_WAVES {
                     println!(
-                        "[INFO] 🛑 [Light discovery] Funnel stalled | No transfer/stream output growth for {} consecutive waves | Strict selectable: {} | Transfer selectable: {} | Stream passed: {} | Remaining candidates: {} | Stopping best-effort discovery",
+                        "[INFO] 🛑 [Light discovery] Funnel stalled | No transfer/stream output growth for {} consecutive waves | Reachability-selectable: {} | Transfer selectable: {} | Stream passed: {} | Remaining candidates: {} | Stopping best-effort discovery",
                         stagnant_waves,
                         strict_selected.len(),
                         transfer_selected,
@@ -4151,7 +4084,7 @@ async fn main() -> Result<(), String> {
             );
             if next_floor > discovery_batch_size {
                 println!(
-                    "[INFO] 🚀 [Light discovery] Low selectable yield | New strict-selectable: {}/{} | Expanding next batch: {} -> {}",
+                    "[INFO] 🚀 [Light discovery] Low selectable yield | New reachability-selectable: {}/{} | Expanding next batch: {} -> {}",
                     newly_selectable,
                     chunk.len(),
                     discovery_batch_size,
@@ -4297,7 +4230,7 @@ async fn main() -> Result<(), String> {
         max_per_family,
     );
     println!(
-        "[INFO] 📊 [Light feasibility] Target: {} | Strict selectable: {} | 1 MiB selectable: {} | 10 MiB selectable: {} | 9 MiB sustained selectable: {} | Selected: {} | Shortfall: {}",
+        "[INFO] 📊 [Light feasibility] Target: {} | Reachability-selectable: {} | 1 MiB selectable: {} | 10 MiB selectable: {} | 9 MiB sustained selectable: {} | Selected: {} | Shortfall: {}",
         selection_limit,
         strict_selectable,
         stability_selectable,
@@ -4416,7 +4349,7 @@ async fn main() -> Result<(), String> {
         run_timestamp,
     )?;
     println!(
-        "[INFO] ✅ [Light] Published {} configs | Discovery: {} | Strict attempts: {} | Strictly verified: {} | Transfer tested: {} | Transfer passes: {} | Reuse ledger: {} recent fully validated identities",
+        "[INFO] ✅ [Light] Published {} configs | Discovery candidates: {} | Google-precheck promotions: {} | Reachability-qualified: {} | Transfer tested: {} | Transfer passes: {} | Reuse ledger: {} recent fully validated identities",
         selected.len(),
         candidates.len(),
         final_attempts.values().copied().sum::<usize>(),
