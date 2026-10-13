@@ -1106,7 +1106,7 @@ fn convert_config(config: &str, index: usize) -> Result<String, String> {
         "hysteria" => convert_hysteria(config, index),
         "hysteria2" | "hy2" => convert_hysteria2(config, index),
         "socks" | "socks5" | "socks5h" => convert_socks(config, index),
-        "socks4" | "socks4a" => Err(format!("unsupported SOCKS variant {scheme}")),
+        scheme @ ("socks4" | "socks4a") => Err(format!("unsupported SOCKS variant {scheme}")),
         "http" => convert_http(config, index),
         scheme => Err(format!("unsupported Clash/Mihomo proxy type {scheme}")),
     }
