@@ -2003,8 +2003,9 @@ async fn run_transfer_gate_consumer(
     mut stability_receiver: tokio::sync::mpsc::UnboundedReceiver<Vec<String>>,
     transfer_verified: &mut HashMap<String, ProxyMetrics>,
     transfer_tested: &mut HashSet<String>,
-    global_positions: &HashMap<String, usize>,
-    history: &HashMap<String, HistoryEntry>,
+    repeat_candidate_fingerprints: &HashSet<String>,
+    recent_families: &HashSet<String>,
+    publication_target_reached: Arc<AtomicBool>,
     selection_limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
@@ -2012,8 +2013,6 @@ async fn run_transfer_gate_consumer(
     transfer_passed_count: Arc<AtomicUsize>,
     transfer_done: Arc<AtomicBool>,
 ) -> Result<usize, String> {
-    let transfer_target = transfer_validation_target(selection_limit);
-
     let target_count = proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len();
     let mut target_concurrency = vec![TransferConcurrencyState::default(); target_count];
     let mut target_states = vec![TransferTargetState::default(); target_count];
@@ -2023,31 +2022,25 @@ async fn run_transfer_gate_consumer(
     let mut receiver_closed = false;
     let mut next_preferred_primary = 0usize;
     loop {
-        if transfer_done.load(Ordering::Relaxed) {
+        if transfer_done.load(Ordering::Relaxed)
+            || publication_target_reached.load(Ordering::Relaxed)
+        {
+            transfer_done.store(true, Ordering::Relaxed);
             break;
         }
-
-        let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
-        sort_ranked(
-            &mut transfer_ranked,
-            transfer_verified,
-            global_positions,
-            history,
+        let (selected, _) = select_current_publication(
+            transfer_verified, repeat_candidate_fingerprints, recent_families,
+            selection_limit, max_per_endpoint, max_per_family,
         );
-
-        let selected = select_verified_configs(
-            &transfer_ranked,
-            transfer_target,
-            max_per_endpoint,
-            max_per_family,
-        );
-
-        if selected.len() >= transfer_target {
+        if selected.len() >= selection_limit {
+            publication_target_reached.store(true, Ordering::Relaxed);
             transfer_done.store(true, Ordering::Relaxed);
-            return Ok(selected.len());
+            return Ok(select_verified_configs(
+                &transfer_verified.keys().cloned().collect::<Vec<_>>(),
+                selection_limit, max_per_endpoint, max_per_family,
+            ).len());
         }
-
-        let remaining = transfer_target.saturating_sub(selected.len());
+        let remaining = selection_limit.saturating_sub(selected.len());
         if pending.is_empty() {
             if receiver_closed {
                 break;
@@ -2062,8 +2055,12 @@ async fn run_transfer_gate_consumer(
                 continue;
             }
         }
+        if publication_target_reached.load(Ordering::Relaxed) {
+            transfer_done.store(true, Ordering::Relaxed);
+            break;
+        }
         let dynamic_test_limit = adaptive_transfer_test_limit(
-            transfer_target,
+            selection_limit,
             selected.len(),
             transfer_tested.len(),
             transfer_verified.len(),
@@ -2091,7 +2088,7 @@ async fn run_transfer_gate_consumer(
             if selection_additional_potential_count(
                 &selected,
                 std::slice::from_ref(&config),
-                transfer_target,
+                selection_limit,
                 max_per_endpoint,
                 max_per_family,
             ) > 0
@@ -2111,7 +2108,7 @@ async fn run_transfer_gate_consumer(
         let eligible_remaining = selection_additional_potential_count(
             &selected,
             &eligible_untested,
-            transfer_target,
+            selection_limit,
             max_per_endpoint,
             max_per_family,
         );
@@ -2294,32 +2291,33 @@ async fn run_transfer_gate_consumer(
             );
         }
 
-        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 100, transfer_verified.len() >= transfer_target || (receiver_closed && pending.is_empty()));
-            "[INFO] ✅ [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Validation slots remaining: {}",
-            batch_passed,
-            batch.len(),
-            batch_elapsed,
-            transfer_verified.len(),
-            transfer_target.saturating_sub(
-                select_verified_configs(
-                    &transfer_verified.keys().cloned().collect::<Vec<_>>(),
-                    transfer_target,
-                    max_per_endpoint,
-                    max_per_family,
-                )
-                .len(),
-            ),
+        let publishable_count = select_current_publication(
+            transfer_verified, repeat_candidate_fingerprints, recent_families,
+            selection_limit, max_per_endpoint, max_per_family,
+        ).0.len();
+        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 100, publishable_count >= selection_limit || (receiver_closed && pending.is_empty()));
+            "[INFO] ✅ [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Publication-ready: {}/{} | Remaining: {}",
+            batch_passed, batch.len(), batch_elapsed, transfer_verified.len(),
+            publishable_count, selection_limit, selection_limit.saturating_sub(publishable_count),
         );
+        if publishable_count >= selection_limit {
+            println!("[INFO] 🎯 [Light] Publication target reached ({publishable_count}/{selection_limit}); stopping further transfer validation");
+            publication_target_reached.store(true, Ordering::Relaxed);
+            transfer_done.store(true, Ordering::Relaxed);
+            return Ok(select_verified_configs(
+                &transfer_verified.keys().cloned().collect::<Vec<_>>(),
+                selection_limit, max_per_endpoint, max_per_family,
+            ).len());
+        }
     }
 
     transfer_done.store(true, Ordering::Relaxed);
     Ok(select_verified_configs(
         &transfer_verified.keys().cloned().collect::<Vec<_>>(),
-        transfer_target,
+        selection_limit,
         max_per_endpoint,
         max_per_family,
-    )
-    .len())
+    ).len())
 }
 
 struct TransferGateSnapshot {
@@ -2340,6 +2338,9 @@ struct TransferGateRequest {
     transfer_tested: HashSet<String>,
     global_positions: HashMap<String, usize>,
     history: HashMap<String, HistoryEntry>,
+    repeat_candidate_fingerprints: HashSet<String>,
+    recent_families: HashSet<String>,
+    publication_target_reached: Arc<AtomicBool>,
     selection_limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
@@ -2365,6 +2366,9 @@ fn spawn_transfer_gate(request: TransferGateRequest) -> TransferGateTask {
             &mut transfer_tested,
             &request.global_positions,
             &request.history,
+            &request.repeat_candidate_fingerprints,
+            &request.recent_families,
+            request.publication_target_reached.clone(),
             request.selection_limit,
             request.max_per_endpoint,
             request.max_per_family,
@@ -2405,27 +2409,23 @@ async fn fill_transfer_gate(
     transfer_tested: &mut HashSet<String>,
     global_positions: &HashMap<String, usize>,
     history: &HashMap<String, HistoryEntry>,
+    repeat_candidate_fingerprints: &HashSet<String>,
+    recent_families: &HashSet<String>,
+    publication_target_reached: Arc<AtomicBool>,
     selection_limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
 ) -> Result<usize, String> {
-    let transfer_target = transfer_validation_target(selection_limit);
-
-    let mut existing_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
-    sort_ranked(
-        &mut existing_ranked,
-        transfer_verified,
-        global_positions,
-        history,
+    let existing_selected = select_current_publication(
+        transfer_verified, repeat_candidate_fingerprints, recent_families,
+        selection_limit, max_per_endpoint, max_per_family,
     );
-    let existing_selected = select_verified_configs(
-        &existing_ranked,
-        transfer_target,
-        max_per_endpoint,
-        max_per_family,
-    );
-    if existing_selected.len() >= transfer_target {
-        return Ok(existing_selected.len());
+    if existing_selected.0.len() >= selection_limit {
+        publication_target_reached.store(true, Ordering::Relaxed);
+        return Ok(select_verified_configs(
+            &transfer_verified.keys().cloned().collect::<Vec<_>>(),
+            selection_limit, max_per_endpoint, max_per_family,
+        ).len());
     }
 
     let transfer_done = Arc::new(AtomicBool::new(false));
@@ -2459,8 +2459,9 @@ async fn fill_transfer_gate(
         stability_receiver,
         &mut transfer_verified_state,
         &mut transfer_tested_state,
-        global_positions,
-        history,
+        repeat_candidate_fingerprints,
+        recent_families,
+        publication_target_reached.clone(),
         selection_limit,
         max_per_endpoint,
         max_per_family,
@@ -2647,6 +2648,25 @@ fn select_verified_configs_with_repeat_cap(
     }
 
     (selected, selected_fresh)
+}
+
+fn select_current_publication(
+    stream_verified: &HashMap<String, ProxyMetrics>,
+    repeat_fingerprints: &HashSet<String>,
+    recent_families: &HashSet<String>,
+    limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+) -> (Vec<String>, usize) {
+    if limit == 0 || stream_verified.is_empty() {
+        return (Vec::new(), 0);
+    }
+    let mut ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
+    sort_by_measured_stream_speed(&mut ranked, stream_verified);
+    select_verified_configs_with_repeat_cap(
+        &ranked, repeat_fingerprints, recent_families, limit,
+        max_per_endpoint, max_per_family,
+    )
 }
 
 fn select_verified_configs(
@@ -3596,6 +3616,7 @@ async fn main() -> Result<(), String> {
     let mut downstream_gate_candidate_count = 0usize;
     let mut discovery_batch_floor = DISCOVERY_BATCH_MIN;
     let mut last_funnel_snapshot = None;
+    let publication_target_reached = Arc::new(AtomicBool::new(false));
 
     println!(
         "[INFO] Checking {} candidates with {}% exploratory sampling.",
@@ -3627,6 +3648,10 @@ async fn main() -> Result<(), String> {
             }
         }
 
+        if publication_target_reached.load(Ordering::Relaxed) {
+            break;
+        }
+
         let mut transfer_ranked = transfer_verified.keys().cloned().collect::<Vec<_>>();
         sort_ranked(
             &mut transfer_ranked,
@@ -3642,16 +3667,16 @@ async fn main() -> Result<(), String> {
         )
         .len();
 
-        let publishable_selected = select_verified_configs(
-            &stream_verified.keys().cloned().collect::<Vec<_>>(),
-            selection_limit,
-            max_per_endpoint,
-            max_per_family,
-        )
-        .len();
+        let publishable_selected = select_current_publication(
+            &stream_verified, &repeat_candidate_fingerprints, &recent_families,
+            selection_limit, max_per_endpoint, max_per_family,
+        ).0.len();
 
-        if publishable_selected >= selection_limit || discovery_cursor >= discovery_candidates.len()
-        {
+        if publishable_selected >= selection_limit {
+            publication_target_reached.store(true, Ordering::Relaxed);
+            break;
+        }
+        if discovery_cursor >= discovery_candidates.len() {
             break;
         }
 
@@ -3727,6 +3752,9 @@ async fn main() -> Result<(), String> {
             },
         )
         .await?;
+        if publication_target_reached.load(Ordering::Relaxed) {
+            break;
+        }
         let chunk_verified_count = target_metadata.len();
 
         for (config, metrics) in target_metadata {
@@ -3826,6 +3854,9 @@ async fn main() -> Result<(), String> {
                 },
             )
             .await?;
+            if publication_target_reached.load(Ordering::Relaxed) {
+                break;
+            }
 
             for (config, mut metrics) in primary_metadata {
                 if metrics.throughput_kbps <= 0.0 {
@@ -3889,6 +3920,9 @@ async fn main() -> Result<(), String> {
                     transfer_tested: transfer_tested.clone(),
                     global_positions: global_positions.clone(),
                     history: history.clone(),
+                    repeat_candidate_fingerprints: repeat_candidate_fingerprints.clone(),
+                    recent_families: recent_families.clone(),
+                    publication_target_reached: publication_target_reached.clone(),
                     selection_limit,
                     max_per_endpoint,
                     max_per_family,
@@ -3917,13 +3951,10 @@ async fn main() -> Result<(), String> {
             )
             .len();
 
-            let publishable_selected = select_verified_configs(
-                &stream_verified.keys().cloned().collect::<Vec<_>>(),
-                selection_limit,
-                max_per_endpoint,
-                max_per_family,
-            )
-            .len();
+            let publishable_selected = select_current_publication(
+                &stream_verified, &repeat_candidate_fingerprints, &recent_families,
+                selection_limit, max_per_endpoint, max_per_family,
+            ).0.len();
 
             let funnel_snapshot = (
                 final_metadata.len(),
@@ -3950,18 +3981,16 @@ async fn main() -> Result<(), String> {
             }
 
             if publishable_selected >= selection_limit {
+                publication_target_reached.store(true, Ordering::Relaxed);
                 break;
             }
 
             let estimated_next_batch = adaptive_discovery_batch_size(
                 selection_limit,
-                select_verified_configs(
-                    &stream_verified.keys().cloned().collect::<Vec<_>>(),
-                    selection_limit,
-                    max_per_endpoint,
-                    max_per_family,
-                )
-                .len(),
+                select_current_publication(
+                    &stream_verified, &repeat_candidate_fingerprints, &recent_families,
+                    selection_limit, max_per_endpoint, max_per_family,
+                ).0.len(),
                 stability_tested.len(),
                 stability_verified.len(),
                 transfer_tested.len(),
@@ -4082,6 +4111,9 @@ async fn main() -> Result<(), String> {
         &mut transfer_tested,
         &global_positions,
         &history,
+        &repeat_candidate_fingerprints,
+        &recent_families,
+        publication_target_reached.clone(),
         selection_limit,
         max_per_endpoint,
         max_per_family,
@@ -4095,16 +4127,10 @@ async fn main() -> Result<(), String> {
         &mut stream_verified,
     );
 
-    let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
-    sort_by_measured_stream_speed(&mut stream_ranked, &stream_verified);
     let publication_limit = final_publication_limit(selection_limit);
-    let (selected, selected_new_count) = select_verified_configs_with_repeat_cap(
-        &stream_ranked,
-        &repeat_candidate_fingerprints,
-        &recent_families,
-        publication_limit,
-        max_per_endpoint,
-        max_per_family,
+    let (selected, selected_new_count) = select_current_publication(
+        &stream_verified, &repeat_candidate_fingerprints, &recent_families,
+        publication_limit, max_per_endpoint, max_per_family,
     );
     let fresh_family_selected = selected
         .iter()
@@ -4320,8 +4346,8 @@ mod tests {
         interleave_repeat_candidates, light_backend, light_training_features,
         mirror_sustained_stream_results, normalize_light_config, observation_fingerprint,
         persist_candidate_ledger, rank_discovery_candidates, recheck_exploration_limit,
-        select_recheck_candidates, select_stability_test_batch, select_transfer_target,
-        select_verified_configs, select_verified_configs_with_freshness_quota,
+        select_current_publication, select_recheck_candidates, select_stability_test_batch,
+        select_transfer_target, select_verified_configs, select_verified_configs_with_freshness_quota,
         select_verified_configs_with_repeat_cap, selection_additional_potential_count,
         selection_eligible_count, selection_potential_count, selection_rejection_counts,
         should_quarantine_transfer_target, singbox_qualified_metadata,
@@ -4583,6 +4609,36 @@ mod tests {
         );
         assert_eq!(selected.len(), 130);
         assert_eq!(fresh_selected, 130);
+    }
+
+    #[test]
+    fn publication_target_counts_exact_repeat_cap_selection() {
+        let metrics = ProxyMetrics {
+            successes: 3,
+            attempts: 3,
+            median_ms: 20.0,
+            min_ms: 10.0,
+            jitter_ms: 1.0,
+            throughput_kbps: 100.0,
+            successful_targets: Vec::new(),
+        };
+        let configs = (0..200)
+            .map(|index| format!("vless://id{index}@node{index}.example.com:443?path=%2F{index}"))
+            .collect::<Vec<_>>();
+        let repeats = configs[150..].iter().map(|c| history_fingerprint(c)).collect::<HashSet<_>>();
+        let verified = configs.iter().cloned().map(|c| (c, metrics.clone())).collect::<HashMap<_, _>>();
+        let (selected, fresh) = select_current_publication(&verified, &repeats, &HashSet::new(), 200, 1, 3);
+        assert_eq!(selected.len(), 187);
+        assert_eq!(fresh, 150);
+
+        let configs = (0..213)
+            .map(|index| format!("vless://id{index}@node{index}.example.com:443?path=%2F{index}"))
+            .collect::<Vec<_>>();
+        let repeats = configs[163..].iter().map(|c| history_fingerprint(c)).collect::<HashSet<_>>();
+        let verified = configs.iter().cloned().map(|c| (c, metrics.clone())).collect::<HashMap<_, _>>();
+        let (selected, fresh) = select_current_publication(&verified, &repeats, &HashSet::new(), 200, 1, 3);
+        assert_eq!(selected.len(), 200);
+        assert_eq!(fresh, 163);
     }
 
     #[test]
