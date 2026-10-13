@@ -187,6 +187,9 @@ jobs:
         run: |
           ./target/release/discover_sources
 
+      - name: "Initialize compatibility rejection artifacts"
+        run: mkdir -p /tmp/proxyrift && : > /tmp/proxyrift/compatibility-rejections.jsonl && : > /tmp/proxyrift/compatibility-rejections.log
+
       - name: "🔎 Collect & transport-test configs"
         id: collect_transport
         run: |
@@ -257,6 +260,17 @@ jobs:
         with:
           name: lightgbm-evaluation-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/lightgbm-evaluation.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: "📎 Upload compatibility rejection diagnostics"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compatibility-rejections-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/proxyrift/compatibility-rejections.jsonl
+            /tmp/proxyrift/compatibility-rejections.log
           if-no-files-found: error
           retention-days: 14
 
