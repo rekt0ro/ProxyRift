@@ -8,14 +8,13 @@ set +e
 ./target/release/polish_light \
   --candidates subscriptions/.light-candidates.txt \
   --prevalidated-http-metrics subscriptions/.light-candidates-http.json \
+  --precheck-timeout 5 \
   --output /tmp/proxyrift/light.next.txt \
   --workers 48 \
   --batch-size 1000 \
   --timeout 3 \
   --selected-recheck-limit 350 \
   --max-candidates "$LIGHT_MAX_CANDIDATES" \
-  --selected-workers 48 \
-  --selected-batch-size 350 \
   --primary-target https://www.google.com/generate_204 \
   --singbox "$HOME/.local/bin/sing-box" \
   --selection-limit "$LIGHT_SELECTION_LIMIT" \
