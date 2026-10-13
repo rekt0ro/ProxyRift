@@ -18,7 +18,7 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::hash::Hash;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -482,6 +482,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut cheap_rejection_counts = HashMap::<&'static str, usize>::new();
     let mut cheap_rejection_context_counts =
         HashMap::<(&'static str, CheapCompatibilityRejectionContext), usize>::new();
+    let mut cheap_rejection_records = Vec::<Value>::new();
     configs.retain(|config| {
         let Some(reason) = cheap_compatibility_rejection_reason(config) else {
             return true;
@@ -491,9 +492,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         *cheap_rejection_context_counts
             .entry((reason, context))
             .or_default() += 1;
+        let source_count = config_sources
+            .get(config)
+            .map(|sources| sources.len())
+            .unwrap_or(0);
+        cheap_rejection_records.push(compatibility_rejection_artifact_record(
+            config,
+            reason,
+            source_count,
+        ));
         config_sources.remove(config);
         false
     });
+    write_compatibility_rejection_artifact(&cheap_rejection_records);
     let cheaply_rejected = before_cheap_compatibility.saturating_sub(configs.len());
     if cheaply_rejected > 0 {
         let mut rejection_summary = cheap_rejection_counts.into_iter().collect::<Vec<_>>();
@@ -1238,6 +1249,181 @@ fn dedup_key(config: &str) -> String {
     }
 
     config.split('#').next().unwrap_or(config).to_string()
+}
+
+const COMPATIBILITY_DIAGNOSTIC_VALUE_LIMIT: usize = 120;
+
+fn compatibility_diagnostic_value(key: &str, value: &str) -> Value {
+    let key = key.to_ascii_lowercase();
+    if matches!(
+        key.as_str(),
+        "seed"
+            | "uuid"
+            | "id"
+            | "password"
+            | "auth"
+            | "obfs-password"
+            | "pbk"
+            | "publickey"
+            | "public_key"
+            | "sid"
+            | "key"
+    ) {
+        return serde_json::json!({ "present": !value.trim().is_empty() });
+    }
+
+    if key == "plugin" {
+        let name = value.split(';').next().unwrap_or("").trim();
+        return serde_json::json!({ "name": name });
+    }
+
+    let value = value.trim();
+    serde_json::json!({
+        "value": value.chars().take(COMPATIBILITY_DIAGNOSTIC_VALUE_LIMIT).collect::<String>(),
+        "truncated": value.chars().count() > COMPATIBILITY_DIAGNOSTIC_VALUE_LIMIT,
+    })
+}
+
+fn compatibility_diagnostic_fields(config: &str) -> Value {
+    const VALUE_FIELDS: &[&str] = &[
+        "flow",
+        "type",
+        "network",
+        "security",
+        "headertype",
+        "header_type",
+        "quicsecurity",
+        "quicheader",
+        "encryption",
+        "protocol",
+        "upmbps",
+        "downmbps",
+        "obfs",
+        "obfs-protocol",
+        "plugin",
+        "net",
+        "tls",
+        "scy",
+        "mode",
+    ];
+    const PRESENCE_FIELDS: &[&str] = &[
+        "seed",
+        "uuid",
+        "id",
+        "password",
+        "auth",
+        "obfs-password",
+        "pbk",
+        "publickey",
+        "public_key",
+        "sid",
+        "key",
+    ];
+
+    let mut fields = BTreeMap::<String, Vec<Value>>::new();
+    let mut add_field = |key: &str, value: &str| {
+        let key = key.to_ascii_lowercase();
+        if VALUE_FIELDS.contains(&key.as_str()) || PRESENCE_FIELDS.contains(&key.as_str()) {
+            fields
+                .entry(key.clone())
+                .or_default()
+                .push(compatibility_diagnostic_value(&key, value));
+        }
+    };
+
+    if config_scheme(config) == "vmess" {
+        if let Some(decoded) = config
+            .split_once("://")
+            .and_then(|(_, payload)| decode_vmess_payload(payload.split('#').next().unwrap_or(payload)))
+        {
+            if let Ok(Value::Object(object)) = serde_json::from_str::<Value>(&decoded) {
+                for (key, value) in object {
+                    let value = match value {
+                        Value::String(value) => value,
+                        Value::Null => String::new(),
+                        other => other.to_string(),
+                    };
+                    add_field(&key, &value);
+                }
+            }
+        }
+    } else if let Ok(url) = Url::parse(config) {
+        for (key, value) in url.query_pairs() {
+            add_field(&key, &value);
+        }
+    }
+
+    Value::Object(
+        fields
+            .into_iter()
+            .map(|(key, values)| {
+                let value = if values.len() == 1 {
+                    values.into_iter().next().unwrap_or(Value::Null)
+                } else {
+                    Value::Array(values)
+                };
+                (key, value)
+            })
+            .collect(),
+    )
+}
+
+fn compatibility_rejection_artifact_record(
+    config: &str,
+    reason: &str,
+    source_count: usize,
+) -> Value {
+    let context = cheap_compatibility_rejection_context(config, reason);
+    let fingerprint = Blake2b::<U32>::digest(config.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+
+    serde_json::json!({
+        "fingerprint": fingerprint,
+        "reason": reason,
+        "scheme": context.scheme,
+        "transport": context.transport,
+        "security": context.security,
+        "detail": context.detail,
+        "source_count": source_count,
+        "fields": compatibility_diagnostic_fields(config),
+    })
+}
+
+fn write_compatibility_rejection_artifact(records: &[Value]) {
+    let directory = env::var("PROXYRIFT_TMP_DIR")
+        .unwrap_or_else(|_| "/tmp/proxyrift".to_string());
+    if let Err(error) = std::fs::create_dir_all(&directory) {
+        eprintln!("[WARN] Could not create compatibility diagnostics directory: {error}");
+        return;
+    }
+
+    let jsonl = records
+        .iter()
+        .filter_map(|record| serde_json::to_string(record).ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let jsonl = if jsonl.is_empty() {
+        String::new()
+    } else {
+        format!("{jsonl}\n")
+    };
+    let log = format!(
+        "Compatibility rejection diagnostics: {} records\nFields are allowlisted; credentials, UUIDs, endpoint hosts, and source URLs are omitted.\n{}",
+        records.len(),
+        jsonl
+    );
+
+    for (name, content) in [
+        ("compatibility-rejections.jsonl", jsonl),
+        ("compatibility-rejections.log", log),
+    ] {
+        let path = std::path::Path::new(&directory).join(name);
+        if let Err(error) = std::fs::write(path, content) {
+            eprintln!("[WARN] Could not write compatibility diagnostics artifact: {error}");
+        }
+    }
 }
 
 fn has_invalid_percent_escapes(value: &str) -> bool {
