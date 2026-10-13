@@ -41,7 +41,9 @@ jobs:
           show-progress: false
 
       - name: "Initialize compatibility rejection artifacts"
-        run: mkdir -p /tmp/proxyrift && : > /tmp/proxyrift/compatibility-rejections.jsonl
+        run: |
+          mkdir -p /tmp/proxyrift
+          : > /tmp/proxyrift/compatibility-rejections.jsonl
 
       - name: "🦀 Resolve stable Rust toolchain"
         id: rust-toolchain
