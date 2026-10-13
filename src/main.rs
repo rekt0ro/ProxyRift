@@ -49,8 +49,6 @@ const MAX_SOURCE_REDIRECTS: usize = 2;
 const MAX_COLLECTED_CONFIGS: usize = 30_000;
 const MAX_ALL_CONFIGS: usize = 2000;
 const MAX_ALL_PER_ENDPOINT: usize = 5;
-const MAX_LIGHT_CANDIDATES: usize = 20_000;
-const MAX_LIGHT_ENDPOINT_VARIANTS: usize = 6;
 const HTTP_HANDSHAKE_TARGET: &str = "https://www.google.com/generate_204";
 const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 5;
 const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = 5000.0;
@@ -189,23 +187,11 @@ async fn safe_source_redirect(current_url: &Url, location: &str) -> Result<Url, 
     Ok(target_url)
 }
 
-fn push_light_candidate(
-    config: &str,
-    light_candidates: &mut Vec<String>,
-    endpoint_counts: &mut HashMap<(String, u16), usize>,
-) -> bool {
-    let Some(config_endpoint) = endpoint(config) else {
-        return false;
-    };
-
-    let count = endpoint_counts.entry(config_endpoint).or_default();
-    if *count >= MAX_LIGHT_ENDPOINT_VARIANTS {
-        return false;
-    }
-
-    *count += 1;
-    light_candidates.push(config.to_string());
-    true
+fn light_candidate_configs(ranked_working_configs: &[(String, u64)]) -> Vec<String> {
+    ranked_working_configs
+        .iter()
+        .map(|(config, _)| config.clone())
+        .collect()
 }
 
 async fn write_atomic(
@@ -775,22 +761,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .collect::<HashSet<_>>();
     deferred_transport_candidates.retain(|config| http_passed_keys.contains(&dedup_key(config)));
 
-    let light_target = MAX_LIGHT_CANDIDATES.min(ranked_working_configs.len());
-    let mut light_candidates = Vec::with_capacity(light_target);
-    let mut light_candidate_endpoint_counts = HashMap::<(String, u16), usize>::new();
-
-    for (config, _) in &ranked_working_configs {
-        if light_candidates.len() >= light_target || light_candidates.len() >= MAX_LIGHT_CANDIDATES
-        {
-            break;
-        }
-
-        push_light_candidate(
-            config,
-            &mut light_candidates,
-            &mut light_candidate_endpoint_counts,
-        );
-    }
+    let light_candidates = light_candidate_configs(&ranked_working_configs);
 
     let selected_light_candidates = light_candidates.iter().cloned().collect::<HashSet<_>>();
     deferred_transport_candidates.retain(|config| selected_light_candidates.contains(config));
@@ -880,9 +851,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .len();
 
     println!(
-        "[INFO] ✅ [Collection] Complete | Light candidates: {}/{} | All configs: {}/{} | Unique All endpoints: {}",
+        "[INFO] ✅ [Collection] Complete | Light candidates: {} | All configs: {}/{} | Unique All endpoints: {}",
         light_candidates.len(),
-        MAX_LIGHT_CANDIDATES,
         working_configs.len(),
         MAX_ALL_CONFIGS,
         all_unique_endpoints
@@ -2075,7 +2045,7 @@ mod tests {
     use super::{
         append_limited_chunk, assign_config_names, compatibility_rejection_artifact_record,
         decode_base64_variants, extract_configs, normalize_config, parse_source_redirect,
-        push_light_candidate, safe_source_client, safe_source_redirect, select_all_candidates,
+        light_candidate_configs, safe_source_client, safe_source_redirect, select_all_candidates,
         split_concatenated_configs, tcp_endpoint_groups, transport_probe_key, trim_config,
         wireguard_key, MAX_SOURCE_BYTES,
     };
@@ -2128,23 +2098,22 @@ mod tests {
     }
 
     #[test]
-    fn light_candidates_allow_six_variants_per_endpoint() {
-        let configs = [
-            "vless://00000000-0000-0000-0000-000000000001@example.com:443".to_string(),
-            "vless://00000000-0000-0000-0000-000000000002@example.com:443".to_string(),
-            "vless://00000000-0000-0000-0000-000000000003@example.com:443".to_string(),
-        ];
-        let mut selected = Vec::new();
-        let mut endpoint_counts = std::collections::HashMap::new();
+    fn light_candidate_pool_has_no_global_or_per_endpoint_cap() {
+        let ranked = (0..20_001u64)
+            .map(|index| {
+                (
+                    format!(
+                        "vless://00000000-0000-0000-0000-000000000001@example.com:443?variant={index}"
+                    ),
+                    index,
+                )
+            })
+            .collect::<Vec<_>>();
 
-        for config in &configs {
-            assert!(push_light_candidate(
-                config,
-                &mut selected,
-                &mut endpoint_counts
-            ));
-        }
-        assert_eq!(selected.len(), 3);
+        let selected = light_candidate_configs(&ranked);
+
+        assert_eq!(selected.len(), ranked.len());
+        assert_eq!(selected.last(), ranked.last().map(|(config, _)| config));
     }
 
     #[test]

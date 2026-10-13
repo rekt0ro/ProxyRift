@@ -14,7 +14,8 @@ permissions:
 env:
   XRAY_REPOSITORY: "XTLS/Xray-core"
   SINGBOX_REPOSITORY: "SagerNet/sing-box"
-  LIGHT_MIN_PUBLISH: "100"
+  LIGHT_MIN_PUBLISH: "50"
+  ALL_MIN_PUBLISH: "1000"
   LIGHT_SELECTION_LIMIT: "200"
   ALL_MAX_PUBLISH: "2000"
 
@@ -201,8 +202,6 @@ jobs:
 
       - name: "💡 Build Light subscription"
         id: build_light
-        env:
-          LIGHT_MAX_CANDIDATES: "20000"
         run: bash scripts/update/build_light_subscription.sh
 
 

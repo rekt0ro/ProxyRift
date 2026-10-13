@@ -33,7 +33,6 @@ const DISCOVERY_BATCH_MAX: usize = 300;
 const DISCOVERY_BATCH_HARD_MAX: usize = 600;
 const DISCOVERY_STALL_BATCH_SIZE: usize = DISCOVERY_BATCH_HARD_MAX;
 const DISCOVERY_STAGNATION_WAVES: usize = 4;
-const MAX_DISCOVERY_CANDIDATES: usize = 20_000;
 const DISCOVERY_SAFETY_FACTOR: f64 = 1.15;
 const TRANSFER_RESERVE_DEFAULT_PASS_RATE: f64 = 0.80;
 const FINAL_RECHECK_LIMIT: usize = 350;
@@ -3370,7 +3369,7 @@ async fn main() -> Result<(), String> {
 
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "Usage: polish_light --candidates FILE --output FILE [--prevalidated-http-metrics FILE] [--workers N]              [--batch-size N] [--timeout SECONDS] [--precheck-timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--primary-target URL] [--selection-limit N]              [--max-per-endpoint N] [--max-per-family N]              [--xray PATH] [--singbox PATH] [--stats PATH]"
+            "Usage: polish_light --candidates FILE --output FILE [--prevalidated-http-metrics FILE] [--workers N]              [--batch-size N] [--timeout SECONDS] [--precheck-timeout SECONDS] [--selected-recheck-limit N]              [--primary-target URL] [--selection-limit N]              [--max-per-endpoint N] [--max-per-family N]              [--xray PATH] [--singbox PATH] [--stats PATH]"
         );
         return Ok(());
     }
@@ -3428,14 +3427,6 @@ async fn main() -> Result<(), String> {
     )
     .parse::<usize>()
     .map_err(|_| "invalid --selected-recheck-limit".to_string())?;
-    let max_candidates = value(
-        &args,
-        "--max-candidates",
-        MAX_DISCOVERY_CANDIDATES.to_string().as_str(),
-    )
-    .parse::<usize>()
-    .map_err(|_| "invalid --max-candidates".to_string())?
-    .clamp(1, MAX_DISCOVERY_CANDIDATES);
     let primary_target = value(&args, "--primary-target", PRIMARY_TARGET);
     let xray = value(&args, "--xray", "xray");
     let selection_limit = value(
@@ -3465,10 +3456,9 @@ async fn main() -> Result<(), String> {
     let singbox = value(&args, "--singbox", "sing-box");
 
     let raw_candidates = read_lines(&candidates_path)?;
-    let input_candidate_count = raw_candidates.len().min(max_candidates);
+    let input_candidate_count = raw_candidates.len();
     let current_candidates = raw_candidates
         .into_iter()
-        .take(max_candidates)
         .filter(|config| !has_disabled_tls_verification(config))
         .collect::<Vec<_>>();
     let security_rejected = input_candidate_count.saturating_sub(current_candidates.len());
@@ -4385,7 +4375,7 @@ mod tests {
         update_transfer_target_state, AdaptiveStrictValidationInputs, LightBackend, LightGbmScores,
         ProxyMetrics, TransferConcurrencyState, TransferTargetState,
         FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES,
-        MAX_DISCOVERY_CANDIDATES, STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
+        STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -4613,11 +4603,6 @@ mod tests {
 
         assert_eq!(selected.len(), 8);
         assert_eq!(fresh_selected, 6);
-    }
-
-    #[test]
-    fn max_light_candidates_matches_update_workflow_limit() {
-        assert_eq!(MAX_DISCOVERY_CANDIDATES, 20_000);
     }
 
     #[test]

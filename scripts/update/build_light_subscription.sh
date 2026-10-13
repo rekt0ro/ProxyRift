@@ -14,7 +14,6 @@ set +e
   --batch-size 1000 \
   --timeout 3 \
   --selected-recheck-limit 350 \
-  --max-candidates "$LIGHT_MAX_CANDIDATES" \
   --primary-target https://www.google.com/generate_204 \
   --singbox "$HOME/.local/bin/sing-box" \
   --selection-limit "$LIGHT_SELECTION_LIMIT" \
