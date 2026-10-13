@@ -52,8 +52,8 @@ const MAX_ALL_PER_ENDPOINT: usize = 5;
 const MAX_LIGHT_CANDIDATES: usize = 20_000;
 const MAX_LIGHT_ENDPOINT_VARIANTS: usize = 6;
 const HTTP_HANDSHAKE_TARGET: &str = "https://www.google.com/generate_204";
-const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 3;
-const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = 3000.0;
+const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 5;
+const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = 5000.0;
 const HTTP_HANDSHAKE_WORKERS: usize = 40;
 const HTTP_HANDSHAKE_BATCH_SIZE: usize = 1000;
 const HTTP_HANDSHAKE_SETUP_FAILURE_LIMIT: usize = 128;
@@ -675,10 +675,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .collect::<HashSet<_>>()
         .len();
     println!(
-        "[INFO] 🔎 [HTTP handshake] Plan | {} candidate variants | {} unique probe identities | Target: {}",
+        "[INFO] 🔎 [HTTP handshake] Plan | {} candidate variants | {} unique probe identities | Target: {} | Timeout: {}s | Max latency: {}ms",
         http_handshake_candidates.len(),
         unique_http_probe_count,
-        HTTP_HANDSHAKE_TARGET
+        HTTP_HANDSHAKE_TARGET,
+        HTTP_HANDSHAKE_TIMEOUT_SECS,
+        HTTP_HANDSHAKE_MAX_LATENCY_MS
     );
 
     let http_probe_results = test_http_handshakes(&http_handshake_candidates).await?;
@@ -707,9 +709,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     println!(
-        "[INFO] ✅ [HTTP handshake] Complete | {} unique probe identities | {} candidate configs passed",
+        "[INFO] ✅ [HTTP handshake] Complete | {} unique probe identities | {} candidate configs passed | Target: {} | Timeout: {}s",
         unique_http_probe_count,
-        ranked_working_configs.len()
+        ranked_working_configs.len(),
+        HTTP_HANDSHAKE_TARGET,
+        HTTP_HANDSHAKE_TIMEOUT_SECS
     );
 
     let light_gbm_candidates = ranked_working_configs
