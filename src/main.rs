@@ -1274,7 +1274,13 @@ fn compatibility_diagnostic_value(key: &str, value: &str) -> Value {
 
     if key == "plugin" {
         let name = value.split(';').next().unwrap_or("").trim();
-        return serde_json::json!({ "name": name });
+        let category = match name.to_ascii_lowercase().as_str() {
+            "obfs-local" => "obfs-local",
+            "v2ray-plugin" => "v2ray-plugin",
+            "" => "empty",
+            _ => "other",
+        };
+        return serde_json::json!({ "category": category });
     }
 
     let value = value.trim();
@@ -2054,7 +2060,7 @@ mod tests {
 
     #[test]
     fn compatibility_rejection_artifact_redacts_secrets_and_keeps_relevant_fields() {
-        let config = "vless://00000000-0000-0000-0000-000000000001@private.example:443?flow=custom-flow&type=xhttp&security=custom-security&pbk=public-key-value&seed=private-seed";
+        let config = "vless://00000000-0000-0000-0000-000000000001@private.example:443?flow=custom-flow&type=xhttp&security=custom-security&pbk=public-key-value&seed=private-seed&plugin=private-plugin-name%3Bpassword%3Dprivate-plugin-secret";
         let record = compatibility_rejection_artifact_record(config, "unsupported-flow", 2);
         let serialized = serde_json::to_string(&record).expect("record should serialize");
 
@@ -2062,11 +2068,14 @@ mod tests {
         assert_eq!(record["fields"]["type"]["value"], "xhttp");
         assert_eq!(record["fields"]["pbk"]["present"], true);
         assert_eq!(record["fields"]["seed"]["present"], true);
+        assert_eq!(record["fields"]["plugin"]["category"], "other");
         assert_eq!(record["source_count"], 2);
         assert!(!serialized.contains("private.example"));
         assert!(!serialized.contains("00000000-0000-0000-0000-000000000001"));
         assert!(!serialized.contains("public-key-value"));
         assert!(!serialized.contains("private-seed"));
+        assert!(!serialized.contains("private-plugin-name"));
+        assert!(!serialized.contains("private-plugin-secret"));
     }
 
     #[test]
