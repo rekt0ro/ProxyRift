@@ -2093,11 +2093,8 @@ mod tests {
     #[test]
     fn compatibility_rejection_artifact_preserves_safe_plugin_failure_details() {
         let config = "ss://YWVzLTI1Ni1nY206c2VjcmV0@example.com:443/?plugin=v2ray-plugin%3Bmode%3Dinvalid%3Bprivate-option%3Dprivate-value";
-        let record = compatibility_rejection_artifact_record(
-            config,
-            "unsupported-shadowsocks-plugin",
-            1,
-        );
+        let record =
+            compatibility_rejection_artifact_record(config, "unsupported-shadowsocks-plugin", 1);
         assert_eq!(record["fields"]["plugin"]["category"], "v2ray-plugin");
         assert_eq!(
             record["fields"]["plugin"]["invalid_options"],
