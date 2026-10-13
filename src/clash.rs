@@ -2,6 +2,7 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use percent_encoding::percent_decode_str;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::fs;
 use url::Url;
 
@@ -1043,10 +1044,6 @@ fn convert_hysteria2(config: &str, index: usize) -> Result<String, String> {
 
 fn convert_socks(config: &str, index: usize) -> Result<String, String> {
     let url = Url::parse(clean(config)).map_err(|error| error.to_string())?;
-    let scheme = url.scheme().to_ascii_lowercase();
-    if matches!(scheme.as_str(), "socks4" | "socks4a") {
-        return Err(format!("unsupported SOCKS variant {scheme}"));
-    }
     let (server, port) = endpoint_from_url(&url)?;
 
     let mut lines = vec![format!(
@@ -1109,8 +1106,57 @@ fn convert_config(config: &str, index: usize) -> Result<String, String> {
         "hysteria" => convert_hysteria(config, index),
         "hysteria2" | "hy2" => convert_hysteria2(config, index),
         "socks" | "socks5" | "socks5h" => convert_socks(config, index),
+        scheme @ ("socks4" | "socks4a") => Err(format!("unsupported SOCKS variant {scheme}")),
         "http" => convert_http(config, index),
         scheme => Err(format!("unsupported Clash/Mihomo proxy type {scheme}")),
+    }
+}
+
+const MAX_DIAGNOSTIC_SAMPLE_INDEXES: usize = 5;
+
+fn summarize_skipped_configs(
+    skipped: impl IntoIterator<Item = (usize, String)>,
+) -> BTreeMap<String, (usize, Vec<usize>)> {
+    let mut summaries = BTreeMap::new();
+
+    for (index, reason) in skipped {
+        let (count, sample_indexes) = summaries
+            .entry(reason)
+            .or_insert_with(|| (0usize, Vec::new()));
+        *count += 1;
+        if sample_indexes.len() < MAX_DIAGNOSTIC_SAMPLE_INDEXES {
+            sample_indexes.push(index);
+        }
+    }
+
+    summaries
+}
+
+fn log_skipped_configs(skipped: Vec<(usize, String)>) {
+    for (reason, (count, sample_indexes)) in summarize_skipped_configs(skipped) {
+        if count == 1 {
+            eprintln!(
+                "[WARN] ⚠️ [Clash/Mihomo] Skipping config {} | {}",
+                sample_indexes[0], reason
+            );
+            continue;
+        }
+
+        let sample = sample_indexes
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let remaining = count.saturating_sub(sample_indexes.len());
+        let suffix = if remaining > 0 {
+            format!(" (+{remaining} more)")
+        } else {
+            String::new()
+        };
+
+        eprintln!(
+            "[WARN] ⚠️ [Clash/Mihomo] Skipped {count} config(s) | {reason} | sample indexes: {sample}{suffix}"
+        );
     }
 }
 
@@ -1118,6 +1164,7 @@ fn render_with_count(configs: &[String]) -> Result<(String, usize), String> {
     let mut lines = vec!["proxies:".to_string()];
     let mut rendered = 0usize;
     let mut missing_port = 0usize;
+    let mut skipped = Vec::new();
 
     for (index, config) in configs.iter().enumerate() {
         match convert_config(config, index) {
@@ -1129,11 +1176,7 @@ fn render_with_count(configs: &[String]) -> Result<(String, usize), String> {
                 missing_port += 1;
             }
             Err(error) => {
-                eprintln!(
-                    "[WARN] ⚠️ [Clash/Mihomo] Skipping config {} | {}",
-                    index + 1,
-                    error
-                );
+                skipped.push((index + 1, error));
             }
         }
     }
@@ -1144,6 +1187,8 @@ fn render_with_count(configs: &[String]) -> Result<(String, usize), String> {
             missing_port
         );
     }
+
+    log_skipped_configs(skipped);
 
     if rendered == 0 {
         return Err("no configs could be rendered for Clash/Mihomo".to_string());
@@ -1173,7 +1218,37 @@ pub fn render_file(input: &str, output: &str) -> Result<usize, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::render;
+    use super::{render, summarize_skipped_configs};
+
+    #[test]
+    fn reports_socks4_variants_as_unsupported_for_clash_output() {
+        for (config, expected) in [
+            (
+                "socks4://127.0.0.1:1080",
+                "unsupported SOCKS variant socks4",
+            ),
+            (
+                "socks4a://127.0.0.1:1080",
+                "unsupported SOCKS variant socks4a",
+            ),
+        ] {
+            assert_eq!(super::convert_config(config, 0).unwrap_err(), expected);
+        }
+    }
+
+    #[test]
+    fn aggregates_repeated_skip_reasons_with_bounded_config_samples() {
+        let reason = "unsupported SOCKS variant socks4";
+        let skipped = (1691..=1750)
+            .map(|index| (index, reason.to_string()))
+            .collect::<Vec<_>>();
+
+        let summaries = summarize_skipped_configs(skipped);
+        let (count, sample_indexes) = summaries.get(reason).expect("skip reason should exist");
+
+        assert_eq!(*count, 60);
+        assert_eq!(sample_indexes, &[1691, 1692, 1693, 1694, 1695]);
+    }
 
     #[test]
     fn normalizes_vless_tls_flow_transport_and_reality_aliases() {
