@@ -3,11 +3,11 @@ use base64::Engine;
 use blake2::{digest::consts::U32, Blake2b, Digest};
 use futures::stream::{self, StreamExt};
 use percent_encoding::percent_decode_str;
-use proxyrift::light_gbm::LightGbmScores;
+use proxyrift::light_gbm::{backend_for_config, LightGbmScores};
 use proxyrift::source_discovery::CollectionOutcome;
 use proxyrift::validator::{
     cheap_compatibility_rejection_context, cheap_compatibility_rejection_reason, config_label,
-    endpoint, is_locally_supported_config, is_public_ip, resolve_public_tcp_host,
+    endpoint, is_locally_supported_config, is_public_ip, resolve_public_tcp_host, ProxyMetrics,
 };
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Endpoint};
@@ -51,6 +51,12 @@ const MAX_ALL_CONFIGS: usize = 2000;
 const MAX_ALL_PER_ENDPOINT: usize = 5;
 const MAX_LIGHT_CANDIDATES: usize = 20_000;
 const MAX_LIGHT_ENDPOINT_VARIANTS: usize = 6;
+const HTTP_HANDSHAKE_TARGET: &str = "https://www.google.com/generate_204";
+const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 5;
+const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = 5000.0;
+const HTTP_HANDSHAKE_WORKERS: usize = 40;
+const HTTP_HANDSHAKE_BATCH_SIZE: usize = 1000;
+const HTTP_HANDSHAKE_SETUP_FAILURE_LIMIT: usize = 128;
 const SOURCE_RETRIES: usize = 2;
 const SOURCE_RETRY_BASE_MS: u64 = 250;
 
@@ -546,31 +552,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return Err("no proxy configurations were collected".into());
     }
 
-    let light_gbm = match LightGbmScores::train_and_score(&configs) {
-        Ok(scores) => {
-            println!(
-                "[INFO] 🧠 [LightGBM] Collection model | Trained: {}",
-                scores.trained()
-            );
-            scores
-        }
-        Err(error) => {
-            println!("[WARN] ⚠️ [LightGBM] Collection ranking unavailable: {error}");
-            LightGbmScores::default()
-        }
-    };
-
-    configs.sort_unstable_by(|a, b| {
-        light_gbm
-            .score(b)
-            .total_cmp(&light_gbm.score(a))
-            .then_with(|| a.cmp(b))
-    });
-
-    println!(
-        "[INFO] 🧠 [Collection ranking] Ranked {} retained configs | LightGBM",
-        configs.len()
-    );
+    configs.sort_unstable();
 
     let mut scheme_counts: HashMap<String, usize> = HashMap::new();
 
@@ -633,7 +615,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         reachable_probes
     );
 
-    let mut ranked_working_configs = transport_results
+    let transport_reachable_configs = transport_results
         .into_iter()
         .zip(configs.iter())
         .filter_map(|(latency, config)| latency.map(|latency| (config.clone(), latency)))
@@ -656,7 +638,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
 
-    for (config, _) in &ranked_working_configs {
+    for (config, _) in &transport_reachable_configs {
         if let Some(sources_for_config) = named_config_sources.get(config) {
             for source in sources_for_config {
                 *reachable_by_source.entry(source.clone()).or_default() += 1;
@@ -670,7 +652,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     )
     .await?;
 
-    if ranked_working_configs.is_empty() && deferred_transport_candidates.is_empty() {
+    if transport_reachable_configs.is_empty() && deferred_transport_candidates.is_empty() {
         println!(
             "[WARN] ⚠️ No usable configs remained after transport-aware reachability and compatibility screening."
         );
@@ -679,6 +661,81 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return Err("no usable configs remained after transport-aware screening".into());
     }
 
+    let mut http_handshake_candidates = transport_reachable_configs
+        .iter()
+        .map(|(config, _)| config.clone())
+        .chain(deferred_transport_candidates.iter().cloned())
+        .collect::<Vec<_>>();
+    let mut seen_http_candidates = HashSet::with_capacity(http_handshake_candidates.len());
+    http_handshake_candidates.retain(|config| seen_http_candidates.insert(dedup_key(config)));
+
+    let unique_http_probe_count = http_handshake_candidates
+        .iter()
+        .map(|config| dedup_key(config))
+        .collect::<HashSet<_>>()
+        .len();
+    println!(
+        "[INFO] 🔎 [HTTP handshake] Plan | {} candidate variants | {} unique probe identities | Target: {} | Timeout: {}s | Max latency: {}ms",
+        http_handshake_candidates.len(),
+        unique_http_probe_count,
+        HTTP_HANDSHAKE_TARGET,
+        HTTP_HANDSHAKE_TIMEOUT_SECS,
+        HTTP_HANDSHAKE_MAX_LATENCY_MS
+    );
+
+    let (http_probe_results, singbox_http_passed_keys) =
+        test_http_handshakes(&http_handshake_candidates).await?;
+    let mut http_latency_by_key = HashMap::<String, u64>::with_capacity(http_probe_results.len());
+    for (config, metrics) in &http_probe_results {
+        if metrics.median_ms.is_finite() && metrics.median_ms <= HTTP_HANDSHAKE_MAX_LATENCY_MS {
+            http_latency_by_key
+                .insert(dedup_key(config), metrics.median_ms.max(0.0).round() as u64);
+        }
+    }
+
+    let mut ranked_working_configs = http_handshake_candidates
+        .iter()
+        .filter_map(|config| {
+            http_latency_by_key
+                .get(&dedup_key(config))
+                .map(|latency| (config.clone(), *latency))
+        })
+        .collect::<Vec<_>>();
+
+    if ranked_working_configs.is_empty() {
+        println!(
+            "[WARN] ⚠️ No configs passed the HTTP handshake reachability check; preserving existing published subscriptions."
+        );
+        return Err("no configs remained after HTTP handshake validation".into());
+    }
+
+    println!(
+        "[INFO] ✅ [HTTP handshake] Complete | {} unique probe identities | {} candidate configs passed | Target: {} | Timeout: {}s",
+        unique_http_probe_count,
+        ranked_working_configs.len(),
+        HTTP_HANDSHAKE_TARGET,
+        HTTP_HANDSHAKE_TIMEOUT_SECS
+    );
+
+    let light_gbm_candidates = ranked_working_configs
+        .iter()
+        .map(|(config, _)| config.clone())
+        .collect::<Vec<_>>();
+    let light_gbm = match LightGbmScores::train_and_score(&light_gbm_candidates) {
+        Ok(scores) => {
+            println!(
+                "[INFO] 🧠 [LightGBM] Post-handshake candidate model | Trained: {} | Candidates: {}",
+                scores.trained(),
+                light_gbm_candidates.len()
+            );
+            scores
+        }
+        Err(error) => {
+            println!("[WARN] ⚠️ [LightGBM] Candidate ranking unavailable: {error}");
+            LightGbmScores::default()
+        }
+    };
+
     ranked_working_configs.sort_unstable_by(|(config_a, latency_a), (config_b, latency_b)| {
         light_gbm
             .score(config_b)
@@ -686,6 +743,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .then_with(|| latency_a.cmp(latency_b))
             .then_with(|| config_a.cmp(config_b))
     });
+
+    let http_passed_keys = ranked_working_configs
+        .iter()
+        .map(|(config, _)| dedup_key(config))
+        .collect::<HashSet<_>>();
+    deferred_transport_candidates.retain(|config| http_passed_keys.contains(&dedup_key(config)));
 
     let light_target = MAX_LIGHT_CANDIDATES.min(ranked_working_configs.len());
     let mut light_candidates = Vec::with_capacity(light_target);
@@ -704,29 +767,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         );
     }
 
-    let sampled_transport_count = light_candidates.len();
-    deferred_transport_candidates.sort_unstable_by(|a, b| {
-        light_gbm
-            .score(b)
-            .total_cmp(&light_gbm.score(a))
-            .then_with(|| a.cmp(b))
-    });
-
-    for config in &deferred_transport_candidates {
-        if light_candidates.len() >= MAX_LIGHT_CANDIDATES {
-            break;
-        }
-
-        push_light_candidate(
-            config,
-            &mut light_candidates,
-            &mut light_candidate_endpoint_counts,
-        );
-    }
-
-    let deferred_candidates_added_count = light_candidates
-        .len()
-        .saturating_sub(sampled_transport_count);
+    let selected_light_candidates = light_candidates.iter().cloned().collect::<HashSet<_>>();
+    deferred_transport_candidates.retain(|config| selected_light_candidates.contains(config));
+    let deferred_candidates_added_count = deferred_transport_candidates.len();
 
     let mut light_source_map = serde_json::Map::new();
     for config in &light_candidates {
@@ -753,8 +796,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     write_atomic(&source_map_path, format!("{source_map}\n")).await?;
 
     println!(
-        "[INFO] 🧠 [Light candidate selection] Prioritizing {} transport-tested candidates | Deferred {} transport candidates for downstream validation | Source provenance entries: {}",
-        sampled_transport_count,
+        "[INFO] 🧠 [Light candidate selection] Selected {} HTTP-handshake-verified candidates | Deferred subset: {} | Source provenance entries: {}",
+        light_candidates.len(),
         deferred_candidates_added_count,
         light_candidates.len()
     );
@@ -769,6 +812,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     write_atomic(&light_candidates_path, light_candidates_subscription).await?;
 
+    let mut light_candidate_http_metrics = serde_json::Map::new();
+    for config in &light_candidates {
+        let identity = dedup_key(config);
+        if singbox_http_passed_keys.contains(&identity) {
+            if let Some(latency) = http_latency_by_key.get(&identity) {
+                light_candidate_http_metrics.insert(config.clone(), Value::from(*latency));
+            }
+        }
+    }
+    let light_candidate_http_metrics_path = output_dir.join(".light-candidates-http.json");
+    let light_candidate_http_metrics_json =
+        serde_json::to_string_pretty(&Value::Object(light_candidate_http_metrics))?;
+    write_atomic(
+        &light_candidate_http_metrics_path,
+        format!("{light_candidate_http_metrics_json}\n"),
+    )
+    .await?;
+
     let deferred_candidates_path = output_dir.join(".deferred-transport-candidates.txt");
     let deferred_subscription = if deferred_transport_candidates.is_empty() {
         String::new()
@@ -777,7 +838,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
     write_atomic(&deferred_candidates_path, deferred_subscription).await?;
 
-    let working_configs = select_all_candidates(&ranked_working_configs, &[]);
+    let light_pool_working_configs = light_candidates
+        .iter()
+        .filter_map(|config| {
+            http_latency_by_key
+                .get(&dedup_key(config))
+                .map(|latency| (config.clone(), *latency))
+        })
+        .collect::<Vec<_>>();
+    let working_configs = select_all_candidates(&light_pool_working_configs, &[]);
 
     let all_subscription = if working_configs.is_empty() {
         String::new()
@@ -3207,6 +3276,199 @@ async fn test_transport_configs(configs: &[String]) -> Vec<Option<u64>> {
     }
 
     latencies
+}
+
+fn validation_binary_path(name: &str) -> String {
+    let variable = match name {
+        "xray" => "PROXYRIFT_XRAY_BINARY",
+        _ => "PROXYRIFT_SINGBOX_BINARY",
+    };
+    if let Ok(binary) = env::var(variable) {
+        if !binary.trim().is_empty() {
+            return binary;
+        }
+    }
+
+    if let Ok(home) = env::var("HOME") {
+        let local = PathBuf::from(home).join(".local/bin").join(name);
+        if local.is_file() {
+            return local.to_string_lossy().into_owned();
+        }
+    }
+
+    name.to_string()
+}
+
+fn validation_binary_available(binary: &str) -> bool {
+    let path = Path::new(binary);
+    if path.components().count() > 1 {
+        return path.is_file();
+    }
+    if path.is_file() {
+        return true;
+    }
+    env::var_os("PATH").is_some_and(|paths| {
+        env::split_paths(&paths).any(|directory| directory.join(binary).is_file())
+    })
+}
+
+async fn validate_singbox_http_candidates(
+    binary: &str,
+    candidates: &[String],
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    let mut verified = HashMap::new();
+    let mut pending = candidates
+        .chunks(HTTP_HANDSHAKE_BATCH_SIZE)
+        .map(|chunk| chunk.to_vec())
+        .collect::<Vec<_>>();
+    let mut setup_failures = 0usize;
+
+    while let Some(batch) = pending.pop() {
+        match proxyrift::singbox::validate_candidates_with_target_once(
+            binary,
+            &batch,
+            HTTP_HANDSHAKE_TARGET,
+            HTTP_HANDSHAKE_WORKERS,
+            Duration::from_secs(HTTP_HANDSHAKE_TIMEOUT_SECS),
+            HTTP_HANDSHAKE_MAX_LATENCY_MS,
+        )
+        .await
+        {
+            Ok(results) => verified.extend(results),
+            Err(_) if batch.len() > 1 => {
+                let midpoint = batch.len() / 2;
+                pending.push(batch[midpoint..].to_vec());
+                pending.push(batch[..midpoint].to_vec());
+            }
+            Err(_) => {
+                setup_failures += 1;
+                println!(
+                    "[INFO] 🧹 [HTTP handshake] Candidate rejected by probe setup | {}",
+                    config_label(&batch[0])
+                );
+                if setup_failures > HTTP_HANDSHAKE_SETUP_FAILURE_LIMIT {
+                    return Err(
+                        "too many sing-box HTTP-handshake setup failures; refusing to publish an unverified pool"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(verified)
+}
+
+async fn validate_xray_http_candidates(
+    binary: &str,
+    candidates: &[String],
+) -> Result<HashMap<String, ProxyMetrics>, String> {
+    let mut verified = HashMap::new();
+    let mut pending = candidates
+        .chunks(HTTP_HANDSHAKE_BATCH_SIZE)
+        .map(|chunk| chunk.to_vec())
+        .collect::<Vec<_>>();
+    let mut setup_failures = 0usize;
+
+    while let Some(batch) = pending.pop() {
+        match proxyrift::validator::validate_candidates_with_target_once(
+            binary,
+            &batch,
+            HTTP_HANDSHAKE_TARGET,
+            HTTP_HANDSHAKE_WORKERS,
+            HTTP_HANDSHAKE_BATCH_SIZE,
+            HTTP_HANDSHAKE_TIMEOUT_SECS as f64,
+            HTTP_HANDSHAKE_MAX_LATENCY_MS,
+        )
+        .await
+        {
+            Ok(results) => verified.extend(results),
+            Err(_) if batch.len() > 1 => {
+                let midpoint = batch.len() / 2;
+                pending.push(batch[midpoint..].to_vec());
+                pending.push(batch[..midpoint].to_vec());
+            }
+            Err(_) => {
+                setup_failures += 1;
+                println!(
+                    "[INFO] 🧹 [HTTP handshake] Candidate rejected by probe setup | {}",
+                    config_label(&batch[0])
+                );
+                if setup_failures > HTTP_HANDSHAKE_SETUP_FAILURE_LIMIT {
+                    return Err(
+                        "too many Xray HTTP-handshake setup failures; refusing to publish an unverified pool"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(verified)
+}
+
+async fn test_http_handshakes(
+    candidates: &[String],
+) -> Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String> {
+    let mut seen = HashSet::with_capacity(candidates.len());
+    let mut representatives = Vec::with_capacity(candidates.len());
+    for config in candidates {
+        if seen.insert(dedup_key(config)) {
+            representatives.push(config.clone());
+        }
+    }
+
+    let mut singbox_candidates = Vec::new();
+    let mut xray_candidates = Vec::new();
+    let mut fallback_candidates = Vec::new();
+    for config in representatives {
+        match backend_for_config(&config) {
+            "xray" => xray_candidates.push(config),
+            "fallback" => {
+                singbox_candidates.push(config.clone());
+                fallback_candidates.push(config);
+            }
+            _ => singbox_candidates.push(config),
+        }
+    }
+
+    let singbox_binary = validation_binary_path("sing-box");
+    let xray_binary = validation_binary_path("xray");
+    if !singbox_candidates.is_empty() && !validation_binary_available(&singbox_binary) {
+        return Err("sing-box is required for HTTP-handshake candidate screening".to_string());
+    }
+    if (!xray_candidates.is_empty() || !fallback_candidates.is_empty())
+        && !validation_binary_available(&xray_binary)
+    {
+        return Err("Xray is required for HTTP-handshake candidate screening".to_string());
+    }
+
+    let (singbox_results, xray_results) = tokio::join!(
+        validate_singbox_http_candidates(&singbox_binary, &singbox_candidates),
+        validate_xray_http_candidates(&xray_binary, &xray_candidates)
+    );
+
+    let singbox_results = singbox_results?;
+    let mut xray_results = xray_results?;
+    let fallback_retry = fallback_candidates
+        .into_iter()
+        .filter(|config| !singbox_results.contains_key(config))
+        .collect::<Vec<_>>();
+    if !fallback_retry.is_empty() {
+        println!(
+            "[INFO] 🔄 [HTTP handshake fallback] Retrying {} candidates with Xray",
+            fallback_retry.len()
+        );
+        xray_results.extend(validate_xray_http_candidates(&xray_binary, &fallback_retry).await?);
+    }
+
+    let singbox_passed_keys = singbox_results
+        .keys()
+        .map(|config| dedup_key(config))
+        .collect::<HashSet<_>>();
+    let mut results = singbox_results;
+    results.extend(xray_results);
+    Ok((results, singbox_passed_keys))
 }
 
 #[derive(Debug)]
