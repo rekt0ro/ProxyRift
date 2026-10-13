@@ -1800,77 +1800,170 @@ fn parse_trojan(config: &str) -> Result<Value, String> {
     }))
 }
 
-fn supported_ss_plugin(key: &str, value: &str) -> bool {
-    if !key.eq_ignore_ascii_case("plugin") {
-        return true;
-    }
+struct SsPluginValidation {
+    category: &'static str,
+    supported: bool,
+    option_names: Vec<String>,
+    unsupported_options: Vec<String>,
+    invalid_options: Vec<String>,
+    duplicate_options: Vec<String>,
+}
 
+fn ss_plugin_category(name: &str) -> &'static str {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "obfs-local" => "obfs-local",
+        "v2ray-plugin" => "v2ray-plugin",
+        "" => "empty",
+        _ => "other",
+    }
+}
+
+fn safe_ss_plugin_option_name(key: &str) -> String {
+    if !key.is_empty()
+        && key.len() <= 40
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        key.to_string()
+    } else {
+        "other".to_string()
+    }
+}
+
+fn known_ss_plugin_option(plugin: &str, key: &str) -> bool {
+    match plugin {
+        "obfs-local" => matches!(
+            key,
+            "obfs" | "obfs-host" | "obfs-uri" | "fast-open" | "mptcp"
+        ),
+        "v2ray-plugin" => matches!(
+            key,
+            "mode" | "host" | "path" | "cert" | "certraw" | "tls" | "mux" | "loglevel"
+        ),
+        _ => false,
+    }
+}
+
+fn supported_ss_plugin_option(plugin: &str, key: &str, value: Option<&str>) -> bool {
+    match plugin {
+        "obfs-local" => match key {
+            "obfs" => value.is_some_and(|value| {
+                matches!(value.trim().to_ascii_lowercase().as_str(), "http" | "tls")
+            }),
+            "obfs-host" | "obfs-uri" => value.is_some(),
+            "fast-open" | "mptcp" => value.is_none(),
+            _ => false,
+        },
+        "v2ray-plugin" => match key {
+            "mode" => value.is_some_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "websocket" | "quic"
+                )
+            }),
+            "host" | "path" => value.is_some(),
+            "cert" | "certraw" => value.is_some_and(|value| !value.trim().is_empty()),
+            "tls" => value.is_none_or(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+                )
+            }),
+            "mux" => value.is_none_or(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
+                ) || value.trim().parse::<i64>().is_ok()
+            }),
+            "loglevel" => value.is_some_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "debug" | "info" | "warning" | "error" | "none"
+                )
+            }),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn validate_ss_plugin(value: &str) -> SsPluginValidation {
     let mut parts = value.split(';');
-    let name = parts.next().unwrap_or("").trim();
+    let name = parts.next().unwrap_or("").trim().to_ascii_lowercase();
+    let category = ss_plugin_category(&name);
+    let recognized = matches!(name.as_str(), "obfs-local" | "v2ray-plugin");
     let mut seen = HashSet::new();
+    let mut option_names = Vec::new();
+    let mut unsupported_options = Vec::new();
+    let mut invalid_options = Vec::new();
+    let mut duplicate_options = Vec::new();
 
-    for option in parts {
-        let option = option.trim();
-        if option.is_empty() {
-            continue;
-        }
+    if recognized {
+        for option in parts {
+            let option = option.trim();
+            if option.is_empty() {
+                continue;
+            }
 
-        let (key, value) = option
-            .split_once('=')
-            .map(|(key, value)| (key.trim().to_ascii_lowercase(), Some(value.trim())))
-            .unwrap_or_else(|| (option.to_ascii_lowercase(), None));
-        if key.is_empty() || !seen.insert(key.clone()) {
-            return false;
-        }
+            let (key, value) = option
+                .split_once('=')
+                .map(|(key, value)| (key.trim().to_ascii_lowercase(), Some(value.trim())))
+                .unwrap_or_else(|| (option.to_ascii_lowercase(), None));
+            let diagnostic_name = safe_ss_plugin_option_name(&key);
+            if !option_names.contains(&diagnostic_name) {
+                option_names.push(diagnostic_name.clone());
+            }
+            if key.is_empty() {
+                unsupported_options.push("other".to_string());
+                continue;
+            }
+            if !seen.insert(key.clone()) {
+                if !duplicate_options.contains(&diagnostic_name) {
+                    duplicate_options.push(diagnostic_name);
+                }
+                continue;
+            }
 
-        match name {
-            "obfs-local" => match key.as_str() {
-                "obfs"
-                    if value.is_some_and(|value| {
-                        matches!(value.trim().to_ascii_lowercase().as_str(), "http" | "tls")
-                    }) => {}
-                "obfs-host" | "obfs-uri" if value.is_some() => {}
-                "fast-open" | "mptcp" if value.is_none() => {}
-                _ => return false,
-            },
-            "v2ray-plugin" => match key.as_str() {
-                "mode"
-                    if value.is_some_and(|value| {
-                        matches!(
-                            value.trim().to_ascii_lowercase().as_str(),
-                            "websocket" | "quic"
-                        )
-                    }) => {}
-                "host" | "path" if value.is_some() => {}
-                "cert" | "certraw" if value.is_some_and(|value| !value.trim().is_empty()) => {}
-                "tls"
-                    if value.is_none_or(|value| {
-                        matches!(
-                            value.trim().to_ascii_lowercase().as_str(),
-                            "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
-                        )
-                    }) => {}
-                "mux"
-                    if value.is_none_or(|value| {
-                        matches!(
-                            value.trim().to_ascii_lowercase().as_str(),
-                            "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off"
-                        ) || value.trim().parse::<i64>().is_ok()
-                    }) => {}
-                "loglevel"
-                    if value.is_some_and(|value| {
-                        matches!(
-                            value.trim().to_ascii_lowercase().as_str(),
-                            "debug" | "info" | "warning" | "error" | "none"
-                        )
-                    }) => {}
-                _ => return false,
-            },
-            _ => return false,
+            if supported_ss_plugin_option(&name, &key, value) {
+                continue;
+            }
+            if known_ss_plugin_option(&name, &key) {
+                invalid_options.push(diagnostic_name);
+            } else {
+                unsupported_options.push(diagnostic_name);
+            }
         }
     }
 
-    matches!(name, "obfs-local" | "v2ray-plugin")
+    let supported = recognized
+        && unsupported_options.is_empty()
+        && invalid_options.is_empty()
+        && duplicate_options.is_empty();
+    SsPluginValidation {
+        category,
+        supported,
+        option_names,
+        unsupported_options,
+        invalid_options,
+        duplicate_options,
+    }
+}
+
+pub fn compatibility_shadowsocks_plugin_diagnostics(value: &str) -> Value {
+    let validation = validate_ss_plugin(value);
+    json!({
+        "category": validation.category,
+        "supported": validation.supported,
+        "option_names": validation.option_names,
+        "unsupported_options": validation.unsupported_options,
+        "invalid_options": validation.invalid_options,
+        "duplicate_options": validation.duplicate_options,
+    })
+}
+
+fn supported_ss_plugin(key: &str, value: &str) -> bool {
+    !key.eq_ignore_ascii_case("plugin") || validate_ss_plugin(value).supported
 }
 
 fn parse_ss(config: &str) -> Result<Value, String> {
@@ -6583,6 +6676,25 @@ mod tests {
             cheap_compatibility_rejection_reason("hy2://example.com:443"),
             Some("invalid-hysteria2-endpoint-or-auth")
         );
+    }
+
+    #[test]
+    fn shadowsocks_plugin_diagnostics_explain_rejections_without_values() {
+        let diagnostic = compatibility_shadowsocks_plugin_diagnostics(
+            "v2ray-plugin;mode=invalid;tls;secret-option=private-value;mode=quic",
+        );
+        assert_eq!(diagnostic["category"], "v2ray-plugin");
+        assert_eq!(diagnostic["supported"], false);
+        assert_eq!(
+            diagnostic["option_names"],
+            json!(["mode", "tls", "secret-option"])
+        );
+        assert_eq!(diagnostic["invalid_options"], json!(["mode"]));
+        assert_eq!(diagnostic["unsupported_options"], json!(["secret-option"]));
+        assert_eq!(diagnostic["duplicate_options"], json!(["mode"]));
+        let serialized = diagnostic.to_string();
+        assert!(!serialized.contains("private-value"));
+        assert!(!serialized.contains("invalid"));
     }
 
     #[test]

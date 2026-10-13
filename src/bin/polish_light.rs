@@ -3082,7 +3082,62 @@ fn light_training_features(
     features
 }
 
-#[allow(clippy::too_many_arguments)]
+fn light_validation_report_configuration(
+    config: &str,
+    stability: Option<&ProxyMetrics>,
+    transfer: Option<&ProxyMetrics>,
+    light_gbm_scores: &LightGbmScores,
+) -> Result<Value, String> {
+    let stability = stability.ok_or_else(|| {
+        format!(
+            "selected config {} has no 1 MiB validation record",
+            observation_fingerprint(config)
+        )
+    })?;
+    let transfer = transfer.ok_or_else(|| {
+        format!(
+            "selected config {} has no 9 MiB validation record",
+            observation_fingerprint(config)
+        )
+    })?;
+    if stability.successful_targets.is_empty() || transfer.successful_targets.is_empty() {
+        return Err(format!(
+            "selected config {} is missing a successful download destination",
+            observation_fingerprint(config)
+        ));
+    }
+
+    let protocol = config
+        .split_once("://")
+        .map(|(scheme, _)| scheme.to_ascii_lowercase())
+        .unwrap_or_else(|| "unknown".to_string());
+    Ok(serde_json::json!({
+        "config_id": observation_fingerprint(config),
+        "protocol": protocol,
+        "validated_core": "sing-box",
+        "validation_passed": true,
+        "one_mib": {
+            "passed": true,
+            "bytes": LIGHT_TRANSFER_STABILITY_BYTES,
+            "successful_targets": stability.successful_targets.clone(),
+            "duration_ms": stability.median_ms,
+        },
+        "nine_mib_sustained": {
+            "passed": true,
+            "bytes": STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
+            "successful_targets": transfer.successful_targets.clone(),
+            "duration_ms": transfer.median_ms,
+            "throughput_kbps": transfer.throughput_kbps,
+            "throughput_mbps": transfer.throughput_kbps / 1000.0,
+            "timeout_limit_ms": FINAL_TRANSFER_LATENCY_LIMIT_MS,
+            "max_inter_chunk_idle_secs": STREAM_CONTINUITY_MAX_IDLE_SECS,
+        },
+        "total_download_bytes": LIGHT_TRANSFER_STABILITY_BYTES
+            + STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
+        "lightgbm_score": light_gbm_scores.score(config)
+    }))
+}
+
 fn write_light_validation_report(
     selected: &[String],
     stability_verified: &HashMap<String, ProxyMetrics>,
@@ -3096,59 +3151,19 @@ fn write_light_validation_report(
     let configurations = selected
         .iter()
         .map(|config| {
-            let stability = stability_verified.get(config).ok_or_else(|| {
-                format!(
-                    "published config {} has no 1 MiB validation record",
-                    observation_fingerprint(config)
-                )
-            })?;
-            let transfer = transfer_verified.get(config).ok_or_else(|| {
-                format!(
-                    "published config {} has no 9 MiB validation record",
-                    observation_fingerprint(config)
-                )
-            })?;
-            if stability.successful_targets.is_empty() || transfer.successful_targets.is_empty() {
-                return Err(format!(
-                    "published config {} is missing a successful download destination",
-                    observation_fingerprint(config)
-                ));
-            }
-
-            let protocol = config
-                .split_once("://")
-                .map(|(scheme, _)| scheme.to_ascii_lowercase())
-                .unwrap_or_else(|| "unknown".to_string());
-            Ok(serde_json::json!({
-                "config_id": observation_fingerprint(config),
-                "protocol": protocol,
-                "validated_core": "sing-box",
-                "one_mib": {
-                    "passed": true,
-                    "bytes": LIGHT_TRANSFER_STABILITY_BYTES,
-                    "successful_targets": stability.successful_targets.clone(),
-                    "duration_ms": stability.median_ms,
-                },
-                "nine_mib_sustained": {
-                    "passed": true,
-                    "bytes": STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
-                    "successful_targets": transfer.successful_targets.clone(),
-                    "duration_ms": transfer.median_ms,
-                    "throughput_kbps": transfer.throughput_kbps,
-                    "throughput_mbps": transfer.throughput_kbps / 1000.0,
-                    "timeout_limit_ms": FINAL_TRANSFER_LATENCY_LIMIT_MS,
-                    "max_inter_chunk_idle_secs": STREAM_CONTINUITY_MAX_IDLE_SECS,
-                },
-                "total_download_bytes": LIGHT_TRANSFER_STABILITY_BYTES
-                    + STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
-                "lightgbm_score": light_gbm_scores.score(config),
-                "published": true
-            }))
+            light_validation_report_configuration(
+                config,
+                stability_verified.get(config),
+                transfer_verified.get(config),
+                light_gbm_scores,
+            )
         })
         .collect::<Result<Vec<_>, String>>()?;
 
     let report = serde_json::json!({
-        "version": 2,
+        "version": 3,
+        "report_scope": "validation_only",
+        "publication_decision": "not_evaluated",
         "training_objective": "validated_stream_throughput_regression",
         "validated_core": "sing-box",
         "primary_targets": [
@@ -4363,6 +4378,7 @@ mod tests {
         adjust_discovery_batch_for_yield, adjust_transfer_workers, discovery_downstream_progressed,
         final_publication_limit, has_disabled_tls_verification, history_fingerprint,
         interleave_repeat_candidates, light_backend, light_training_features,
+        light_validation_report_configuration,
         mirror_sustained_stream_results, normalize_light_config, observation_fingerprint,
         persist_candidate_ledger, rank_discovery_candidates, recheck_exploration_limit,
         select_current_publication, select_recheck_candidates, select_stability_test_batch,
@@ -4380,6 +4396,29 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn light_validation_report_does_not_claim_publication() {
+        let metrics = ProxyMetrics {
+            successes: 1,
+            attempts: 1,
+            median_ms: 50.0,
+            min_ms: 45.0,
+            jitter_ms: 1.0,
+            throughput_kbps: 1_000.0,
+            successful_targets: vec!["https://example.com/".to_string()],
+        };
+        let entry = light_validation_report_configuration(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443",
+            Some(&metrics),
+            Some(&metrics),
+            &LightGbmScores::default(),
+        )
+        .expect("valid metrics should produce a validation report entry");
+
+        assert_eq!(entry["validation_passed"], true);
+        assert!(entry.get("published").is_none());
+    }
 
     #[test]
     fn final_stream_ranking_prefers_measured_throughput_over_history() {
