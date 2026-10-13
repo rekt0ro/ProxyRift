@@ -4686,14 +4686,8 @@ mod tests {
             .cloned()
             .map(|config| (config, metrics.clone()))
             .collect::<HashMap<_, _>>();
-        let (selected, fresh) = select_current_publication(
-            &verified,
-            &repeats,
-            &HashSet::new(),
-            200,
-            1,
-            3,
-        );
+        let (selected, fresh) =
+            select_current_publication(&verified, &repeats, &HashSet::new(), 200, 1, 3);
         assert_eq!(selected.len(), 200);
         assert_eq!(fresh, 163);
     }
