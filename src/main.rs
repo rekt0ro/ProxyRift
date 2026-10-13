@@ -1332,10 +1332,9 @@ fn compatibility_diagnostic_fields(config: &str) -> Value {
     };
 
     if config_scheme(config) == "vmess" {
-        if let Some(decoded) = config
-            .split_once("://")
-            .and_then(|(_, payload)| decode_vmess_payload(payload.split('#').next().unwrap_or(payload)))
-        {
+        if let Some(decoded) = config.split_once("://").and_then(|(_, payload)| {
+            decode_vmess_payload(payload.split('#').next().unwrap_or(payload))
+        }) {
             if let Ok(Value::Object(object)) = serde_json::from_str::<Value>(&decoded) {
                 for (key, value) in object {
                     let value = match value {
@@ -1392,8 +1391,7 @@ fn compatibility_rejection_artifact_record(
 }
 
 fn write_compatibility_rejection_artifact(records: &[Value]) {
-    let directory = env::var("PROXYRIFT_TMP_DIR")
-        .unwrap_or_else(|_| "/tmp/proxyrift".to_string());
+    let directory = env::var("PROXYRIFT_TMP_DIR").unwrap_or_else(|_| "/tmp/proxyrift".to_string());
     if let Err(error) = std::fs::create_dir_all(&directory) {
         eprintln!("[WARN] Could not create compatibility diagnostics directory: {error}");
         return;
@@ -2044,14 +2042,56 @@ fn decode_base64_variants(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_limited_chunk, assign_config_names, decode_base64_variants, extract_configs,
-        normalize_config, parse_source_redirect, push_light_candidate, safe_source_client,
-        safe_source_redirect, select_all_candidates, split_concatenated_configs,
-        tcp_endpoint_groups, transport_probe_key, trim_config, wireguard_key, MAX_SOURCE_BYTES,
+        append_limited_chunk, assign_config_names, compatibility_rejection_artifact_record,
+        decode_base64_variants, extract_configs, normalize_config, parse_source_redirect,
+        push_light_candidate, safe_source_client, safe_source_redirect, select_all_candidates,
+        split_concatenated_configs, tcp_endpoint_groups, transport_probe_key, trim_config,
+        wireguard_key, MAX_SOURCE_BYTES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use url::Url;
+
+    #[test]
+    fn compatibility_rejection_artifact_redacts_secrets_and_keeps_relevant_fields() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@private.example:443?flow=custom-flow&type=xhttp&security=custom-security&pbk=public-key-value&seed=private-seed";
+        let record = compatibility_rejection_artifact_record(config, "unsupported-flow", 2);
+        let serialized = serde_json::to_string(&record).expect("record should serialize");
+
+        assert_eq!(record["fields"]["flow"]["value"], "custom-flow");
+        assert_eq!(record["fields"]["type"]["value"], "xhttp");
+        assert_eq!(record["fields"]["pbk"]["present"], true);
+        assert_eq!(record["fields"]["seed"]["present"], true);
+        assert_eq!(record["source_count"], 2);
+        assert!(!serialized.contains("private.example"));
+        assert!(!serialized.contains("00000000-0000-0000-0000-000000000001"));
+        assert!(!serialized.contains("public-key-value"));
+        assert!(!serialized.contains("private-seed"));
+    }
+
+    #[test]
+    fn compatibility_rejection_artifact_decodes_vmess_fields_without_endpoint_data() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "ps": "private label",
+            "add": "private.example",
+            "port": "443",
+            "id": "private-uuid",
+            "net": "made-up-network",
+            "tls": "reality"
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+        let record =
+            compatibility_rejection_artifact_record(&config, "unsupported-vmess-transport", 1);
+        let serialized = serde_json::to_string(&record).expect("record should serialize");
+
+        assert_eq!(record["fields"]["net"]["value"], "made-up-network");
+        assert_eq!(record["fields"]["tls"]["value"], "reality");
+        assert_eq!(record["fields"]["id"]["present"], true);
+        assert!(!serialized.contains("private.example"));
+        assert!(!serialized.contains("private-uuid"));
+        assert!(!serialized.contains("private label"));
+    }
 
     #[test]
     fn light_candidates_allow_six_variants_per_endpoint() {
