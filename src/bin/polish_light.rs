@@ -35,7 +35,7 @@ const DISCOVERY_BATCH_MAX: usize = 300;
 const DISCOVERY_BATCH_HARD_MAX: usize = 600;
 const DISCOVERY_STALL_BATCH_SIZE: usize = DISCOVERY_BATCH_HARD_MAX;
 const DISCOVERY_STAGNATION_WAVES: usize = 4;
-const MAX_DISCOVERY_CANDIDATES: usize = 15_000;
+const MAX_DISCOVERY_CANDIDATES: usize = 20_000;
 const DISCOVERY_SAFETY_FACTOR: f64 = 1.15;
 const TRANSFER_RESERVE_DEFAULT_PASS_RATE: f64 = 0.80;
 const FINAL_RECHECK_LIMIT: usize = 350;
@@ -4625,7 +4625,7 @@ mod tests {
 
     #[test]
     fn max_light_candidates_matches_update_workflow_limit() {
-        assert_eq!(MAX_DISCOVERY_CANDIDATES, 15_000);
+        assert_eq!(MAX_DISCOVERY_CANDIDATES, 20_000);
     }
 
     #[test]
@@ -5074,7 +5074,7 @@ mod tests {
 
     #[test]
     fn discovery_ranking_spreads_exploration_across_large_pools() {
-        let configs = (0..15_000)
+        let configs = (0..20_000)
             .map(|index| format!("vless://id{index}@node{index}.example.com:443"))
             .collect::<Vec<_>>();
         let light_gbm = LightGbmScores::default();

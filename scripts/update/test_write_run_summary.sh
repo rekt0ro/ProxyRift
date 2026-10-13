@@ -11,7 +11,7 @@ printf 'vless://light@example.net:443\n' > "$work/subscriptions/light.txt"
 
 cat > "$work/proxyrift/light-stats.json" <<'JSON'
 {
-  "input_candidates": 15000, "security_rejected": 0, "strict_verified": 300,
+  "input_candidates": 20000, "security_rejected": 0, "strict_verified": 300,
   "strict_attempts": 317, "selection_target": 200, "strict_selectable": 200,
   "stability_selectable": 200, "transfer_selectable": 200, "stream_selectable": 200,
   "selection_shortfall": 0, "transfer_tested": 232, "transfer_passed": 211,
@@ -89,7 +89,7 @@ run_summary() {
 }
 
 run_summary "$tmp/summary.md"
-grep -Fq '| Candidates checked | 15,000 |' "$tmp/summary.md"
+grep -Fq '| Candidates checked | 20,000 |' "$tmp/summary.md"
 grep -Fq '| Strict validation | 300 / 317 |' "$tmp/summary.md"
 grep -Fq '| 10 MiB transfer | 211 / 232 |' "$tmp/summary.md"
 grep -Fq '| Sustained stream | 209 / 211 |' "$tmp/summary.md"

@@ -22,7 +22,7 @@ jobs:
   collect:
     name: "🔎 Collect & Validate"
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       actions: read
       contents: write
@@ -200,7 +200,7 @@ jobs:
       - name: "💡 Build Light subscription"
         id: build_light
         env:
-          LIGHT_MAX_CANDIDATES: "15000"
+          LIGHT_MAX_CANDIDATES: "20000"
           PROXYRIFT_LOG_MODE: "compact"
         run: bash scripts/update/build_light_subscription.sh
 
