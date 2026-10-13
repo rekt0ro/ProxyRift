@@ -683,7 +683,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         HTTP_HANDSHAKE_MAX_LATENCY_MS
     );
 
-    let http_probe_results = test_http_handshakes(&http_handshake_candidates).await?;
+    let (http_probe_results, singbox_http_passed_keys) =
+        test_http_handshakes(&http_handshake_candidates).await?;
     let mut http_latency_by_key = HashMap::<String, u64>::with_capacity(http_probe_results.len());
     for (config, metrics) in &http_probe_results {
         if metrics.median_ms.is_finite() && metrics.median_ms <= HTTP_HANDSHAKE_MAX_LATENCY_MS {
@@ -813,8 +814,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let mut light_candidate_http_metrics = serde_json::Map::new();
     for config in &light_candidates {
-        if let Some(latency) = http_latency_by_key.get(&dedup_key(config)) {
-            light_candidate_http_metrics.insert(config.clone(), Value::from(*latency));
+        let identity = dedup_key(config);
+        if singbox_http_passed_keys.contains(&identity) {
+            if let Some(latency) = http_latency_by_key.get(&identity) {
+                light_candidate_http_metrics.insert(config.clone(), Value::from(*latency));
+            }
         }
     }
     let light_candidate_http_metrics_path = output_dir.join(".light-candidates-http.json");
@@ -3405,7 +3409,7 @@ async fn validate_xray_http_candidates(
 
 async fn test_http_handshakes(
     candidates: &[String],
-) -> Result<HashMap<String, ProxyMetrics>, String> {
+) -> Result<(HashMap<String, ProxyMetrics>, HashSet<String>), String> {
     let mut seen = HashSet::with_capacity(candidates.len());
     let mut representatives = Vec::with_capacity(candidates.len());
     for config in candidates {
@@ -3458,9 +3462,13 @@ async fn test_http_handshakes(
         xray_results.extend(validate_xray_http_candidates(&xray_binary, &fallback_retry).await?);
     }
 
+    let singbox_passed_keys = singbox_results
+        .keys()
+        .map(|config| dedup_key(config))
+        .collect::<HashSet<_>>();
     let mut results = singbox_results;
     results.extend(xray_results);
-    Ok(results)
+    Ok((results, singbox_passed_keys))
 }
 
 #[derive(Debug)]
