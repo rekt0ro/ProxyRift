@@ -7,6 +7,7 @@ light_started_epoch="$(date +%s)"
 set +e
 ./target/release/polish_light \
   --candidates subscriptions/.light-candidates.txt \
+  --prevalidated-http-metrics subscriptions/.light-candidates-http.json \
   --output /tmp/proxyrift/light.next.txt \
   --workers 48 \
   --batch-size 1000 \
