@@ -4179,6 +4179,8 @@ async fn main() -> Result<(), String> {
         selected_revalidated_count,
         fresh_family_selected
     );
+    let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
+    sort_by_measured_stream_speed(&mut stream_ranked, &stream_verified);
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(
         &stream_ranked,
         publication_limit,
