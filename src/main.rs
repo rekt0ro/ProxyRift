@@ -667,7 +667,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .chain(deferred_transport_candidates.iter().cloned())
         .collect::<Vec<_>>();
     let mut seen_http_candidates = HashSet::with_capacity(http_handshake_candidates.len());
-    http_handshake_candidates.retain(|config| seen_http_candidates.insert(config.clone()));
+    http_handshake_candidates.retain(|config| seen_http_candidates.insert(dedup_key(config)));
 
     let unique_http_probe_count = http_handshake_candidates
         .iter()
