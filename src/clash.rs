@@ -1226,10 +1226,7 @@ mod tests {
             ("socks4://127.0.0.1:1080", "unsupported SOCKS variant socks4"),
             ("socks4a://127.0.0.1:1080", "unsupported SOCKS variant socks4a"),
         ] {
-            assert_eq!(
-                super::convert_config(config, 0).unwrap_err(),
-                expected
-            );
+            assert_eq!(super::convert_config(config, 0).unwrap_err(), expected);
         }
     }
 
