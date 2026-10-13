@@ -17,21 +17,21 @@ use url::{Host, Url};
 
 pub const PRIMARY_TARGET: &str = "https://www.google.com/generate_204";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speed.cloudflare.com/__down?bytes=10485760";
-pub const ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET: &str =
-    "https://mirror.arvancloud.ir/ubuntu/dists/noble-security/Contents-amd64.gz";
-pub const MOBINHOST_SPEEDTEST_100MB_TARGET: &str =
-    "https://mirror.mobinhost.com/.speedtest/100mb.bin";
+pub const HETZNER_SPEEDTEST_100MB_TARGET: &str = "https://fsn1-speed.hetzner.com/100MB.bin";
+pub const TRUEFILESIZE_SPEEDTEST_100MB_TARGET: &str =
+    "https://cdn.truefilesize.com/test/test-10mb.bin";
+pub const TELE2_SPEEDTEST_100MB_TARGET: &str = "http://speedtest.tele2.net/10MB.zip";
 pub const STRICT_THROUGHPUT_TARGETS: &[&str] = &[
-    ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
-    MOBINHOST_SPEEDTEST_100MB_TARGET,
     STRICT_THROUGHPUT_TARGET,
-    "https://fsn1-speed.hetzner.com/100MB.bin",
+    HETZNER_SPEEDTEST_100MB_TARGET,
+    TRUEFILESIZE_SPEEDTEST_100MB_TARGET,
+    TELE2_SPEEDTEST_100MB_TARGET,
 ];
 pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
-    ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
-    MOBINHOST_SPEEDTEST_100MB_TARGET,
     STRICT_THROUGHPUT_TARGET,
-    "https://fsn1-speed.hetzner.com/100MB.bin",
+    HETZNER_SPEEDTEST_100MB_TARGET,
+    TRUEFILESIZE_SPEEDTEST_100MB_TARGET,
+    TELE2_SPEEDTEST_100MB_TARGET,
 ];
 pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 1;
 pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
@@ -297,34 +297,27 @@ fn target_performance_diagnostics(target: &str) -> String {
 }
 
 fn sort_targets_by_performance(targets: &mut [Url]) {
-    let has_iranian_primary = targets.iter().any(|target| {
-        matches!(
-            target.as_str(),
-            ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET | MOBINHOST_SPEEDTEST_100MB_TARGET
-        )
-    });
-    let priority = |target: &Url| {
-        if !has_iranian_primary {
-            return 2;
-        }
-        match target.as_str() {
-            ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET => 0,
-            MOBINHOST_SPEEDTEST_100MB_TARGET => 1,
-            _ => 2,
-        }
-    };
     let mut ranked = targets
         .iter()
         .cloned()
-        .map(|target| (target_performance_score(target.as_str()), target))
+        .map(|target| {
+            let rate_limited = target_is_rate_limited(target.as_str());
+            (
+                rate_limited,
+                target_performance_score(target.as_str()),
+                target,
+            )
+        })
         .collect::<Vec<_>>();
-    ranked.sort_by(|(left_score, left_target), (right_score, right_target)| {
-        priority(left_target)
-            .cmp(&priority(right_target))
-            .then_with(|| right_score.total_cmp(left_score))
-    });
-
-    for (slot, (_, target)) in targets.iter_mut().zip(ranked) {
+    ranked.sort_by(
+        |(left_limited, left_score, left_target), (right_limited, right_score, right_target)| {
+            left_limited
+                .cmp(right_limited)
+                .then_with(|| right_score.total_cmp(left_score))
+                .then_with(|| left_target.host_str().cmp(&right_target.host_str()))
+        },
+    );
+    for (slot, (_, _, target)) in targets.iter_mut().zip(ranked) {
         *slot = target;
     }
 }
@@ -3581,15 +3574,8 @@ pub(crate) fn throughput_bytes_for_target(url: &str) -> Option<usize> {
     }
 }
 
-pub(crate) fn minimum_probe_body_bytes_for_target(url: &str, configured_minimum: usize) -> usize {
-    if (url == ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
-        || url == MOBINHOST_SPEEDTEST_100MB_TARGET)
-        && configured_minimum >= STRICT_THROUGHPUT_BYTES
-    {
-        configured_minimum.max(STRICT_THROUGHPUT_BYTES)
-    } else {
-        configured_minimum
-    }
+pub(crate) fn minimum_probe_body_bytes_for_target(_url: &str, configured_minimum: usize) -> usize {
+    configured_minimum
 }
 
 pub(crate) fn response_limit_for_target(url: &str) -> usize {
@@ -5375,38 +5361,25 @@ mod tests {
     use tokio::net::TcpListener;
 
     #[test]
-    fn transfer_targets_prioritize_arvan_and_mobin_before_foreign_fallbacks() {
-        let mut targets = vec![
-            Url::parse("https://fsn1-speed.hetzner.com/100MB.bin").unwrap(),
-            Url::parse(STRICT_THROUGHPUT_TARGET).unwrap(),
-            Url::parse(MOBINHOST_SPEEDTEST_100MB_TARGET).unwrap(),
-            Url::parse(ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET).unwrap(),
-        ];
+    fn transfer_targets_have_four_independent_external_download_hosts() {
+        assert_eq!(STRICT_THROUGHPUT_TARGETS.len(), 4);
+        assert_eq!(LIGHT_TRANSFER_STABILITY_TARGETS.len(), 4);
 
-        sort_targets_by_performance(&mut targets);
-
-        assert_eq!(
-            targets[0].as_str(),
-            ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
-        );
-        assert_eq!(targets[1].as_str(), MOBINHOST_SPEEDTEST_100MB_TARGET);
-        assert!(targets[2..].iter().all(|target| {
-            target.as_str() != ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
-                && target.as_str() != MOBINHOST_SPEEDTEST_100MB_TARGET
-        }));
-    }
-
-    #[test]
-    fn remaining_iranian_target_precedes_foreign_fallbacks_after_a_cooldown() {
-        let mut targets = vec![
-            Url::parse("https://fsn1-speed.hetzner.com/100MB.bin").unwrap(),
-            Url::parse(MOBINHOST_SPEEDTEST_100MB_TARGET).unwrap(),
-            Url::parse(STRICT_THROUGHPUT_TARGET).unwrap(),
-        ];
-
-        sort_targets_by_performance(&mut targets);
-
-        assert_eq!(targets[0].as_str(), MOBINHOST_SPEEDTEST_100MB_TARGET);
+        let hosts = STRICT_THROUGHPUT_TARGETS
+            .iter()
+            .map(|target| Url::parse(target).unwrap().host_str().unwrap().to_string())
+            .collect::<HashSet<_>>();
+        assert_eq!(hosts.len(), 4);
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&STRICT_THROUGHPUT_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&HETZNER_SPEEDTEST_100MB_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&TELE2_SPEEDTEST_100MB_TARGET));
+        assert!(!STRICT_THROUGHPUT_TARGETS
+            .iter()
+            .any(|target| { target.contains("arvancloud") || target.contains("mobinhost") }));
+        assert!(STRICT_THROUGHPUT_TARGETS
+            .iter()
+            .all(|target| is_throughput_target(target)));
     }
 
     #[test]
@@ -5732,14 +5705,14 @@ mod tests {
     #[test]
     fn transfer_payload_size_is_scoped_to_each_validation_stage() {
         let stream_bytes = SUSTAINED_STREAM_SEGMENTS * SUSTAINED_STREAM_SEGMENT_BYTES;
-
-        for target in [
-            ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
-            MOBINHOST_SPEEDTEST_100MB_TARGET,
-        ] {
-            assert!(STRICT_THROUGHPUT_TARGETS.contains(&target));
-            assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(&target));
-
+        assert_eq!(STRICT_THROUGHPUT_TARGETS.len(), 4);
+        let hosts = STRICT_THROUGHPUT_TARGETS
+            .iter()
+            .map(|target| Url::parse(target).unwrap().host_str().unwrap().to_string())
+            .collect::<HashSet<_>>();
+        assert_eq!(hosts.len(), 4);
+        for target in STRICT_THROUGHPUT_TARGETS {
+            assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(target));
             assert_eq!(
                 throughput_bytes_for_target(target),
                 Some(STRICT_THROUGHPUT_BYTES)
@@ -5748,19 +5721,15 @@ mod tests {
                 minimum_probe_body_bytes_for_target(target, STRICT_THROUGHPUT_BYTES),
                 STRICT_THROUGHPUT_BYTES
             );
-
             assert_eq!(
                 minimum_probe_body_bytes_for_target(target, LIGHT_TRANSFER_STABILITY_BYTES),
-                LIGHT_TRANSFER_STABILITY_BYTES,
-                "stability probe should only require 1 MiB from {target}"
+                LIGHT_TRANSFER_STABILITY_BYTES
             );
             assert_eq!(
                 minimum_probe_body_bytes_for_target(target, stream_bytes),
-                stream_bytes,
-                "continuity probe should require its configured 3 MiB from {target}"
+                stream_bytes
             );
-
-            let parsed = Url::parse(target).expect("transfer target should parse");
+            let parsed = Url::parse(target).expect("external throughput target should parse");
             assert!(!valid_probe_body(
                 &parsed,
                 &vec![0_u8; STRICT_THROUGHPUT_BYTES - 1]
@@ -5770,37 +5739,22 @@ mod tests {
                 &vec![0_u8; STRICT_THROUGHPUT_BYTES]
             ));
         }
-
-        assert_eq!(
-            minimum_probe_body_bytes_for_target(
-                STRICT_THROUGHPUT_TARGET,
-                LIGHT_TRANSFER_STABILITY_BYTES
-            ),
-            LIGHT_TRANSFER_STABILITY_BYTES,
-            "configured light-stage thresholds remain unchanged for other hosts"
-        );
+        assert!(!STRICT_THROUGHPUT_TARGETS
+            .iter()
+            .any(|target| { target.contains("arvancloud") || target.contains("mobinhost") }));
     }
 
     #[test]
-    fn transfer_pools_balance_named_and_international_hosts() {
+    fn transfer_pools_use_four_rate_limit_failover_hosts() {
         assert_eq!(STRICT_THROUGHPUT_TARGETS.len(), 4);
         assert_eq!(LIGHT_TRANSFER_STABILITY_TARGETS.len(), 4);
         assert_eq!(LIGHT_TRANSFER_MINIMUM_TARGETS, 1);
-
-        for target in [
-            ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET,
-            MOBINHOST_SPEEDTEST_100MB_TARGET,
-        ] {
-            assert!(STRICT_THROUGHPUT_TARGETS.contains(&target));
-            assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(&target));
-        }
-
-        for target in [
-            STRICT_THROUGHPUT_TARGET,
-            "https://fsn1-speed.hetzner.com/100MB.bin",
-        ] {
-            assert!(STRICT_THROUGHPUT_TARGETS.contains(&target));
-            assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(&target));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&STRICT_THROUGHPUT_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&HETZNER_SPEEDTEST_100MB_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&TELE2_SPEEDTEST_100MB_TARGET));
+        for target in STRICT_THROUGHPUT_TARGETS {
+            assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(target));
         }
     }
 

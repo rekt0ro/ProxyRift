@@ -21,6 +21,9 @@ fi
 if [ -s "subscriptions/light-training-stats.json" ]; then
   cp -- subscriptions/light-training-stats.json "$publish_snapshot/subscriptions/light-training-stats.json"
 fi
+if [ -s "subscriptions/light-candidate-ledger.json" ]; then
+  cp -- subscriptions/light-candidate-ledger.json "$publish_snapshot/subscriptions/light-candidate-ledger.json"
+fi
 if [ -s "subscriptions/source-registry.json" ]; then
   cp -- subscriptions/source-registry.json "$publish_snapshot/subscriptions/source-registry.json"
 fi
@@ -48,6 +51,9 @@ for attempt in 1 2 3 4 5; do
   if [ -f "$publish_snapshot/subscriptions/light-training-stats.json" ]; then
     cp -- "$publish_snapshot/subscriptions/light-training-stats.json" subscriptions/light-training-stats.json
   fi
+  if [ -f "$publish_snapshot/subscriptions/light-candidate-ledger.json" ]; then
+    cp -- "$publish_snapshot/subscriptions/light-candidate-ledger.json" subscriptions/light-candidate-ledger.json
+  fi
   if [ -f "$publish_snapshot/subscriptions/source-registry.json" ]; then
     cp -- "$publish_snapshot/subscriptions/source-registry.json" subscriptions/source-registry.json
   fi
@@ -72,6 +78,9 @@ for attempt in 1 2 3 4 5; do
   fi
   if [ -f "subscriptions/light-training-stats.json" ]; then
     git add -- subscriptions/light-training-stats.json
+  fi
+  if [ -f "subscriptions/light-candidate-ledger.json" ]; then
+    git add -- subscriptions/light-candidate-ledger.json
   fi
   if [ -f "subscriptions/source-registry.json" ]; then
     git add -- subscriptions/source-registry.json

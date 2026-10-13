@@ -83,6 +83,10 @@ const HISTORY_RETENTION_SECS: u64 = 45 * 24 * 60 * 60;
 const LIGHT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
 const LIGHT_TRAINING_STATS_PATH: &str = "subscriptions/light-training-stats.json";
 const LIGHT_SUBSCRIPTION_PATH: &str = "subscriptions/light.txt";
+const LIGHT_CANDIDATE_LEDGER_PATH: &str = "subscriptions/light-candidate-ledger.json";
+const REVALIDATION_WINDOW_SECS: u64 = 24 * 60 * 60;
+const REVALIDATED_CANDIDATE_PERCENT: usize = 20;
+const MAX_CANDIDATE_LEDGER_ENTRIES: usize = 10_000;
 const HISTORICAL_LIGHT_COHORTS: usize = 7;
 const FRESH_FAMILY_TARGET_PERCENT: usize = 70;
 
@@ -523,6 +527,8 @@ fn write_light_stats(
     fresh_family_target_percent: usize,
     score_independent_exploration_percent: usize,
     published_from_fresh_families: usize,
+    published_new_or_expired: usize,
+    published_revalidated: usize,
 ) -> Result<(), String> {
     if path.is_empty() {
         return Ok(());
@@ -553,6 +559,10 @@ fn write_light_stats(
         "score_independent_exploration_percent": score_independent_exploration_percent,
         "published_from_fresh_families": published_from_fresh_families,
         "published_from_recent_families": published.saturating_sub(published_from_fresh_families),
+        "published_new_or_expired": published_new_or_expired,
+        "published_revalidated": published_revalidated,
+        "revalidated_candidate_max_percent": REVALIDATED_CANDIDATE_PERCENT,
+        "revalidation_window_seconds": REVALIDATION_WINDOW_SECS,
     });
     let body = serde_json::to_vec_pretty(&stats).map_err(|error| error.to_string())?;
     std::fs::write(path, body).map_err(|error| error.to_string())
@@ -682,6 +692,138 @@ fn observation_fingerprint(config: &str) -> String {
     let first = fnv64(config.as_bytes(), 0xcbf29ce484222325);
     let second = fnv64(config.as_bytes(), 0x9e3779b97f4a7c15);
     format!("{first:016x}{second:016x}")
+}
+
+fn load_candidate_ledger(path: &str, now: u64) -> HashMap<String, u64> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return HashMap::new();
+    };
+    let Ok(document) = serde_json::from_str::<Value>(&content) else {
+        println!("[WARN] [Light reuse] Candidate ledger is invalid; all candidates will be treated as new");
+        return HashMap::new();
+    };
+    if document.get("version").and_then(Value::as_u64) != Some(1) {
+        println!("[WARN] [Light reuse] Candidate ledger version is unsupported; all candidates will be treated as new");
+        return HashMap::new();
+    }
+
+    document
+        .get("entries")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let fingerprint = entry.get("config_id")?.as_str()?;
+            let validated_at = entry.get("validated_at")?.as_u64()?;
+            if fingerprint.len() != 32
+                || validated_at > now
+                || now.saturating_sub(validated_at) >= REVALIDATION_WINDOW_SECS
+            {
+                return None;
+            }
+            Some((fingerprint.to_string(), validated_at))
+        })
+        .collect()
+}
+
+fn active_revalidated_fingerprints(
+    ledger: &HashMap<String, u64>,
+    active_fingerprints: &HashSet<String>,
+    now: u64,
+) -> HashSet<String> {
+    ledger
+        .iter()
+        .filter_map(|(fingerprint, validated_at)| {
+            (active_fingerprints.contains(fingerprint)
+                && *validated_at <= now
+                && now.saturating_sub(*validated_at) < REVALIDATION_WINDOW_SECS)
+                .then_some(fingerprint.clone())
+        })
+        .collect()
+}
+
+fn interleave_repeat_candidates(
+    candidates: &[String],
+    repeat_fingerprints: &HashSet<String>,
+) -> (Vec<String>, usize) {
+    let mut fresh = VecDeque::new();
+    let mut repeats = VecDeque::new();
+    for candidate in candidates {
+        if repeat_fingerprints.contains(&history_fingerprint(candidate)) {
+            repeats.push_back(candidate.clone());
+        } else {
+            fresh.push_back(candidate.clone());
+        }
+    }
+
+    let repeat_budget = fresh.len() / 4;
+    let mut ordered = Vec::with_capacity(candidates.len());
+    let mut used_repeats = 0usize;
+    while !fresh.is_empty() {
+        for _ in 0..4 {
+            if let Some(candidate) = fresh.pop_front() {
+                ordered.push(candidate);
+            } else {
+                break;
+            }
+        }
+        if used_repeats < repeat_budget {
+            if let Some(candidate) = repeats.pop_front() {
+                ordered.push(candidate);
+                used_repeats += 1;
+            }
+        }
+    }
+    (ordered, used_repeats)
+}
+
+fn persist_candidate_ledger(
+    path: &str,
+    ledger: &mut HashMap<String, u64>,
+    fully_validated: &HashSet<String>,
+    now: u64,
+) -> Result<(), String> {
+    ledger.retain(|_, validated_at| {
+        *validated_at <= now && now.saturating_sub(*validated_at) < REVALIDATION_WINDOW_SECS
+    });
+    for config in fully_validated {
+        ledger.insert(history_fingerprint(config), now);
+    }
+
+    if ledger.len() > MAX_CANDIDATE_LEDGER_ENTRIES {
+        let mut entries = ledger
+            .iter()
+            .map(|(key, value)| (key.clone(), *value))
+            .collect::<Vec<_>>();
+        entries.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.1));
+        entries.truncate(MAX_CANDIDATE_LEDGER_ENTRIES);
+        ledger.clear();
+        ledger.extend(entries);
+    }
+
+    let entries = ledger
+        .iter()
+        .map(|(config_id, validated_at)| {
+            serde_json::json!({"config_id": config_id, "validated_at": validated_at})
+        })
+        .collect::<Vec<_>>();
+    let document = serde_json::json!({
+        "version": 1,
+        "retention_seconds": REVALIDATION_WINDOW_SECS,
+        "updated_at": now,
+        "entries": entries,
+    });
+    let body = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let temporary = format!("{path}.tmp");
+    std::fs::write(&temporary, body).map_err(|error| error.to_string())?;
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    Ok(())
 }
 
 fn load_light_cohorts(path: &str) -> Result<Vec<Vec<String>>, String> {
@@ -884,6 +1026,36 @@ fn sort_ranked(
                     .cmp(&positions.get(b).copied().unwrap_or(usize::MAX))
             })
             .then_with(|| a.cmp(b))
+    });
+}
+
+fn sort_by_measured_stream_speed(configs: &mut [String], metrics: &HashMap<String, ProxyMetrics>) {
+    configs.sort_unstable_by(|left, right| {
+        let left_metrics = metrics.get(left);
+        let right_metrics = metrics.get(right);
+        let left_speed = left_metrics
+            .map(|value| value.throughput_kbps)
+            .unwrap_or(0.0);
+        let right_speed = right_metrics
+            .map(|value| value.throughput_kbps)
+            .unwrap_or(0.0);
+        let left_duration = left_metrics
+            .map(|value| value.median_ms)
+            .unwrap_or(f64::INFINITY);
+        let right_duration = right_metrics
+            .map(|value| value.median_ms)
+            .unwrap_or(f64::INFINITY);
+        let left_jitter = left_metrics
+            .map(|value| value.jitter_ms)
+            .unwrap_or(f64::INFINITY);
+        let right_jitter = right_metrics
+            .map(|value| value.jitter_ms)
+            .unwrap_or(f64::INFINITY);
+        right_speed
+            .total_cmp(&left_speed)
+            .then_with(|| left_duration.total_cmp(&right_duration))
+            .then_with(|| left_jitter.total_cmp(&right_jitter))
+            .then_with(|| left.cmp(right))
     });
 }
 
@@ -2407,6 +2579,76 @@ fn select_verified_configs_with_freshness_quota(
     (selected, fresh_selected)
 }
 
+fn select_verified_configs_with_repeat_cap(
+    configs: &[String],
+    repeat_fingerprints: &HashSet<String>,
+    recent_families: &HashSet<String>,
+    limit: usize,
+    max_per_endpoint: usize,
+    max_per_family: usize,
+) -> (Vec<String>, usize) {
+    let fresh = configs
+        .iter()
+        .filter(|config| !repeat_fingerprints.contains(&history_fingerprint(config)))
+        .cloned()
+        .collect::<Vec<_>>();
+    let repeated = configs
+        .iter()
+        .filter(|config| repeat_fingerprints.contains(&history_fingerprint(config)))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut selected = select_verified_configs_with_freshness_quota(
+        &fresh,
+        recent_families,
+        limit,
+        max_per_endpoint,
+        max_per_family,
+    )
+    .0;
+    let selected_fresh = selected.len();
+    if selected.len() >= limit || limit == 0 {
+        return (selected, selected_fresh);
+    }
+
+    let repeat_limit = selected_fresh.saturating_mul(REVALIDATED_CANDIDATE_PERCENT)
+        / (100 - REVALIDATED_CANDIDATE_PERCENT);
+    let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
+    let mut family_counts = HashMap::<String, usize>::new();
+    for config in &selected {
+        if let Some(endpoint) = endpoint(config) {
+            *endpoint_counts.entry(endpoint).or_insert(0) += 1;
+        }
+        *family_counts.entry(family_key(config)).or_insert(0) += 1;
+    }
+
+    let mut selected_repeats = 0usize;
+    for config in repeated {
+        if selected.len() >= limit || selected_repeats >= repeat_limit {
+            break;
+        }
+        let endpoint = endpoint(&config);
+        if endpoint
+            .as_ref()
+            .is_some_and(|key| endpoint_counts.get(key).copied().unwrap_or(0) >= max_per_endpoint)
+        {
+            continue;
+        }
+        let family = family_key(&config);
+        if family_counts.get(&family).copied().unwrap_or(0) >= max_per_family {
+            continue;
+        }
+        if let Some(endpoint) = endpoint {
+            *endpoint_counts.entry(endpoint).or_insert(0) += 1;
+        }
+        *family_counts.entry(family).or_insert(0) += 1;
+        selected.push(config);
+        selected_repeats += 1;
+    }
+
+    (selected, selected_fresh)
+}
+
 fn select_verified_configs(
     configs: &[String],
     limit: usize,
@@ -2851,11 +3093,17 @@ fn write_light_validation_report(
                     "passed": true,
                     "bytes": LIGHT_TRANSFER_STABILITY_BYTES,
                     "successful_targets": stability.successful_targets.clone(),
+                    "duration_ms": stability.median_ms,
                 },
                 "nine_mib_sustained": {
                     "passed": true,
                     "bytes": STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
                     "successful_targets": transfer.successful_targets.clone(),
+                    "duration_ms": transfer.median_ms,
+                    "throughput_kbps": transfer.throughput_kbps,
+                    "throughput_mbps": transfer.throughput_kbps / 1000.0,
+                    "timeout_limit_ms": FINAL_TRANSFER_LATENCY_LIMIT_MS,
+                    "max_inter_chunk_idle_secs": STREAM_CONTINUITY_MAX_IDLE_SECS,
                 },
                 "total_download_bytes": LIGHT_TRANSFER_STABILITY_BYTES
                     + STREAM_CONTINUITY_SEGMENTS * STREAM_CONTINUITY_SEGMENT_BYTES,
@@ -2866,7 +3114,8 @@ fn write_light_validation_report(
         .collect::<Result<Vec<_>, String>>()?;
 
     let report = serde_json::json!({
-        "version": 1,
+        "version": 2,
+        "training_objective": "validated_stream_throughput_regression",
         "validated_core": "sing-box",
         "primary_targets": [
             proxyrift::validator::LIGHT_TRANSFER_STABILITY_TARGETS[0],
@@ -2923,6 +3172,7 @@ fn persist_light_training_data(
         let transfer_was_tested = transfer_tested.contains(config);
         let stream_was_tested = stream_tested.contains(config);
 
+        let stream_metrics = stream_verified.get(config);
         rows.push(TrainingRow {
             observed_at,
             run_id: run_id.clone(),
@@ -2940,27 +3190,31 @@ fn persist_light_training_data(
             transfer_pass: transfer_was_tested.then(|| transfer_verified.contains_key(config)),
             stream_tested: stream_was_tested,
             stream_pass: stream_was_tested.then(|| stream_verified.contains_key(config)),
+            stream_throughput_kbps: stream_metrics
+                .map(|metrics| metrics.throughput_kbps)
+                .filter(|speed| speed.is_finite() && *speed > 0.0)
+                .unwrap_or(0.0),
+            stream_duration_ms: stream_metrics
+                .map(|metrics| metrics.median_ms)
+                .filter(|duration| duration.is_finite() && *duration > 0.0)
+                .unwrap_or(0.0),
         });
     }
 
     let stats = persist_light_training(LIGHT_TRAINING_PATH, &rows)?;
     write_readiness_report(LIGHT_TRAINING_STATS_PATH, &stats)?;
 
+    let model_status = if stats.speed_model_ready() {
+        "ready"
+    } else {
+        "collecting data"
+    };
     println!(
-        "[INFO] 🧠 [Light ml data] +{} Rows | Total: {} | Runs: {} | Candidates: {} | Features: {} | Strict: {}/{} | Transfer: {}/{} | Stream: {}/{} | Strict-data: {} | E2E-data: {}",
+        "[INFO] Training data: {} new samples, {} retained over 72 hours across {} runs and {} candidates. Model: {model_status}.",
         stats.new_rows,
         stats.rows,
         stats.unique_runs,
-        stats.unique_candidates,
-        rows.first().map(|row| row.features.len()).unwrap_or(0),
-        stats.strict_passes,
-        stats.rows,
-        stats.transfer_passes,
-        stats.transfer_tests,
-        stats.stream_passes,
-        stats.stream_tests,
-        if stats.strict_model_ready() { "READY" } else { "NOT_READY" },
-        if stats.end_to_end_model_ready() { "READY" } else { "NOT_READY" }
+        stats.unique_candidates
     );
 
     Ok(stats)
@@ -3229,6 +3483,19 @@ async fn main() -> Result<(), String> {
 
     let history_path = "subscriptions/light-history.json";
     let history = load_history(history_path)?;
+    let run_timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_secs();
+    let mut candidate_ledger = load_candidate_ledger(LIGHT_CANDIDATE_LEDGER_PATH, run_timestamp);
+    let active_fingerprints = read_lines(LIGHT_SUBSCRIPTION_PATH)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|line| !line.starts_with('#'))
+        .map(|config| history_fingerprint(&config))
+        .collect::<HashSet<_>>();
+    let repeat_candidate_fingerprints =
+        active_revalidated_fingerprints(&candidate_ledger, &active_fingerprints, run_timestamp);
     let light_cohorts = load_light_cohorts(LIGHT_SUBSCRIPTION_PATH)?;
 
     let mut seen_candidates = HashSet::new();
@@ -3268,11 +3535,13 @@ async fn main() -> Result<(), String> {
         .model_report()
         .get("ranking_strategy")
         .and_then(Value::as_str)
-        .unwrap_or("legacy_stage_model_fallback");
-    println!(
-        "[INFO] 🧠 [LightGBM] Loaded collection scores | Ranking strategy: {}",
-        ranking_strategy
-    );
+        .unwrap_or("neutral_default");
+    let ranking_label = match ranking_strategy {
+        "stream_speed_regression" => "speed model",
+        "historical_stream_speed_prior_fallback" => "recent speed estimates",
+        _ => "neutral ranking",
+    };
+    println!("[INFO] Light ranking: {ranking_label}.");
 
     if candidates.is_empty() {
         return Err("no Light candidates available".to_string());
@@ -3304,11 +3573,20 @@ async fn main() -> Result<(), String> {
         light_cohorts.len(),
         RECHECK_EXPLORATION_PERCENT
     );
-    let discovery_candidates = rank_discovery_candidates(
+    let ranked_discovery_candidates = rank_discovery_candidates(
         &candidates,
         &light_gbm_scores,
         discovery_seed,
         &recent_families,
+    );
+    let (discovery_candidates, scheduled_repeat_count) =
+        interleave_repeat_candidates(&ranked_discovery_candidates, &repeat_candidate_fingerprints);
+    println!(
+        "[INFO] Candidate checks: {} new or expired, {} recently validated and still active.",
+        discovery_candidates
+            .len()
+            .saturating_sub(scheduled_repeat_count),
+        scheduled_repeat_count
     );
     let mut discovery_cursor = 0usize;
     let mut wave = 0usize;
@@ -3320,9 +3598,8 @@ async fn main() -> Result<(), String> {
     let mut last_funnel_snapshot = None;
 
     println!(
-        "[INFO] 🔬 [Light] Validation started | {} Candidates | Targets: {} | ML/history ranked with {}% exploration",
+        "[INFO] Checking {} candidates with {}% exploratory sampling.",
         discovery_candidates.len(),
-        early_targets.len(),
         RECHECK_EXPLORATION_PERCENT
     );
 
@@ -3819,25 +4096,27 @@ async fn main() -> Result<(), String> {
     );
 
     let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
-    sort_ranked(
-        &mut stream_ranked,
-        &stream_verified,
-        &global_positions,
-        &history,
-    );
+    sort_by_measured_stream_speed(&mut stream_ranked, &stream_verified);
     let publication_limit = final_publication_limit(selection_limit);
-    let (selected, fresh_family_selected) = select_verified_configs_with_freshness_quota(
+    let (selected, selected_new_count) = select_verified_configs_with_repeat_cap(
         &stream_ranked,
+        &repeat_candidate_fingerprints,
         &recent_families,
         publication_limit,
         max_per_endpoint,
         max_per_family,
     );
+    let fresh_family_selected = selected
+        .iter()
+        .filter(|config| !recent_families.contains(&family_key(config)))
+        .count();
+    let selected_revalidated_count = selected.len().saturating_sub(selected_new_count);
     println!(
-        "[INFO] 🧭 [Light freshness] Final selection | Configs from fresh families: {} | Configs from recent families: {} | Fresh-family target: {}%",
-        fresh_family_selected,
-        selected.len().saturating_sub(fresh_family_selected),
-        FRESH_FAMILY_TARGET_PERCENT
+        "[INFO] Light output: {} configs, {} new, {} revalidated, {} from newer families.",
+        selected.len(),
+        selected_new_count,
+        selected_revalidated_count,
+        fresh_family_selected
     );
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(
         &stream_ranked,
@@ -3848,19 +4127,19 @@ async fn main() -> Result<(), String> {
 
     if selected.is_empty() {
         println!(
-            "[WARN] ⚠️ [Light] No configs passed 10 MiB sustained validation | Output 0 | Workflow will preserve previous subscription | Transfer qualified: {} | Stream tested: {} | Stream passes: {}",
+            "[WARN] No configs passed all required checks; the previous subscription will be kept. Transfer qualified: {}. Sustained stream passed: {} of {}.",
             transfer_selected,
-            stream_tested.len(),
-            stream_selected
+            stream_selected,
+            stream_tested.len()
         );
     } else if selected.len() < selection_limit {
         println!(
-            "[WARN] ⚠️ [Light] Stream target not reached | Publishing {} configs that passed 10 MiB validation | Target/max: {} | Transfer target/max: {} | Stream tested: {} | Stream passes: {} | Endpoint cap exclusions: {} | Family cap exclusions: {}",
+            "[WARN] Light is below its target: {} of {} configs passed all required checks. Transfer qualified: {}; sustained stream passed: {} of {}. Endpoint and family limits excluded {} and {} configs.",
             selected.len(),
             selection_limit,
             transfer_selected,
-            stream_tested.len(),
             stream_selected,
+            stream_tested.len(),
             endpoint_rejected,
             family_rejected
         );
@@ -3933,6 +4212,8 @@ async fn main() -> Result<(), String> {
         FRESH_FAMILY_TARGET_PERCENT,
         RECHECK_EXPLORATION_PERCENT,
         fresh_family_selected,
+        selected_new_count,
+        selected_revalidated_count,
     )?;
 
     let validation_report_path = write_light_validation_report(
@@ -4003,14 +4284,27 @@ async fn main() -> Result<(), String> {
         &transfer_tested,
         &transfer_verified,
     )?;
+    let mut fully_validated = HashSet::new();
+    for config in stream_verified.keys() {
+        if final_metadata.contains_key(config) && stability_verified.contains_key(config) {
+            fully_validated.insert(config.clone());
+        }
+    }
+    persist_candidate_ledger(
+        LIGHT_CANDIDATE_LEDGER_PATH,
+        &mut candidate_ledger,
+        &fully_validated,
+        run_timestamp,
+    )?;
     println!(
-        "[INFO] ✅ [Light] Published {} configs | Discovery: {} | Strict attempts: {} | Strictly verified: {} | Transfer tested: {} | Transfer passes: {}",
+        "[INFO] ✅ [Light] Published {} configs | Discovery: {} | Strict attempts: {} | Strictly verified: {} | Transfer tested: {} | Transfer passes: {} | Reuse ledger: {} recent fully validated identities",
         selected.len(),
         candidates.len(),
         final_attempts.values().copied().sum::<usize>(),
         final_metadata.len(),
         transfer_tested.len(),
-        transfer_verified.len()
+        transfer_verified.len(),
+        candidate_ledger.len()
     );
     Ok(())
 }
@@ -4018,26 +4312,171 @@ async fn main() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_discovery_batch_size, adaptive_recheck_limit, adaptive_stability_pool_target,
-        adaptive_stability_target, adaptive_strict_validation_target, adaptive_transfer_test_limit,
+        active_revalidated_fingerprints, adaptive_discovery_batch_size, adaptive_recheck_limit,
+        adaptive_stability_pool_target, adaptive_stability_target,
+        adaptive_strict_validation_target, adaptive_transfer_test_limit,
         adjust_discovery_batch_for_yield, adjust_transfer_workers, discovery_downstream_progressed,
-        final_publication_limit, has_disabled_tls_verification, history_fingerprint, light_backend,
-        light_training_features, mirror_sustained_stream_results, normalize_light_config,
-        observation_fingerprint, rank_discovery_candidates, recheck_exploration_limit,
+        final_publication_limit, has_disabled_tls_verification, history_fingerprint,
+        interleave_repeat_candidates, light_backend, light_training_features,
+        mirror_sustained_stream_results, normalize_light_config, observation_fingerprint,
+        persist_candidate_ledger, rank_discovery_candidates, recheck_exploration_limit,
         select_recheck_candidates, select_stability_test_batch, select_transfer_target,
         select_verified_configs, select_verified_configs_with_freshness_quota,
-        selection_additional_potential_count, selection_eligible_count, selection_potential_count,
-        selection_rejection_counts, should_quarantine_transfer_target, singbox_qualified_metadata,
-        stream_selection_count, strict_validation_batch_limit, strict_validation_target,
-        transfer_target_batch_limit, transfer_validation_target, update_transfer_target_state,
-        AdaptiveStrictValidationInputs, LightBackend, LightGbmScores, ProxyMetrics,
-        TransferConcurrencyState, TransferTargetState, FINAL_TRANSFER_INITIAL_WORKERS,
-        FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES, MAX_DISCOVERY_CANDIDATES,
-        STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
+        select_verified_configs_with_repeat_cap, selection_additional_potential_count,
+        selection_eligible_count, selection_potential_count, selection_rejection_counts,
+        should_quarantine_transfer_target, singbox_qualified_metadata,
+        sort_by_measured_stream_speed, stream_selection_count, strict_validation_batch_limit,
+        strict_validation_target, transfer_target_batch_limit, transfer_validation_target,
+        update_transfer_target_state, AdaptiveStrictValidationInputs, LightBackend, LightGbmScores,
+        ProxyMetrics, TransferConcurrencyState, TransferTargetState,
+        FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES,
+        MAX_DISCOVERY_CANDIDATES, STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
     };
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn final_stream_ranking_prefers_measured_throughput_over_history() {
+        let mut metrics = HashMap::new();
+        metrics.insert(
+            "slow".to_string(),
+            ProxyMetrics {
+                successes: 1,
+                attempts: 1,
+                median_ms: 4_000.0,
+                min_ms: 3_900.0,
+                jitter_ms: 20.0,
+                throughput_kbps: 7_000.0,
+                successful_targets: Vec::new(),
+            },
+        );
+        metrics.insert(
+            "fast".to_string(),
+            ProxyMetrics {
+                successes: 1,
+                attempts: 1,
+                median_ms: 8_000.0,
+                min_ms: 7_900.0,
+                jitter_ms: 100.0,
+                throughput_kbps: 22_000.0,
+                successful_targets: Vec::new(),
+            },
+        );
+        metrics.insert(
+            "fastest".to_string(),
+            ProxyMetrics {
+                successes: 1,
+                attempts: 1,
+                median_ms: 9_000.0,
+                min_ms: 8_900.0,
+                jitter_ms: 200.0,
+                throughput_kbps: 35_000.0,
+                successful_targets: Vec::new(),
+            },
+        );
+        let mut configs = vec![
+            "slow".to_string(),
+            "fast".to_string(),
+            "fastest".to_string(),
+        ];
+        sort_by_measured_stream_speed(&mut configs, &metrics);
+        assert_eq!(configs, vec!["fastest", "fast", "slow"]);
+    }
+
+    #[test]
+    fn recently_revalidated_candidates_are_limited_to_twenty_percent_of_test_order() {
+        let candidates = (0..20)
+            .map(|index| format!("vless://uuid@node{index}.example:443?security=tls"))
+            .collect::<Vec<_>>();
+        let repeats = candidates
+            .iter()
+            .take(4)
+            .map(|config| history_fingerprint(config))
+            .collect::<HashSet<_>>();
+        let (ordered, repeats_scheduled) = interleave_repeat_candidates(&candidates, &repeats);
+        assert_eq!(ordered.len(), 20);
+        assert_eq!(repeats_scheduled, 4);
+        assert_eq!(
+            ordered
+                .iter()
+                .filter(|config| repeats.contains(&history_fingerprint(config)))
+                .count(),
+            4
+        );
+        for prefix_len in 1..=ordered.len() {
+            let repeated = ordered[..prefix_len]
+                .iter()
+                .filter(|config| repeats.contains(&history_fingerprint(config)))
+                .count();
+            assert!(
+                repeated <= prefix_len / 5,
+                "repeat quota exceeded in first {prefix_len} tests"
+            );
+        }
+    }
+
+    #[test]
+    fn recent_reuse_requires_current_subscription_and_age_strictly_under_24_hours() {
+        let now = 1_800_000_u64;
+        let ledger = HashMap::from([
+            ("active-recent".to_string(), now - 120),
+            ("active-exactly-24h".to_string(), now - 86_400),
+            ("not-active".to_string(), now - 120),
+            ("future".to_string(), now + 1),
+        ]);
+        let active = HashSet::from([
+            "active-recent".to_string(),
+            "active-exactly-24h".to_string(),
+            "future".to_string(),
+        ]);
+        assert_eq!(
+            active_revalidated_fingerprints(&ledger, &active, now),
+            HashSet::from(["active-recent".to_string()])
+        );
+    }
+
+    #[test]
+    fn publication_does_not_exceed_twenty_percent_revalidated_items() {
+        let configs = (0..10)
+            .map(|index| format!("vless://uuid@host{index}.example:443?security=tls&mode={index}"))
+            .collect::<Vec<_>>();
+        let repeats = configs
+            .iter()
+            .take(5)
+            .map(|config| history_fingerprint(config))
+            .collect::<HashSet<_>>();
+        let (selected, fresh_count) =
+            select_verified_configs_with_repeat_cap(&configs, &repeats, &HashSet::new(), 10, 1, 3);
+        assert_eq!(selected.len(), 6);
+        assert_eq!(fresh_count, 5);
+        let revalidated = selected
+            .iter()
+            .filter(|config| repeats.contains(&history_fingerprint(config)))
+            .count();
+        assert!(revalidated <= selected.len() / 5);
+    }
+
+    #[test]
+    fn candidate_ledger_writes_only_recent_hashed_fully_validated_identities() {
+        let path = format!(
+            "{}/proxyrift-ledger-{}.json",
+            std::env::temp_dir().display(),
+            std::process::id()
+        );
+        let mut ledger = HashMap::from([("expired".to_string(), 1_u64)]);
+        let now = 200_000_u64;
+        let validated = HashSet::from(["vless://uuid@valid.example:443?security=tls".to_string()]);
+        persist_candidate_ledger(&path, &mut ledger, &validated, now)
+            .expect("persist candidate ledger");
+        let body = std::fs::read_to_string(&path).expect("read candidate ledger");
+        let json: serde_json::Value = serde_json::from_str(&body).expect("parse ledger");
+        assert_eq!(json["retention_seconds"].as_u64(), Some(86_400));
+        assert_eq!(json["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(json["entries"][0]["validated_at"].as_u64(), Some(now));
+        assert_eq!(json["entries"][0]["config_id"].as_str().unwrap().len(), 32);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn staged_light_transfer_requires_ten_mib_before_publication() {
@@ -4197,24 +4636,27 @@ mod tests {
     }
 
     #[test]
-    fn transfer_target_selection_uses_iranian_endpoints_before_backups() {
+    fn transfer_target_selection_fails_over_across_four_external_hosts() {
         let mut states = vec![
             TransferTargetState::default();
             proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()
         ];
+        assert_eq!(states.len(), 4);
         assert_eq!(select_transfer_target(&states, 0), Some(0));
         states[0].quarantined = true;
         assert_eq!(select_transfer_target(&states, 0), Some(1));
         states[1].quarantined = true;
         assert_eq!(select_transfer_target(&states, 0), Some(2));
-        assert_eq!(
-            proxyrift::validator::STRICT_THROUGHPUT_TARGETS[0],
-            proxyrift::validator::ARVANCLOUD_UBUNTU_SECURITY_CONTENTS_TARGET
-        );
-        assert_eq!(
-            proxyrift::validator::STRICT_THROUGHPUT_TARGETS[1],
-            proxyrift::validator::MOBINHOST_SPEEDTEST_100MB_TARGET
-        );
+        states[2].quarantined = true;
+        assert_eq!(select_transfer_target(&states, 0), Some(3));
+        states[3].quarantined = true;
+        assert_eq!(select_transfer_target(&states, 0), None);
+
+        let targets = proxyrift::validator::STRICT_THROUGHPUT_TARGETS;
+        assert!(targets.contains(&proxyrift::validator::STRICT_THROUGHPUT_TARGET));
+        assert!(targets.contains(&proxyrift::validator::HETZNER_SPEEDTEST_100MB_TARGET));
+        assert!(targets.contains(&proxyrift::validator::TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
+        assert!(targets.contains(&proxyrift::validator::TELE2_SPEEDTEST_100MB_TARGET));
     }
 
     #[test]
@@ -4691,24 +5133,20 @@ mod tests {
     }
 
     #[test]
-    fn transfer_target_selector_uses_remaining_iranian_mirror_before_foreign_fallbacks() {
+    fn transfer_target_selector_falls_back_when_preferred_hosts_are_quarantined() {
         let mut states = vec![TransferTargetState::default(); 4];
         states[0].quarantined = true;
-        states[1].tested = 48;
-        states[1].passed = 40;
-        states[1].batches = 2;
-
-        assert_eq!(select_transfer_target(&states, 1), Some(1));
-
+        states[1].quarantined = true;
         states[2].tested = 16;
         states[2].passed = 14;
         states[2].batches = 1;
-        assert_eq!(select_transfer_target(&states, 1), Some(1));
-
-        states[1].quarantined = true;
-        states[2].tested = 16;
         states[3].tested = 32;
+        states[3].passed = 29;
+        states[3].batches = 2;
+
         assert_eq!(select_transfer_target(&states, 0), Some(2));
+        states[2].quarantined = true;
+        assert_eq!(select_transfer_target(&states, 0), Some(3));
     }
 
     #[test]

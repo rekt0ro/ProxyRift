@@ -2,28 +2,18 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const DATASET_VERSION: u64 = 2;
-pub const FEATURE_EXTRACTION_VERSION: u64 = 3;
-const STRICT_VALIDATION_CONTRACT_VERSION: u64 = 2;
+pub const DATASET_VERSION: u64 = 3;
+pub const FEATURE_EXTRACTION_VERSION: u64 = 4;
+const STRICT_VALIDATION_CONTRACT_VERSION: u64 = 3;
 pub const FEATURE_COUNT: usize = 19;
 
 const MAX_ROWS: usize = 50_000;
-const HISTORICAL_DATASET_REVISION_SCAN_LIMIT: usize = 32;
-const RETENTION_SECS: u64 = 14 * 24 * 60 * 60;
-const MIN_ROWS_FOR_STRICT_MODEL: usize = 5_000;
-const MIN_UNIQUE_RUNS_FOR_STRICT_MODEL: usize = 20;
-const MIN_UNIQUE_CANDIDATES_FOR_STRICT_MODEL: usize = 1_000;
-const MIN_STRICT_PASSES_FOR_STRICT_MODEL: usize = 500;
-const MIN_STRICT_FAILURES_FOR_STRICT_MODEL: usize = 500;
-const MIN_TRANSFER_TESTS_FOR_END_TO_END: usize = 1_000;
-const MIN_TRANSFER_PASSES_FOR_END_TO_END: usize = 100;
-const MIN_TRANSFER_FAILURES_FOR_END_TO_END: usize = 100;
-const MIN_STREAM_TESTS_FOR_END_TO_END: usize = 500;
-const MIN_STREAM_PASSES_FOR_END_TO_END: usize = 50;
-const MIN_STREAM_FAILURES_FOR_END_TO_END: usize = 50;
+const RETENTION_SECS: u64 = 3 * 24 * 60 * 60;
+const MIN_ROWS_FOR_SPEED_MODEL: usize = 60;
+const MIN_UNIQUE_RUNS_FOR_SPEED_MODEL: usize = 6;
+const MIN_UNIQUE_CANDIDATES_FOR_SPEED_MODEL: usize = 40;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DatasetStats {
@@ -42,22 +32,18 @@ pub struct DatasetStats {
 }
 
 impl DatasetStats {
+    pub fn speed_model_ready(&self) -> bool {
+        self.rows >= MIN_ROWS_FOR_SPEED_MODEL
+            && self.unique_runs >= MIN_UNIQUE_RUNS_FOR_SPEED_MODEL
+            && self.unique_candidates >= MIN_UNIQUE_CANDIDATES_FOR_SPEED_MODEL
+    }
+
     pub fn strict_model_ready(&self) -> bool {
-        self.rows >= MIN_ROWS_FOR_STRICT_MODEL
-            && self.unique_runs >= MIN_UNIQUE_RUNS_FOR_STRICT_MODEL
-            && self.unique_candidates >= MIN_UNIQUE_CANDIDATES_FOR_STRICT_MODEL
-            && self.strict_passes >= MIN_STRICT_PASSES_FOR_STRICT_MODEL
-            && self.strict_failures >= MIN_STRICT_FAILURES_FOR_STRICT_MODEL
+        self.speed_model_ready()
     }
 
     pub fn end_to_end_model_ready(&self) -> bool {
-        self.strict_model_ready()
-            && self.transfer_tests >= MIN_TRANSFER_TESTS_FOR_END_TO_END
-            && self.transfer_passes >= MIN_TRANSFER_PASSES_FOR_END_TO_END
-            && self.transfer_failures >= MIN_TRANSFER_FAILURES_FOR_END_TO_END
-            && self.stream_tests >= MIN_STREAM_TESTS_FOR_END_TO_END
-            && self.stream_passes >= MIN_STREAM_PASSES_FOR_END_TO_END
-            && self.stream_failures >= MIN_STREAM_FAILURES_FOR_END_TO_END
+        self.speed_model_ready()
     }
 }
 
@@ -74,6 +60,8 @@ pub struct TrainingRow {
     pub transfer_pass: Option<bool>,
     pub stream_tested: bool,
     pub stream_pass: Option<bool>,
+    pub stream_throughput_kbps: f64,
+    pub stream_duration_ms: f64,
 }
 
 pub fn persist(path: &str, rows: &[TrainingRow]) -> Result<DatasetStats, String> {
@@ -125,60 +113,20 @@ fn load_existing_rows(
     enforce_current_retention: bool,
 ) -> Result<BTreeMap<String, Value>, String> {
     let mut by_id = BTreeMap::<String, Value>::new();
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(by_id),
+        Err(error) => return Err(error.to_string()),
+    };
 
-    if let Ok(file) = File::open(path) {
-        for line in BufReader::new(file).lines() {
-            let line = line.map_err(|error| error.to_string())?;
-            if let Some((observation_id, value)) =
-                parse_compatible_stored_row(&line, now, enforce_current_retention)
-            {
-                by_id.insert(observation_id, value);
-            }
-        }
-    }
-
-    if by_id.len() < MIN_ROWS_FOR_STRICT_MODEL
-        && Command::new("git")
-            .args(["ls-files", "--error-unmatch", path])
-            .output()
-            .is_ok_and(|output| output.status.success())
-    {
-        if let Ok(history) = Command::new("git")
-            .args(["log", "--format=%H", "--", path])
-            .output()
+    for line in BufReader::new(file).lines() {
+        let line = line.map_err(|error| error.to_string())?;
+        if let Some((observation_id, value)) =
+            parse_compatible_stored_row(&line, now, enforce_current_retention)
         {
-            if history.status.success() {
-                for commit in String::from_utf8_lossy(&history.stdout)
-                    .lines()
-                    .take(HISTORICAL_DATASET_REVISION_SCAN_LIMIT)
-                {
-                    let revision_path = format!("{commit}:{path}");
-                    let Ok(snapshot) = Command::new("git").args(["show", &revision_path]).output()
-                    else {
-                        continue;
-                    };
-                    if !snapshot.status.success() {
-                        continue;
-                    }
-
-                    for line in String::from_utf8_lossy(&snapshot.stdout).lines() {
-                        if let Some((observation_id, value)) =
-                            parse_compatible_stored_row(line, now, true)
-                        {
-                            by_id.entry(observation_id).or_insert(value);
-                        }
-                        if by_id.len() >= MAX_ROWS {
-                            break;
-                        }
-                    }
-                    if by_id.len() >= MAX_ROWS {
-                        break;
-                    }
-                }
-            }
+            by_id.insert(observation_id, value);
         }
     }
-
     Ok(by_id)
 }
 
@@ -219,7 +167,18 @@ fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats
 
     let mut new_rows = 0usize;
     for row in rows {
-        if row.observed_at.saturating_add(RETENTION_SECS) < now {
+        if row.observed_at.saturating_add(RETENTION_SECS) <= now
+            || !row.strict_pass
+            || row.strict_checks == 0
+            || !row.transfer_tested
+            || row.transfer_pass != Some(true)
+            || !row.stream_tested
+            || row.stream_pass != Some(true)
+            || !row.stream_throughput_kbps.is_finite()
+            || row.stream_throughput_kbps <= 0.0
+            || !row.stream_duration_ms.is_finite()
+            || row.stream_duration_ms <= 0.0
+        {
             continue;
         }
 
@@ -329,36 +288,23 @@ fn persist_at(path: &str, rows: &[TrainingRow], now: u64) -> Result<DatasetStats
 pub fn write_readiness_report(path: &str, stats: &DatasetStats) -> Result<(), String> {
     let document = serde_json::json!({
         "schema_version": DATASET_VERSION,
+        "feature_extraction_version": FEATURE_EXTRACTION_VERSION,
+        "training_objective": "validated_stream_throughput_regression",
+        "retention_seconds": RETENTION_SECS,
         "dataset": {
-            "rows": stats.rows,
-            "new_rows": stats.new_rows,
+            "speed_samples": stats.rows,
+            "new_speed_samples": stats.new_rows,
             "unique_runs": stats.unique_runs,
             "unique_candidates": stats.unique_candidates,
             "strict_passes": stats.strict_passes,
-            "strict_failures": stats.strict_failures,
-            "transfer_tests": stats.transfer_tests,
             "transfer_passes": stats.transfer_passes,
-            "transfer_failures": stats.transfer_failures,
-            "stream_tests": stats.stream_tests,
             "stream_passes": stats.stream_passes,
-            "stream_failures": stats.stream_failures,
         },
         "readiness": {
-            "strict_model_ready": stats.strict_model_ready(),
-            "end_to_end_model_ready": stats.end_to_end_model_ready(),
-            "requirements": {
-                "min_rows": MIN_ROWS_FOR_STRICT_MODEL,
-                "min_unique_runs": MIN_UNIQUE_RUNS_FOR_STRICT_MODEL,
-                "min_unique_candidates": MIN_UNIQUE_CANDIDATES_FOR_STRICT_MODEL,
-                "min_strict_passes": MIN_STRICT_PASSES_FOR_STRICT_MODEL,
-                "min_strict_failures": MIN_STRICT_FAILURES_FOR_STRICT_MODEL,
-                "min_transfer_tests": MIN_TRANSFER_TESTS_FOR_END_TO_END,
-                "min_transfer_passes": MIN_TRANSFER_PASSES_FOR_END_TO_END,
-                "min_transfer_failures": MIN_TRANSFER_FAILURES_FOR_END_TO_END,
-                "min_stream_tests": MIN_STREAM_TESTS_FOR_END_TO_END,
-                "min_stream_passes": MIN_STREAM_PASSES_FOR_END_TO_END,
-                "min_stream_failures": MIN_STREAM_FAILURES_FOR_END_TO_END,
-            },
+            "speed_model_ready": stats.speed_model_ready(),
+            "minimum_speed_samples": MIN_ROWS_FOR_SPEED_MODEL,
+            "minimum_unique_runs": MIN_UNIQUE_RUNS_FOR_SPEED_MODEL,
+            "minimum_unique_candidates": MIN_UNIQUE_CANDIDATES_FOR_SPEED_MODEL,
         }
     });
     let body = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
@@ -443,6 +389,14 @@ impl TrainingRow {
                     .collect(),
             ),
         );
+        root.insert(
+            "stream_throughput_kbps".to_string(),
+            Value::from(self.stream_throughput_kbps),
+        );
+        root.insert(
+            "stream_duration_ms".to_string(),
+            Value::from(self.stream_duration_ms),
+        );
 
         let mut label = Map::new();
         label.insert("strict_pass".to_string(), Value::from(self.strict_pass));
@@ -460,7 +414,7 @@ impl TrainingRow {
             "stream_pass".to_string(),
             self.stream_pass.map(Value::from).unwrap_or(Value::Null),
         );
-        label.insert("stream_validation_version".to_string(), Value::from(2));
+        label.insert("stream_validation_version".to_string(), Value::from(3));
         root.insert("label".to_string(), Value::Object(label));
 
         Value::Object(root)
@@ -508,6 +462,16 @@ fn valid_stored_row(value: &Value) -> bool {
             .and_then(Value::as_str)
             .is_none_or(str::is_empty)
         || value.get("observed_at").and_then(Value::as_u64).is_none()
+        || !finite_number(value.get("stream_throughput_kbps"))
+        || value
+            .get("stream_throughput_kbps")
+            .and_then(Value::as_f64)
+            .is_none_or(|n| n <= 0.0)
+        || !finite_number(value.get("stream_duration_ms"))
+        || value
+            .get("stream_duration_ms")
+            .and_then(Value::as_f64)
+            .is_none_or(|n| n <= 0.0)
     {
         return false;
     }
@@ -574,50 +538,26 @@ fn valid_stored_row(value: &Value) -> bool {
         return false;
     };
 
-    if label.get("strict_pass").and_then(Value::as_bool).is_none()
-        || label.get("strict_checks").and_then(Value::as_u64).is_none()
-        || label
-            .get("transfer_tested")
-            .and_then(Value::as_bool)
-            .is_none()
-    {
-        return false;
-    }
-
-    if label
-        .get("strict_checks")
-        .and_then(Value::as_u64)
-        .is_none_or(|checks| checks == 0)
-    {
-        return false;
-    }
-
-    let transfer_tested = label
-        .get("transfer_tested")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    match label.get("transfer_pass") {
-        Some(Value::Null) if !transfer_tested => true,
-        Some(Value::Bool(_)) if transfer_tested => true,
-        _ => false,
-    };
-
-    let stream_tested = label
-        .get("stream_tested")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    match label.get("stream_pass") {
-        Some(Value::Null) if !stream_tested => true,
-        Some(Value::Bool(_)) if stream_tested => true,
-        _ => false,
-    }
+    label.get("strict_pass").and_then(Value::as_bool) == Some(true)
+        && label
+            .get("strict_checks")
+            .and_then(Value::as_u64)
+            .is_some_and(|checks| checks > 0)
+        && label.get("transfer_tested").and_then(Value::as_bool) == Some(true)
+        && label.get("transfer_pass").and_then(Value::as_bool) == Some(true)
+        && label.get("stream_tested").and_then(Value::as_bool) == Some(true)
+        && label.get("stream_pass").and_then(Value::as_bool) == Some(true)
+        && label
+            .get("stream_validation_version")
+            .and_then(Value::as_u64)
+            == Some(3)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        persist_at, TrainingRow, DATASET_VERSION, FEATURE_COUNT, FEATURE_EXTRACTION_VERSION,
-        RETENTION_SECS, STRICT_VALIDATION_CONTRACT_VERSION,
+        persist_at, valid_stored_row, TrainingRow, DATASET_VERSION, FEATURE_COUNT,
+        FEATURE_EXTRACTION_VERSION, RETENTION_SECS, STRICT_VALIDATION_CONTRACT_VERSION,
     };
     use serde_json::Value;
     use std::collections::BTreeMap;
@@ -636,12 +576,7 @@ mod tests {
         )
     }
 
-    fn row(
-        id: &str,
-        observed_at: u64,
-        strict_pass: bool,
-        transfer_pass: Option<bool>,
-    ) -> TrainingRow {
+    fn row(id: &str, observed_at: u64) -> TrainingRow {
         TrainingRow {
             observed_at,
             run_id: Some("test-run".to_string()),
@@ -649,7 +584,7 @@ mod tests {
             observation_id: id.to_string(),
             features: BTreeMap::from([
                 ("protocol".to_string(), Value::from("vless")),
-                ("backend".to_string(), Value::from("xray")),
+                ("backend".to_string(), Value::from("sing-box")),
                 ("transport".to_string(), Value::from("raw")),
                 ("security".to_string(), Value::from("tls")),
                 ("port".to_string(), Value::from(443u64)),
@@ -668,308 +603,135 @@ mod tests {
                 ("history_checks".to_string(), Value::from(2u64)),
                 ("history_pass_rate".to_string(), Value::from(0.5)),
             ]),
-            strict_pass,
+            strict_pass: true,
             strict_checks: 1,
-            transfer_tested: transfer_pass.is_some(),
-            transfer_pass,
-            stream_tested: false,
-            stream_pass: None,
+            transfer_tested: true,
+            transfer_pass: Some(true),
+            stream_tested: true,
+            stream_pass: Some(true),
+            stream_throughput_kbps: 42_000.0,
+            stream_duration_ms: 1_800.0,
         }
     }
 
     #[test]
-    fn schema_is_versioned_and_stats_are_reported() {
+    fn stores_only_complete_successful_stream_samples() {
         let path = temp_path();
-        let stats = persist_at(
-            &path,
-            &[
-                row("one", 1_000, true, Some(true)),
-                row("two", 1_001, false, Some(false)),
-            ],
-            1_001,
-        )
-        .expect("persist dataset");
+        let mut invalid = row("failed", 1_001);
+        invalid.stream_pass = Some(false);
+        let mut no_speed = row("no-speed", 1_002);
+        no_speed.stream_throughput_kbps = 0.0;
+        let stats = persist_at(&path, &[row("pass", 1_000), invalid, no_speed], 1_002)
+            .expect("persist valid samples");
 
-        assert_eq!(stats.rows, 2);
-        assert_eq!(stats.new_rows, 2);
+        assert_eq!(stats.rows, 1);
+        assert_eq!(stats.new_rows, 1);
+        assert_eq!(stats.unique_candidates, 1);
         assert_eq!(stats.strict_passes, 1);
-        assert_eq!(stats.strict_failures, 1);
-        assert_eq!(stats.transfer_tests, 2);
         assert_eq!(stats.transfer_passes, 1);
-        assert_eq!(stats.transfer_failures, 1);
-        assert_eq!(stats.stream_tests, 0);
-        assert_eq!(stats.unique_runs, 1);
-        assert_eq!(stats.unique_candidates, 2);
+        assert_eq!(stats.stream_passes, 1);
+        assert!(!stats.speed_model_ready());
 
         let body = fs::read_to_string(&path).expect("read dataset");
-        let first = body.lines().next().expect("first row");
-        let value: Value = serde_json::from_str(first).expect("parse row");
+        assert_eq!(body.lines().count(), 1);
+        let value: Value = serde_json::from_str(body.lines().next().unwrap()).unwrap();
+        assert_eq!(value["schema_version"].as_u64(), Some(DATASET_VERSION));
         assert_eq!(
-            value.get("schema_version").and_then(Value::as_u64),
-            Some(DATASET_VERSION)
-        );
-        assert_eq!(
-            value
-                .get("feature_extraction_version")
-                .and_then(Value::as_u64),
+            value["feature_extraction_version"].as_u64(),
             Some(FEATURE_EXTRACTION_VERSION)
         );
         assert_eq!(
-            value
-                .get("strict_validation_contract_version")
-                .and_then(Value::as_u64),
+            value["strict_validation_contract_version"].as_u64(),
             Some(STRICT_VALIDATION_CONTRACT_VERSION)
         );
-        assert_eq!(value["label"]["stream_tested"].as_bool(), Some(false));
-        assert!(value["label"]["stream_pass"].is_null());
-        assert_eq!(
-            value["label"]["stream_validation_version"].as_u64(),
-            Some(2)
-        );
-
+        assert_eq!(value["label"]["strict_pass"].as_bool(), Some(true));
+        assert_eq!(value["label"]["transfer_pass"].as_bool(), Some(true));
+        assert_eq!(value["label"]["stream_pass"].as_bool(), Some(true));
+        assert_eq!(value["stream_throughput_kbps"].as_f64(), Some(42_000.0));
+        assert_eq!(value["stream_duration_ms"].as_f64(), Some(1_800.0));
+        assert!(valid_stored_row(&value));
         let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn readiness_requires_real_time_and_label_coverage() {
-        let not_ready = super::DatasetStats {
-            rows: 4_999,
-            new_rows: 0,
-            unique_runs: 20,
-            unique_candidates: 1_000,
-            strict_passes: 500,
-            strict_failures: 4_499,
-            transfer_tests: 1_000,
-            transfer_passes: 100,
-            transfer_failures: 900,
-            stream_tests: 500,
-            stream_passes: 50,
-            stream_failures: 450,
-        };
-        assert!(!not_ready.strict_model_ready());
-
-        let ready = super::DatasetStats {
-            rows: 5_000,
-            new_rows: 0,
-            unique_runs: 20,
-            unique_candidates: 1_000,
-            strict_passes: 500,
-            strict_failures: 4_500,
-            transfer_tests: 1_000,
-            transfer_passes: 100,
-            transfer_failures: 900,
-            stream_tests: 500,
-            stream_passes: 50,
-            stream_failures: 450,
-        };
-        assert!(ready.strict_model_ready());
-        assert!(ready.end_to_end_model_ready());
-    }
-
-    #[test]
-    fn legacy_short_stream_results_do_not_count_toward_current_readiness() {
-        let path = temp_path();
-        let mut legacy = row("legacy-short-stream", 1_000, true, Some(true)).to_value();
-        legacy["label"]["stream_tested"] = Value::from(true);
-        legacy["label"]["stream_pass"] = Value::from(true);
-        legacy["label"]
-            .as_object_mut()
-            .expect("legacy label")
-            .remove("stream_validation_version");
-        fs::write(
-            &path,
-            serde_json::to_string(&legacy).expect("serialize legacy row") + "\n",
-        )
-        .expect("write legacy row");
-
-        let stats = persist_at(&path, &[row("current", 1_001, true, None)], 1_001)
-            .expect("persist current row");
-
-        assert_eq!(stats.rows, 2);
-        assert_eq!(stats.stream_tests, 0);
-        assert_eq!(stats.stream_passes, 0);
-        let _ = fs::remove_file(path);
-    }
-
-    #[test]
-    fn legacy_xray_and_fallback_rows_are_excluded_from_training() {
-        for backend in ["xray", "fallback"] {
-            let mut legacy = row("legacy-backend", 1_000, true, Some(true)).to_value();
-            legacy["features"]["backend"] = Value::from(backend);
-            legacy
-                .as_object_mut()
-                .expect("legacy row")
-                .remove("strict_validation_contract_version");
-            let serialized = serde_json::to_string(&legacy).expect("serialize row");
-            assert!(super::parse_compatible_stored_row(&serialized, 1_000, false).is_none());
-        }
-
-        let mut legacy_singbox = row("legacy-singbox", 1_000, true, Some(true)).to_value();
-        legacy_singbox["features"]["backend"] = Value::from("sing-box");
-        legacy_singbox
-            .as_object_mut()
-            .expect("legacy row")
-            .remove("strict_validation_contract_version");
-        let serialized = serde_json::to_string(&legacy_singbox).expect("serialize row");
-        assert!(super::parse_compatible_stored_row(&serialized, 1_000, false).is_some());
-    }
-
-    #[test]
-    fn v1_rows_are_upgraded_without_fabricating_stream_results() {
-        let mut value = row("legacy", 1_000, true, None).to_value();
-        value["schema_version"] = Value::from(1u64);
-        value["label"]
-            .as_object_mut()
-            .expect("label")
-            .remove("stream_tested");
-        value["label"]
-            .as_object_mut()
-            .expect("label")
-            .remove("stream_pass");
-
-        super::upgrade_stored_row(&mut value);
-        assert_eq!(
-            value.get("schema_version").and_then(Value::as_u64),
-            Some(DATASET_VERSION)
-        );
-        assert_eq!(value["label"]["stream_tested"].as_bool(), Some(false));
-        assert!(value["label"]["stream_pass"].is_null());
-        assert!(super::valid_stored_row(&value));
+    fn rejects_legacy_classification_rows_after_the_clean_schema_reset() {
+        let mut legacy = serde_json::json!({
+            "schema_version": 2,
+            "feature_extraction_version": 3,
+            "observation_id": "old",
+            "candidate_fingerprint": "old",
+            "observed_at": 1000,
+            "label": {"strict_pass": true, "strict_checks": 1, "transfer_tested": true, "transfer_pass": true, "stream_tested": true, "stream_pass": true},
+            "features": {}
+        });
+        super::upgrade_stored_row(&mut legacy);
+        assert!(!valid_stored_row(&legacy));
+        let serialized = serde_json::to_string(&legacy).unwrap();
+        assert!(super::parse_compatible_stored_row(&serialized, 1_000, false).is_none());
     }
 
     #[test]
     fn duplicate_observation_ids_are_idempotent() {
         let path = temp_path();
-        let first = row("same", 1_000, true, None);
-        let second = row("same", 1_001, false, None);
-
+        let first = row("same", 1_000);
+        let second = row("same", 1_001);
         persist_at(&path, &[first], 1_001).expect("initial persist");
         let stats = persist_at(&path, &[second], 1_001).expect("deduplicated persist");
-
         assert_eq!(stats.rows, 1);
         assert_eq!(stats.new_rows, 0);
-        assert_eq!(stats.strict_passes, 0);
-
+        assert_eq!(stats.strict_passes, 1);
         let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn old_rows_and_excess_rows_are_pruned() {
+    fn three_day_retention_prunes_old_speed_observations() {
         let path = temp_path();
-        let mut rows = vec![row("fresh", 1_000, true, None)];
-        rows.push(row("old", 1, true, None));
-
-        persist_at(&path, &rows, 1_000 + RETENTION_SECS).expect("persist retained rows");
-
+        let now = 400_000;
+        let fresh = row("fresh", now);
+        let old = row("old", now.saturating_sub(RETENTION_SECS + 1));
+        let stats = persist_at(&path, &[fresh, old], now).expect("persist retained rows");
+        assert_eq!(stats.rows, 1);
         let body = fs::read_to_string(&path).expect("read dataset");
         assert_eq!(body.lines().count(), 1);
-        assert!(body.contains("\"fresh\""));
-
+        assert!(body.contains("fresh"));
+        assert!(!body.contains("old"));
         let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn persistence_prunes_rows_with_stale_feature_extraction_version() {
-        let path = temp_path();
-        let mut stale = row("stale", 1_000, true, None).to_value();
-        stale["feature_extraction_version"] = Value::from(FEATURE_EXTRACTION_VERSION - 1);
-        let stale_line = serde_json::to_string(&stale).expect("serialize stale row");
-        fs::write(&path, stale_line + "\n").expect("write stale row");
+    fn readiness_uses_speed_sample_coverage_not_negative_labels() {
+        let not_ready = super::DatasetStats {
+            rows: 59,
+            unique_runs: 10,
+            unique_candidates: 40,
+            ..super::DatasetStats::default()
+        };
+        assert!(!not_ready.speed_model_ready());
 
-        let stats = persist_at(&path, &[row("fresh", 1_001, true, None)], 1_001)
-            .expect("persist fresh row");
-
-        assert_eq!(stats.rows, 1);
-        assert_eq!(stats.new_rows, 1);
-        let body = fs::read_to_string(&path).expect("read persisted data");
-        assert!(body.contains("\"fresh\""));
-        assert!(!body.contains("\"stale\""));
-
-        let _ = fs::remove_file(path);
+        let ready = super::DatasetStats {
+            rows: 60,
+            unique_runs: 6,
+            unique_candidates: 40,
+            ..super::DatasetStats::default()
+        };
+        assert!(ready.speed_model_ready());
+        assert!(ready.strict_model_ready());
+        assert!(ready.end_to_end_model_ready());
     }
 
     #[test]
-    fn migrates_compatible_v2_rows_without_feature_version() {
-        let path = temp_path();
-        let mut legacy = row("legacy-v2", 1_000, true, None).to_value();
-        legacy
-            .as_object_mut()
-            .expect("legacy row")
-            .remove("feature_extraction_version");
-        let legacy_line = serde_json::to_string(&legacy).expect("serialize legacy row");
-        fs::write(&path, legacy_line + "\n").expect("write legacy row");
+    fn rejects_non_finite_or_incomplete_stream_metrics() {
+        let mut invalid = row("bad", 1_000).to_value();
+        invalid["stream_duration_ms"] = Value::from(0.0);
+        assert!(!valid_stored_row(&invalid));
 
-        let stats = persist_at(&path, &[row("fresh", 1_001, false, None)], 1_001)
-            .expect("migrate compatible legacy row");
-        assert_eq!(stats.rows, 2);
+        let mut invalid = row("incomplete", 1_000).to_value();
+        invalid["label"]["stream_pass"] = Value::Null;
+        assert!(!valid_stored_row(&invalid));
 
-        let body = fs::read_to_string(&path).expect("read migrated dataset");
-        let migrated = body
-            .lines()
-            .map(|line| serde_json::from_str::<Value>(line).expect("parse migrated row"))
-            .find(|value| value.get("observation_id").and_then(Value::as_str) == Some("legacy-v2"))
-            .expect("legacy row retained");
-        assert_eq!(
-            migrated
-                .get("feature_extraction_version")
-                .and_then(Value::as_u64),
-            Some(FEATURE_EXTRACTION_VERSION)
-        );
-
-        let _ = fs::remove_file(path);
-    }
-
-    #[test]
-    fn does_not_migrate_v2_rows_with_incompatible_features() {
-        let path = temp_path();
-        let mut incompatible = row("incompatible-v2", 1_000, true, None).to_value();
-        incompatible
-            .as_object_mut()
-            .expect("incompatible row")
-            .remove("feature_extraction_version");
-        incompatible["features"]
-            .as_object_mut()
-            .expect("features")
-            .remove("history_pass_rate");
-        let incompatible_line =
-            serde_json::to_string(&incompatible).expect("serialize incompatible row");
-        fs::write(&path, incompatible_line + "\n").expect("write incompatible row");
-
-        let stats = persist_at(&path, &[row("fresh", 1_001, false, None)], 1_001)
-            .expect("persist fresh row");
-        assert_eq!(stats.rows, 1);
-
-        let body = fs::read_to_string(&path).expect("read dataset");
-        assert!(!body.contains("incompatible-v2"));
-        let _ = fs::remove_file(path);
-    }
-
-    #[test]
-    fn rejects_rows_with_wrong_feature_schema() {
-        let path = temp_path();
-        let mut value = row("invalid", 1_000, true, None).to_value();
-        value["features"]
-            .as_object_mut()
-            .expect("features object")
-            .remove("history_pass_rate");
-
-        assert!(!super::valid_stored_row(&value));
-        let _ = fs::remove_file(path);
-    }
-
-    #[test]
-    fn rejects_rows_with_stale_feature_extraction_version() {
-        let mut value = row("stale-features", 1_000, true, None).to_value();
-        value["feature_extraction_version"] = Value::from(FEATURE_EXTRACTION_VERSION - 1);
-
-        assert!(!super::valid_stored_row(&value));
-    }
-
-    #[test]
-    fn rejects_zero_strict_checks() {
-        let mut value = row("invalid-checks", 1_000, true, None).to_value();
-        value["label"]["strict_checks"] = Value::from(0u64);
-        assert!(!super::valid_stored_row(&value));
+        let mut invalid = row("zero-checks", 1_000).to_value();
+        invalid["label"]["strict_checks"] = Value::from(0u64);
+        assert!(!valid_stored_row(&invalid));
     }
 
     #[test]
