@@ -815,7 +815,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
     write_atomic(&deferred_candidates_path, deferred_subscription).await?;
 
-    let working_configs = select_all_candidates(&ranked_working_configs, &[]);
+    let light_pool_working_configs = light_candidates
+        .iter()
+        .filter_map(|config| {
+            http_latency_by_key
+                .get(&dedup_key(config))
+                .map(|latency| (config.clone(), *latency))
+        })
+        .collect::<Vec<_>>();
+    let working_configs = select_all_candidates(&light_pool_working_configs, &[]);
 
     let all_subscription = if working_configs.is_empty() {
         String::new()
