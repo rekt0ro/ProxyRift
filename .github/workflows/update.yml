@@ -41,7 +41,7 @@ jobs:
           show-progress: false
 
       - name: "Initialize compatibility rejection artifacts"
-        run: mkdir -p /tmp/proxyrift && : > /tmp/proxyrift/compatibility-rejections.jsonl && : > /tmp/proxyrift/compatibility-rejections.log
+        run: mkdir -p /tmp/proxyrift && : > /tmp/proxyrift/compatibility-rejections.jsonl
 
       - name: "🦀 Resolve stable Rust toolchain"
         id: rust-toolchain
@@ -268,9 +268,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: compatibility-rejections-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            /tmp/proxyrift/compatibility-rejections.jsonl
-            /tmp/proxyrift/compatibility-rejections.log
+          path: /tmp/proxyrift/compatibility-rejections.jsonl
           if-no-files-found: warn
           retention-days: 14
 
