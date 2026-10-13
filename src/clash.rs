@@ -1223,8 +1223,14 @@ mod tests {
     #[test]
     fn reports_socks4_variants_as_unsupported_for_clash_output() {
         for (config, expected) in [
-            ("socks4://127.0.0.1:1080", "unsupported SOCKS variant socks4"),
-            ("socks4a://127.0.0.1:1080", "unsupported SOCKS variant socks4a"),
+            (
+                "socks4://127.0.0.1:1080",
+                "unsupported SOCKS variant socks4",
+            ),
+            (
+                "socks4a://127.0.0.1:1080",
+                "unsupported SOCKS variant socks4a",
+            ),
         ] {
             assert_eq!(super::convert_config(config, 0).unwrap_err(), expected);
         }
