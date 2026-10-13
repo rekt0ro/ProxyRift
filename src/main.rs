@@ -807,6 +807,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     write_atomic(&light_candidates_path, light_candidates_subscription).await?;
 
+    let mut light_candidate_http_metrics = serde_json::Map::new();
+    for config in &light_candidates {
+        if let Some(latency) = http_latency_by_key.get(&dedup_key(config)) {
+            light_candidate_http_metrics.insert(config.clone(), Value::from(*latency));
+        }
+    }
+    let light_candidate_http_metrics_path = output_dir.join(".light-candidates-http.json");
+    let light_candidate_http_metrics_json =
+        serde_json::to_string_pretty(&Value::Object(light_candidate_http_metrics))?;
+    write_atomic(
+        &light_candidate_http_metrics_path,
+        format!("{light_candidate_http_metrics_json}\n"),
+    )
+    .await?;
+
     let deferred_candidates_path = output_dir.join(".deferred-transport-candidates.txt");
     let deferred_subscription = if deferred_transport_candidates.is_empty() {
         String::new()
