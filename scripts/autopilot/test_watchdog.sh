@@ -115,4 +115,49 @@ if WATCHDOG_FIXTURES="$fixtures" \
 fi
 grep -Fq "maximum is 200" "$tmp/watchdog-max.log"
 
-echo "[OK] Watchdog validates healthy outputs and rejects Light above its hard maximum."
+retry_bin="$tmp/retry-bin"
+mkdir -p "$retry_bin"
+cat > "$retry_bin/gh" <<'GH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  *"/actions/runs/123/jobs?per_page=100"*)
+    if [[ "${WATCHDOG_PUBLISHED:-false}" == "true" ]]; then
+      printf '{"jobs":[{"steps":[{"name":"🚀 Publish generated changes","conclusion":"success"}]}]}\n'
+    else
+      printf '{"jobs":[{"steps":[{"name":"🚀 Publish generated changes","conclusion":"skipped"}]}]}\n'
+    fi
+    ;;
+  *"/rerun-failed-jobs"*)
+    printf '%s\n' "$*" >> "${WATCHDOG_GH_LOG:?}"
+    printf '{"message":"accepted"}\n'
+    ;;
+  *) printf '{}\n' ;;
+esac
+GH
+chmod +x "$retry_bin/gh"
+cat > "$tmp/failure-event.json" <<'JSON'
+{"workflow_run":{"id":123,"name":"Update Configs","conclusion":"failure","run_attempt":1}}
+JSON
+: > "$tmp/gh-calls.log"
+
+WATCHDOG_PUBLISHED=true WATCHDOG_GH_LOG="$tmp/gh-calls.log" \
+  PATH="$retry_bin:$PATH" GH_REPOSITORY="rekt0ro/ProxyRift" \
+  EVENT_NAME="workflow_run" EVENT_PATH="$tmp/failure-event.json" \
+  GITHUB_STEP_SUMMARY="$tmp/post-publish-summary.md" GH_TOKEN="test-token" \
+  bash "$repo_root/scripts/autopilot/watchdog.sh" > "$tmp/post-publish.log" 2>&1
+grep -Fq "failed after publishing outputs; not retrying" "$tmp/post-publish.log"
+if grep -Fq "rerun-failed-jobs" "$tmp/gh-calls.log"; then
+  echo "[ERROR] Watchdog retried a run after successful publication." >&2
+  exit 1
+fi
+
+WATCHDOG_PUBLISHED=false WATCHDOG_GH_LOG="$tmp/gh-calls.log" \
+  PATH="$retry_bin:$PATH" GH_REPOSITORY="rekt0ro/ProxyRift" \
+  EVENT_NAME="workflow_run" EVENT_PATH="$tmp/failure-event.json" \
+  GITHUB_STEP_SUMMARY="$tmp/pre-publish-summary.md" GH_TOKEN="test-token" \
+  bash "$repo_root/scripts/autopilot/watchdog.sh" > "$tmp/pre-publish.log" 2>&1
+grep -Fq "retrying its failed jobs once" "$tmp/pre-publish.log"
+grep -Fq "rerun-failed-jobs" "$tmp/gh-calls.log"
+
+echo "[OK] Watchdog validates outputs, rejects excessive Light output, and only retries pre-publication failures."

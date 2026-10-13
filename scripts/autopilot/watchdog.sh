@@ -128,6 +128,20 @@ if [[ "$EVENT_NAME" == "workflow_run" ]]; then
   fi
 
   if [[ "$conclusion" == "failure" || "$conclusion" == "timed_out" ]]; then
+    jobs=""
+    if jobs="$(gh api --method GET "/repos/$repo/actions/runs/$run_id/jobs?per_page=100" 2>/dev/null)"; then
+      published="$(jq -r '[.jobs[]?.steps[]? | select(.name == "🚀 Publish generated changes") | .conclusion] | any(. == "success")' <<< "$jobs")"
+      if [[ "$published" == "true" ]]; then
+        echo "[WARN] Update Configs run $run_id failed after publishing outputs; not retrying the entire collection job."
+        {
+          echo "## ProxyRift Autopilot"
+          echo
+          echo "Update Configs run [$run_id](https://github.com/$repo/actions/runs/$run_id) failed after **Publish generated changes** succeeded. No retry was started because the outputs are already published; inspect the failed post-publication step."
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit 0
+      fi
+    fi
+
     if (( attempt < 2 )); then
       echo "[WARN] Update Configs run $run_id failed on attempt $attempt; retrying its failed jobs once."
       gh api --method POST "/repos/$repo/actions/runs/$run_id/rerun-failed-jobs" >/dev/null

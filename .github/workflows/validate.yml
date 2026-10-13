@@ -70,6 +70,9 @@ jobs:
       - name: Test source-sensitive build cache keys
         run: bash scripts/update/test_compute_cache_keys.sh
 
+      - name: Test cache cleanup safety when keys are unavailable
+        run: bash scripts/update/test_cleanup_caches.sh
+
       - name: Test update run summary formatting
         run: bash scripts/update/test_write_run_summary.sh
 
