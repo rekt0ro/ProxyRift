@@ -3429,14 +3429,13 @@ async fn main() -> Result<(), String> {
         if prevalidated_http_metrics_path.trim().is_empty() {
             HashMap::new()
         } else {
-            let contents = std::fs::read_to_string(&prevalidated_http_metrics_path).map_err(
-                |error| {
+            let contents =
+                std::fs::read_to_string(&prevalidated_http_metrics_path).map_err(|error| {
                     format!(
                         "failed to read prevalidated HTTP metrics '{}': {error}",
                         prevalidated_http_metrics_path
                     )
-                },
-            )?;
+                })?;
             serde_json::from_str::<HashMap<String, u64>>(&contents)
                 .map_err(|error| {
                     format!(
