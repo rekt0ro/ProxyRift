@@ -2029,16 +2029,17 @@ async fn run_transfer_gate_consumer(
             break;
         }
         let (selected, _) = select_current_publication(
-            transfer_verified, repeat_candidate_fingerprints, recent_families,
-            selection_limit, max_per_endpoint, max_per_family,
+            transfer_verified,
+            repeat_candidate_fingerprints,
+            recent_families,
+            selection_limit,
+            max_per_endpoint,
+            max_per_family,
         );
         if selected.len() >= selection_limit {
             publication_target_reached.store(true, Ordering::Relaxed);
             transfer_done.store(true, Ordering::Relaxed);
-            return Ok(select_verified_configs(
-                &transfer_verified.keys().cloned().collect::<Vec<_>>(),
-                selection_limit, max_per_endpoint, max_per_family,
-            ).len());
+            return Ok(selected.len());
         }
         let remaining = selection_limit.saturating_sub(selected.len());
         if pending.is_empty() {
@@ -2292,9 +2293,15 @@ async fn run_transfer_gate_consumer(
         }
 
         let publishable_count = select_current_publication(
-            transfer_verified, repeat_candidate_fingerprints, recent_families,
-            selection_limit, max_per_endpoint, max_per_family,
-        ).0.len();
+            transfer_verified,
+            repeat_candidate_fingerprints,
+            recent_families,
+            selection_limit,
+            max_per_endpoint,
+            max_per_family,
+        )
+        .0
+        .len();
         proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 100, publishable_count >= selection_limit || (receiver_closed && pending.is_empty()));
             "[INFO] ✅ [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Publication-ready: {}/{} | Remaining: {}",
             batch_passed, batch.len(), batch_elapsed, transfer_verified.len(),
@@ -2304,20 +2311,21 @@ async fn run_transfer_gate_consumer(
             println!("[INFO] 🎯 [Light] Publication target reached ({publishable_count}/{selection_limit}); stopping further transfer validation");
             publication_target_reached.store(true, Ordering::Relaxed);
             transfer_done.store(true, Ordering::Relaxed);
-            return Ok(select_verified_configs(
-                &transfer_verified.keys().cloned().collect::<Vec<_>>(),
-                selection_limit, max_per_endpoint, max_per_family,
-            ).len());
+            return Ok(publishable_count);
         }
     }
 
     transfer_done.store(true, Ordering::Relaxed);
-    Ok(select_verified_configs(
-        &transfer_verified.keys().cloned().collect::<Vec<_>>(),
+    Ok(select_current_publication(
+        transfer_verified,
+        repeat_candidate_fingerprints,
+        recent_families,
         selection_limit,
         max_per_endpoint,
         max_per_family,
-    ).len())
+    )
+    .0
+    .len())
 }
 
 struct TransferGateSnapshot {
@@ -2417,15 +2425,16 @@ async fn fill_transfer_gate(
     max_per_family: usize,
 ) -> Result<usize, String> {
     let existing_selected = select_current_publication(
-        transfer_verified, repeat_candidate_fingerprints, recent_families,
-        selection_limit, max_per_endpoint, max_per_family,
+        transfer_verified,
+        repeat_candidate_fingerprints,
+        recent_families,
+        selection_limit,
+        max_per_endpoint,
+        max_per_family,
     );
     if existing_selected.0.len() >= selection_limit {
         publication_target_reached.store(true, Ordering::Relaxed);
-        return Ok(select_verified_configs(
-            &transfer_verified.keys().cloned().collect::<Vec<_>>(),
-            selection_limit, max_per_endpoint, max_per_family,
-        ).len());
+        return Ok(existing_selected.0.len());
     }
 
     let transfer_done = Arc::new(AtomicBool::new(false));
@@ -2664,8 +2673,12 @@ fn select_current_publication(
     let mut ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
     sort_by_measured_stream_speed(&mut ranked, stream_verified);
     select_verified_configs_with_repeat_cap(
-        &ranked, repeat_fingerprints, recent_families, limit,
-        max_per_endpoint, max_per_family,
+        &ranked,
+        repeat_fingerprints,
+        recent_families,
+        limit,
+        max_per_endpoint,
+        max_per_family,
     )
 }
 
@@ -3668,9 +3681,15 @@ async fn main() -> Result<(), String> {
         .len();
 
         let publishable_selected = select_current_publication(
-            &stream_verified, &repeat_candidate_fingerprints, &recent_families,
-            selection_limit, max_per_endpoint, max_per_family,
-        ).0.len();
+            &stream_verified,
+            &repeat_candidate_fingerprints,
+            &recent_families,
+            selection_limit,
+            max_per_endpoint,
+            max_per_family,
+        )
+        .0
+        .len();
 
         if publishable_selected >= selection_limit {
             publication_target_reached.store(true, Ordering::Relaxed);
@@ -3952,9 +3971,15 @@ async fn main() -> Result<(), String> {
             .len();
 
             let publishable_selected = select_current_publication(
-                &stream_verified, &repeat_candidate_fingerprints, &recent_families,
-                selection_limit, max_per_endpoint, max_per_family,
-            ).0.len();
+                &stream_verified,
+                &repeat_candidate_fingerprints,
+                &recent_families,
+                selection_limit,
+                max_per_endpoint,
+                max_per_family,
+            )
+            .0
+            .len();
 
             let funnel_snapshot = (
                 final_metadata.len(),
@@ -3988,9 +4013,15 @@ async fn main() -> Result<(), String> {
             let estimated_next_batch = adaptive_discovery_batch_size(
                 selection_limit,
                 select_current_publication(
-                    &stream_verified, &repeat_candidate_fingerprints, &recent_families,
-                    selection_limit, max_per_endpoint, max_per_family,
-                ).0.len(),
+                    &stream_verified,
+                    &repeat_candidate_fingerprints,
+                    &recent_families,
+                    selection_limit,
+                    max_per_endpoint,
+                    max_per_family,
+                )
+                .0
+                .len(),
                 stability_tested.len(),
                 stability_verified.len(),
                 transfer_tested.len(),
@@ -4129,8 +4160,12 @@ async fn main() -> Result<(), String> {
 
     let publication_limit = final_publication_limit(selection_limit);
     let (selected, selected_new_count) = select_current_publication(
-        &stream_verified, &repeat_candidate_fingerprints, &recent_families,
-        publication_limit, max_per_endpoint, max_per_family,
+        &stream_verified,
+        &repeat_candidate_fingerprints,
+        &recent_families,
+        publication_limit,
+        max_per_endpoint,
+        max_per_family,
     );
     let fresh_family_selected = selected
         .iter()
@@ -4347,7 +4382,8 @@ mod tests {
         mirror_sustained_stream_results, normalize_light_config, observation_fingerprint,
         persist_candidate_ledger, rank_discovery_candidates, recheck_exploration_limit,
         select_current_publication, select_recheck_candidates, select_stability_test_batch,
-        select_transfer_target, select_verified_configs, select_verified_configs_with_freshness_quota,
+        select_transfer_target, select_verified_configs,
+        select_verified_configs_with_freshness_quota,
         select_verified_configs_with_repeat_cap, selection_additional_potential_count,
         selection_eligible_count, selection_potential_count, selection_rejection_counts,
         should_quarantine_transfer_target, singbox_qualified_metadata,
@@ -4623,18 +4659,39 @@ mod tests {
             successful_targets: Vec::new(),
         };
         let configs = (0..200)
-            .map(|index| format!("vless://id{index}@node{index}.example.com:443?path=%2F{index}"))
+            .map(|index| {
+                format!("vless://id{index}@node{index}.example.com:443?path=%2F{index}")
+            })
             .collect::<Vec<_>>();
-        let repeats = configs[150..].iter().map(|c| history_fingerprint(c)).collect::<HashSet<_>>();
-        let verified = configs.iter().cloned().map(|c| (c, metrics.clone())).collect::<HashMap<_, _>>();
-        let (selected, fresh) = select_current_publication(&verified, &repeats, &HashSet::new(), 200, 1, 3);
+        let repeats = configs[150..]
+            .iter()
+            .map(|config| history_fingerprint(config))
+            .collect::<HashSet<_>>();
+        let verified = configs
+            .iter()
+            .cloned()
+            .map(|config| (config, metrics.clone()))
+            .collect::<HashMap<_, _>>();
+        let (selected, fresh) = select_current_publication(
+            &verified,
+            &repeats,
+            &HashSet::new(),
+            200,
+            1,
+            3,
+        );
         assert_eq!(selected.len(), 187);
         assert_eq!(fresh, 150);
 
         let configs = (0..213)
-            .map(|index| format!("vless://id{index}@node{index}.example.com:443?path=%2F{index}"))
+            .map(|index| {
+                format!("vless://id{index}@node{index}.example.com:443?path=%2F{index}")
+            })
             .collect::<Vec<_>>();
-        let repeats = configs[163..].iter().map(|c| history_fingerprint(c)).collect::<HashSet<_>>();
+        let repeats = configs[163..]
+            .iter()
+            .map(|config| history_fingerprint(config))
+            .collect::<HashSet<_>>();
         let verified = configs.iter().cloned().map(|c| (c, metrics.clone())).collect::<HashMap<_, _>>();
         let (selected, fresh) = select_current_publication(&verified, &repeats, &HashSet::new(), 200, 1, 3);
         assert_eq!(selected.len(), 200);
