@@ -2598,15 +2598,14 @@ fn select_verified_configs_with_repeat_cap(
         .cloned()
         .collect::<Vec<_>>();
 
-    let mut selected =
-        select_verified_configs_with_freshness_quota(
-            &fresh,
-            recent_families,
-            limit,
-            max_per_endpoint,
-            max_per_family,
-        )
-        .0;
+    let mut selected = select_verified_configs_with_freshness_quota(
+        &fresh,
+        recent_families,
+        limit,
+        max_per_endpoint,
+        max_per_family,
+    )
+    .0;
     let selected_fresh = selected.len();
     if selected.len() >= limit || limit == 0 {
         return (selected, selected_fresh);
@@ -3584,7 +3583,9 @@ async fn main() -> Result<(), String> {
         interleave_repeat_candidates(&ranked_discovery_candidates, &repeat_candidate_fingerprints);
     println!(
         "[INFO] Candidate checks: {} new or expired, {} recently validated and still active.",
-        discovery_candidates.len().saturating_sub(scheduled_repeat_count),
+        discovery_candidates
+            .len()
+            .saturating_sub(scheduled_repeat_count),
         scheduled_repeat_count
     );
     let mut discovery_cursor = 0usize;

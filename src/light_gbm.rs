@@ -108,7 +108,9 @@ impl LightGbmScores {
             {
                 Ok(model) => booster = Some(model),
                 Err(error) => {
-                    eprintln!("Speed model training failed; using recent speed measurements: {error}");
+                    eprintln!(
+                        "Speed model training failed; using recent speed measurements: {error}"
+                    );
                     report["accepted"] = Value::Bool(false);
                     report["reason"] = Value::String("final_model_fit_failed".to_string());
                     report["fit_error"] = Value::String(error);
@@ -213,7 +215,11 @@ impl LightGbmScores {
             "historical_stream_speed_prior_fallback" => "recent speed estimates",
             _ => "neutral ranking",
         };
-        let model_status = if result.trained { "active" } else { "not enabled" };
+        let model_status = if result.trained {
+            "active"
+        } else {
+            "not enabled"
+        };
         println!(
             "Speed ranking: {} samples from the last 72 hours across {} candidates. Model: {} ({}).",
             result.training_rows,
@@ -658,10 +664,8 @@ fn evaluate_speed_regressor(
                 return (false, report);
             }
         };
-    let exact_training_history =
-        speed_history_by_key(&train_rows, |row| row.fingerprint.clone());
-    let family_training_history =
-        speed_history_by_key(&train_rows, |row| row.family.clone());
+    let exact_training_history = speed_history_by_key(&train_rows, |row| row.fingerprint.clone());
+    let family_training_history = speed_history_by_key(&train_rows, |row| row.family.clone());
     let holdout_features = holdout_indices
         .iter()
         .map(|i| {
