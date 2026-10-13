@@ -274,6 +274,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: "📚 Persist Light learning state"
+        if: always() && steps.build_light.outcome == 'success' && steps.prepare_outputs.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/update/publish_light_state.sh
+
   cleanup:
     if: always()
     name: "🧹 Cleanup Caches"

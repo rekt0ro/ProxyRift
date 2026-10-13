@@ -124,6 +124,12 @@ case "$*" in
   *"/actions/runs/123/jobs?per_page=100"*)
     if [[ "${WATCHDOG_PUBLISHED:-false}" == "true" ]]; then
       printf '{"jobs":[{"steps":[{"name":"🚀 Publish generated changes","conclusion":"success"}]}]}\n'
+    elif [[ "${WATCHDOG_GATE_FAILURE:-false}" == "true" ]]; then
+      if [[ "${WATCHDOG_STATE_PERSISTED:-false}" == "true" ]]; then
+        printf '{"jobs":[{"steps":[{"name":"📦 Prepare published outputs","conclusion":"failure"},{"name":"📚 Persist Light learning state","conclusion":"success"},{"name":"🚀 Publish generated changes","conclusion":"skipped"}]}]}\n'
+      else
+        printf '{"jobs":[{"steps":[{"name":"📦 Prepare published outputs","conclusion":"failure"},{"name":"📚 Persist Light learning state","conclusion":"failure"},{"name":"🚀 Publish generated changes","conclusion":"skipped"}]}]}\n'
+      fi
     else
       printf '{"jobs":[{"steps":[{"name":"🚀 Publish generated changes","conclusion":"skipped"}]}]}\n'
     fi
@@ -151,6 +157,27 @@ if grep -Fq "rerun-failed-jobs" "$tmp/gh-calls.log"; then
   echo "[ERROR] Watchdog retried a run after successful publication." >&2
   exit 1
 fi
+
+: > "$tmp/gate-gh-calls.log"
+WATCHDOG_GATE_FAILURE=true WATCHDOG_STATE_PERSISTED=true WATCHDOG_GH_LOG="$tmp/gate-gh-calls.log" \
+  PATH="$retry_bin:$PATH" GH_REPOSITORY="rekt0ro/ProxyRift" \
+  EVENT_NAME="workflow_run" EVENT_PATH="$tmp/failure-event.json" \
+  GITHUB_STEP_SUMMARY="$tmp/gate-summary.md" GH_TOKEN="test-token" \
+  bash "$repo_root/scripts/autopilot/watchdog.sh" > "$tmp/gate-failure.log" 2>&1
+grep -Fq "failed the deterministic publication gate after persisting Light learning state; not retrying" "$tmp/gate-failure.log"
+if grep -Fq "rerun-failed-jobs" "$tmp/gate-gh-calls.log"; then
+  echo "[ERROR] Watchdog retried after the publication gate failed despite persisted learning state." >&2
+  exit 1
+fi
+
+: > "$tmp/gate-state-failure-gh-calls.log"
+WATCHDOG_GATE_FAILURE=true WATCHDOG_STATE_PERSISTED=false WATCHDOG_GH_LOG="$tmp/gate-state-failure-gh-calls.log" \
+  PATH="$retry_bin:$PATH" GH_REPOSITORY="rekt0ro/ProxyRift" \
+  EVENT_NAME="workflow_run" EVENT_PATH="$tmp/failure-event.json" \
+  GITHUB_STEP_SUMMARY="$tmp/gate-state-failure-summary.md" GH_TOKEN="test-token" \
+  bash "$repo_root/scripts/autopilot/watchdog.sh" > "$tmp/gate-state-failure.log" 2>&1
+grep -Fq "retrying its failed jobs once" "$tmp/gate-state-failure.log"
+grep -Fq "rerun-failed-jobs" "$tmp/gate-state-failure-gh-calls.log"
 
 WATCHDOG_PUBLISHED=false WATCHDOG_GH_LOG="$tmp/gh-calls.log" \
   PATH="$retry_bin:$PATH" GH_REPOSITORY="rekt0ro/ProxyRift" \

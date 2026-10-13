@@ -73,6 +73,9 @@ jobs:
       - name: Test cache cleanup safety when keys are unavailable
         run: bash scripts/update/test_cleanup_caches.sh
 
+      - name: Test Light learning-state-only publishing
+        run: bash scripts/update/test_publish_light_state.sh
+
       - name: Test update run summary formatting
         run: bash scripts/update/test_write_run_summary.sh
 
