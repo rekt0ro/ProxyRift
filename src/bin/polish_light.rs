@@ -4692,8 +4692,19 @@ mod tests {
             .iter()
             .map(|config| history_fingerprint(config))
             .collect::<HashSet<_>>();
-        let verified = configs.iter().cloned().map(|c| (c, metrics.clone())).collect::<HashMap<_, _>>();
-        let (selected, fresh) = select_current_publication(&verified, &repeats, &HashSet::new(), 200, 1, 3);
+        let verified = configs
+            .iter()
+            .cloned()
+            .map(|config| (config, metrics.clone()))
+            .collect::<HashMap<_, _>>();
+        let (selected, fresh) = select_current_publication(
+            &verified,
+            &repeats,
+            &HashSet::new(),
+            200,
+            1,
+            3,
+        );
         assert_eq!(selected.len(), 200);
         assert_eq!(fresh, 163);
     }
