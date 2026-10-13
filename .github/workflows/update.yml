@@ -247,17 +247,17 @@ jobs:
         if: always() && steps.build_light.outcome == 'success'
         env:
           PROXYRIFT_TMP_DIR: /tmp/proxyrift
-        run: bash scripts/update/verify_lightgbm_summary.sh "$PROXYRIFT_TMP_DIR/run-summary.md" "$PROXYRIFT_TMP_DIR/lightgbm-scores.json"
+        run: bash scripts/update/verify_lightgbm_summary.sh "$PROXYRIFT_TMP_DIR/run-summary.md" "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "subscriptions/light-training-stats.json"
 
       - name: "🧾 Prepare sanitized LightGBM evaluation artifact"
-        if: always()
+        if: always() && steps.build_light.outcome == 'success'
         env:
           PROXYRIFT_TMP_DIR: /tmp/proxyrift
           LIGHTGBM_ARTIFACT_PATH: ${{ runner.temp }}/lightgbm-evaluation.json
         run: bash scripts/update/write_lightgbm_artifact.sh "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "$LIGHTGBM_ARTIFACT_PATH"
 
       - name: "📎 Upload LightGBM evaluation artifact"
-        if: always()
+        if: always() && steps.build_light.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: lightgbm-evaluation-${{ github.run_id }}-${{ github.run_attempt }}
@@ -275,6 +275,7 @@ jobs:
           retention-days: 14
 
   cleanup:
+    if: always()
     name: "🧹 Cleanup Caches"
     needs: collect
     runs-on: ubuntu-latest

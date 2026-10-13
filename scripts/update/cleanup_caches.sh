@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-for k in "$RUST_TOOLCHAIN_KEY" "$REGISTRY_KEY" "$BUILD_KEY" "$XRAY_KEY" "$SINGBOX_KEY"; do
-  if [ -z "$k" ]; then
-    echo "Refusing cache cleanup because a current cache key is empty." >&2
-    exit 1
-  fi
-done
-
 cleanup_prefix() {
   local prefix="$1"
   local current_key="$2"
+
+  if [ -z "$current_key" ]; then
+    echo "[WARN] Skipping obsolete-cache cleanup for prefix '$prefix': current key unavailable."
+    return 0
+  fi
 
   gh cache list \
     --repo "$GH_REPO" \
