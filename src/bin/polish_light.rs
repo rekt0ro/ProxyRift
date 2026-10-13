@@ -3356,7 +3356,7 @@ async fn validate_light_precheck(
     let verified = singbox_qualified_metadata(xray_metadata, singbox_metadata);
 
     println!(
-        "[INFO] ✅ [Light HTTP precheck] {}/{} candidates verified | Target: {} | Timeout: {:.1}s | One request per candidate",
+        "[INFO] ✅ [Light HTTP precheck] {}/{} candidates verified | Target: {} | Timeout: {:.1}s | Single target; backend fallback only if needed",
         verified.len(),
         candidates.len(),
         target,
@@ -3535,7 +3535,7 @@ async fn main() -> Result<(), String> {
     );
 
     println!(
-        "[INFO] 🔁 [Light HTTP precheck] Current-run Google results available: {} | Repeated HTTP checks: disabled for matched candidates | New/cohort candidates use one Google request with a {:.1}s timeout",
+        "[INFO] 🔁 [Light HTTP precheck] Current-run Google results available: {} | Duplicate target checks: disabled for matched candidates | Unmatched/cohort candidates use the Google target only (timeout: {:.1}s; backend fallback may retry)",
         prevalidated_http_latencies.len(),
         precheck_timeout
     );
