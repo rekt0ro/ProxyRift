@@ -117,7 +117,7 @@ if [[ "$EVENT_NAME" == "workflow_run" ]]; then
   conclusion="$(jq -r '.workflow_run.conclusion // "unknown"' "$EVENT_PATH")"
   attempt="$(jq -r '.workflow_run.run_attempt // 1' "$EVENT_PATH")"
 
-  if [[ "$run_name" != "Update Configs" ]]; then
+  if [[ "$run_name" != "Update Configs" && "$run_name" != "Update Configs (Compatibility Trigger)" ]]; then
     echo "[INFO] Ignoring unrelated workflow: $run_name"
     exit 0
   fi
