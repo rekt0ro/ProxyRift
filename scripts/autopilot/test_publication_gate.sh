@@ -170,7 +170,7 @@ grep --quiet "minimum is 50" "$tmp/count.log"
 echo "[OK] Light below the minimum is rejected."
 
 make_outputs 199
-if (cd "$work" && LIGHT_MIN_PUBLISH=200 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >"$tmp/light-target.log" 2>&1; then
+if (cd "$work" && LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >"$tmp/light-target.log" 2>&1; then
   echo "[ERROR] Publication gate accepted Light below the 200-config production target." >&2
   exit 1
 fi
@@ -178,7 +178,7 @@ grep --quiet "minimum is 200" "$tmp/light-target.log"
 echo "[OK] Light below the 200-config target is rejected."
 
 make_outputs 200
-(cd "$work" && LIGHT_MIN_PUBLISH=200 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >/dev/null
+(cd "$work" && LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >/dev/null
 echo "[OK] Exactly 200 Light entries pass the production publication gate."
 
 make_outputs 50 999
