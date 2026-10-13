@@ -7025,7 +7025,8 @@ mod tests {
             cheap_compatibility_rejection_reason(config),
             Some("missing-shadowsocks-credential")
         );
-        let context = cheap_compatibility_rejection_context(config, "missing-shadowsocks-credential");
+        let context =
+            cheap_compatibility_rejection_context(config, "missing-shadowsocks-credential");
         assert_eq!(context.detail, "credential=missing");
         assert!(!format!("{context:?}").contains("password="));
     }
