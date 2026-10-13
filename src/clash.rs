@@ -1223,7 +1223,6 @@ pub fn render_file(input: &str, output: &str) -> Result<usize, String> {
 mod tests {
     use super::{render, summarize_skipped_configs};
 
-
     #[test]
     fn aggregates_repeated_skip_reasons_with_bounded_config_samples() {
         let reason = "unsupported Clash/Mihomo proxy type socks4";
