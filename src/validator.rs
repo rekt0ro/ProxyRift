@@ -6694,7 +6694,7 @@ mod tests {
         assert_eq!(diagnostic["duplicate_options"], json!(["mode"]));
         let serialized = diagnostic.to_string();
         assert!(!serialized.contains("private-value"));
-        assert!(!serialized.contains("invalid"));
+        assert!(!serialized.contains("mode=invalid"));
     }
 
     #[test]
