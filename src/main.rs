@@ -685,10 +685,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut http_latency_by_key = HashMap::<String, u64>::with_capacity(http_probe_results.len());
     for (config, metrics) in &http_probe_results {
         if metrics.median_ms.is_finite() && metrics.median_ms <= HTTP_HANDSHAKE_MAX_LATENCY_MS {
-            http_latency_by_key.insert(
-                dedup_key(config),
-                metrics.median_ms.max(0.0).round() as u64,
-            );
+            http_latency_by_key
+                .insert(dedup_key(config), metrics.median_ms.max(0.0).round() as u64);
         }
     }
 
