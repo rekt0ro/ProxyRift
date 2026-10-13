@@ -3416,7 +3416,7 @@ async fn main() -> Result<(), String> {
 
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "Usage: polish_light --candidates FILE --output FILE [--workers N]              [--batch-size N] [--timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--selected-workers N] [--selected-batch-size N]              [--primary-target URL] [--selection-limit N] [--max-per-endpoint N]              [--max-per-family N]              [--xray PATH] [--singbox PATH] [--stats PATH]"
+            "Usage: polish_light --candidates FILE --output FILE [--prevalidated-http-metrics FILE] [--workers N]              [--batch-size N] [--timeout SECONDS] [--selected-recheck-limit N]              [--max-candidates N] [--selected-workers N] [--selected-batch-size N]              [--primary-target URL] [--selection-limit N] [--max-per-endpoint N]              [--max-per-family N]              [--xray PATH] [--singbox PATH] [--stats PATH]"
         );
         return Ok(());
     }
@@ -3424,6 +3424,30 @@ async fn main() -> Result<(), String> {
     let candidates_path = required(&args, "--candidates")?;
     let output = required(&args, "--output")?;
     let stats_path = value(&args, "--stats", "");
+    let prevalidated_http_metrics_path = value(&args, "--prevalidated-http-metrics", "");
+    let prevalidated_http_latencies: HashMap<String, u64> =
+        if prevalidated_http_metrics_path.trim().is_empty() {
+            HashMap::new()
+        } else {
+            let contents = std::fs::read_to_string(&prevalidated_http_metrics_path).map_err(
+                |error| {
+                    format!(
+                        "failed to read prevalidated HTTP metrics '{}': {error}",
+                        prevalidated_http_metrics_path
+                    )
+                },
+            )?;
+            serde_json::from_str::<HashMap<String, u64>>(&contents)
+                .map_err(|error| {
+                    format!(
+                        "invalid prevalidated HTTP metrics '{}': {error}",
+                        prevalidated_http_metrics_path
+                    )
+                })?
+                .into_iter()
+                .filter(|(_, latency_ms)| *latency_ms <= 3_000)
+                .collect()
+        };
     let workers = value(&args, "--workers", "32")
         .parse::<usize>()
         .map_err(|_| "invalid --workers".to_string())?;
@@ -3560,6 +3584,13 @@ async fn main() -> Result<(), String> {
         light_cohorts.len(),
         cohort_configs_loaded
     );
+
+    if !prevalidated_http_latencies.is_empty() {
+        println!(
+            "[INFO] 🔁 [Light discovery] Reusing {} HTTP-handshake results; skipping duplicate primary-target checks for matching candidates",
+            prevalidated_http_latencies.len()
+        );
+    }
 
     let light_gbm_scores =
         LightGbmScores::from_file("/tmp/proxyrift/lightgbm-scores.json").unwrap_or_default();
@@ -3758,19 +3789,45 @@ async fn main() -> Result<(), String> {
         );
 
         let target = early_targets[0];
-        let target_metadata = validate_light_batch(
-            &xray,
-            &singbox,
-            chunk,
-            &[target],
-            ValidationSettings {
-                workers,
-                batch_size,
-                timeout_seconds: timeout,
-                strict: false,
-            },
-        )
-        .await?;
+        let mut target_metadata = HashMap::with_capacity(chunk.len());
+        let mut unprevalidated_chunk = Vec::new();
+
+        for config in chunk {
+            if let Some(latency_ms) = prevalidated_http_latencies.get(config) {
+                let latency_ms = *latency_ms as f64;
+                target_metadata.insert(
+                    config.clone(),
+                    ProxyMetrics {
+                        successes: 1,
+                        attempts: 1,
+                        median_ms: latency_ms,
+                        min_ms: latency_ms,
+                        jitter_ms: 0.0,
+                        throughput_kbps: 0.0,
+                        successful_targets: vec![target.to_string()],
+                    },
+                );
+            } else {
+                unprevalidated_chunk.push(config.clone());
+            }
+        }
+
+        if !unprevalidated_chunk.is_empty() {
+            let unprevalidated_metadata = validate_light_batch(
+                &xray,
+                &singbox,
+                &unprevalidated_chunk,
+                &[target],
+                ValidationSettings {
+                    workers,
+                    batch_size,
+                    timeout_seconds: timeout,
+                    strict: false,
+                },
+            )
+            .await?;
+            target_metadata.extend(unprevalidated_metadata);
+        }
         if publication_target_reached.load(Ordering::Relaxed) {
             break;
         }
