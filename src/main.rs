@@ -2044,8 +2044,8 @@ fn decode_base64_variants(text: &str) -> Vec<String> {
 mod tests {
     use super::{
         append_limited_chunk, assign_config_names, compatibility_rejection_artifact_record,
-        decode_base64_variants, extract_configs, normalize_config, parse_source_redirect,
-        light_candidate_configs, safe_source_client, safe_source_redirect, select_all_candidates,
+        decode_base64_variants, extract_configs, light_candidate_configs, normalize_config,
+        parse_source_redirect, safe_source_client, safe_source_redirect, select_all_candidates,
         split_concatenated_configs, tcp_endpoint_groups, transport_probe_key, trim_config,
         wireguard_key, MAX_SOURCE_BYTES,
     };
