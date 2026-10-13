@@ -3402,6 +3402,7 @@ async fn main() -> Result<(), String> {
                 })?
                 .into_iter()
                 .filter(|(_, latency_ms)| *latency_ms <= 5_000)
+                .map(|(config, latency_ms)| (history_identity(&config), latency_ms))
                 .collect()
         };
     let workers = value(&args, "--workers", "32")
@@ -3488,7 +3489,10 @@ async fn main() -> Result<(), String> {
         );
     }
 
-    let current_run_candidate_set = current_candidates.iter().cloned().collect::<HashSet<_>>();
+    let current_run_candidate_set = current_candidates
+        .iter()
+        .map(|config| history_identity(config))
+        .collect::<HashSet<_>>();
 
     let history_path = "subscriptions/light-history.json";
     let history = load_history(history_path)?;
@@ -3736,8 +3740,9 @@ async fn main() -> Result<(), String> {
 
         let mut xray_only_current_run_passes = 0usize;
         for config in chunk {
-            if prevalidated_http_metrics_enabled && current_run_candidate_set.contains(config) {
-                if let Some(latency_ms) = singbox_prevalidated_http_latencies.get(config) {
+            let identity = history_identity(config);
+            if prevalidated_http_metrics_enabled && current_run_candidate_set.contains(&identity) {
+                if let Some(latency_ms) = singbox_prevalidated_http_latencies.get(&identity) {
                     let latency_ms = *latency_ms as f64;
                     target_metadata.insert(
                         config.clone(),
