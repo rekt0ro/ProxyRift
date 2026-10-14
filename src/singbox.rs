@@ -14,7 +14,7 @@ use futures::stream::{self, StreamExt};
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs::{self, File};
 use std::net::IpAddr;
 use std::process::{Child, Command, Stdio};
@@ -29,6 +29,14 @@ const DEFAULT_MAX_LATENCY_MS: f64 = 3000.0;
 const START_TIMEOUT: Duration = Duration::from_secs(5);
 const BATCH_SIZE: usize = 500;
 const MAX_CORE_FAILURES_PER_VALIDATION: usize = 12;
+
+fn update_core_failure_streak(failures: usize, core_ready: bool) -> usize {
+    if core_ready {
+        0
+    } else {
+        failures.saturating_add(1)
+    }
+}
 
 fn clean(url: &str) -> &str {
     url.split('#').next().unwrap_or(url)
@@ -1475,11 +1483,13 @@ async fn check_batch_targets(
         return Ok(HashMap::new());
     }
 
-    let mut pending = vec![entries.to_vec()];
+    // Breadth-first splitting gives sibling batches a chance before one failing branch
+    // can consume the core-failure budget and discard otherwise-valid configs.
+    let mut pending = VecDeque::from([entries.to_vec()]);
     let mut verified = HashMap::new();
     let mut core_failures = 0usize;
 
-    while let Some(batch_entries) = pending.pop() {
+    while let Some(batch_entries) = pending.pop_front() {
         let batch_entries = pin_singbox_entries(&batch_entries, endpoint_cache).await;
         if batch_entries.is_empty() {
             continue;
@@ -1513,14 +1523,14 @@ async fn check_batch_targets(
         };
 
         if !ports_ready(&mut child, &local_ports).await {
-            core_failures += 1;
+            core_failures = update_core_failure_streak(core_failures, false);
             let _ = child.kill();
             let _ = child.wait();
 
             if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
                 let mid = batch_entries.len() / 2;
-                pending.push(batch_entries[..mid].to_vec());
-                pending.push(batch_entries[mid..].to_vec());
+                pending.push_back(batch_entries[..mid].to_vec());
+                pending.push_back(batch_entries[mid..].to_vec());
             } else {
                 let tail = fs::read_to_string(&log_path)
                     .unwrap_or_default()
@@ -1544,12 +1554,14 @@ async fn check_batch_targets(
             let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
+                    "[WARN] ⚠️ [Sing-Box] Consecutive core failure budget exhausted | Stopping remaining batch splits"
                 );
                 break;
             }
             continue;
         }
+
+        core_failures = update_core_failure_streak(core_failures, true);
 
         let mut clients = Vec::with_capacity(batch_entries.len());
         for (index, _) in batch_entries.iter().enumerate() {
@@ -1580,11 +1592,11 @@ async fn check_batch_targets(
             .await;
 
             if child.try_wait().ok().flatten().is_some() {
-                core_failures += 1;
+                core_failures = update_core_failure_streak(core_failures, false);
                 if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
                     let mid = batch_entries.len() / 2;
-                    pending.push(batch_entries[..mid].to_vec());
-                    pending.push(batch_entries[mid..].to_vec());
+                    pending.push_back(batch_entries[..mid].to_vec());
+                    pending.push_back(batch_entries[mid..].to_vec());
                 } else {
                     crate::emit_log_if!(!crate::compact_logs_enabled();
                         "[WARN] ⚠️ [Sing-Box] Core exited during pooled validation | {}",
@@ -1597,7 +1609,7 @@ async fn check_batch_targets(
                 let _ = fs::remove_dir_all(&work);
                 if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                     println!(
-                        "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
+                        "[WARN] ⚠️ [Sing-Box] Consecutive core failure budget exhausted | Stopping remaining batch splits"
                     );
                     break;
                 }
@@ -1662,11 +1674,11 @@ async fn check_batch_targets(
                 .await;
 
             if child.try_wait().ok().flatten().is_some() {
-                core_failures += 1;
+                core_failures = update_core_failure_streak(core_failures, false);
                 if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
                     let mid = batch_entries.len() / 2;
-                    pending.push(batch_entries[..mid].to_vec());
-                    pending.push(batch_entries[mid..].to_vec());
+                    pending.push_back(batch_entries[..mid].to_vec());
+                    pending.push_back(batch_entries[mid..].to_vec());
                 } else {
                     crate::emit_log_if!(!crate::compact_logs_enabled();
                         "[WARN] ⚠️ [Sing-Box] Core exited | {}",
@@ -1678,7 +1690,7 @@ async fn check_batch_targets(
                 let _ = fs::remove_dir_all(&work);
                 if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                     println!(
-                        "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
+                        "[WARN] ⚠️ [Sing-Box] Consecutive core failure budget exhausted | Stopping remaining batch splits"
                     );
                     break;
                 }
@@ -1888,11 +1900,13 @@ async fn check_batch(
         return Ok(HashMap::new());
     }
 
-    let mut pending = vec![entries.to_vec()];
+    // Breadth-first splitting gives sibling batches a chance before one failing branch
+    // can consume the core-failure budget and discard otherwise-valid configs.
+    let mut pending = VecDeque::from([entries.to_vec()]);
     let mut verified = HashMap::new();
     let mut core_failures = 0usize;
 
-    while let Some(batch_entries) = pending.pop() {
+    while let Some(batch_entries) = pending.pop_front() {
         let batch_entries = pin_singbox_entries(&batch_entries, endpoint_cache).await;
         if batch_entries.is_empty() {
             continue;
@@ -1926,14 +1940,14 @@ async fn check_batch(
         };
 
         if !ports_ready(&mut child, &local_ports).await {
-            core_failures += 1;
+            core_failures = update_core_failure_streak(core_failures, false);
             let _ = child.kill();
             let _ = child.wait();
 
             if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
                 let mid = batch_entries.len() / 2;
-                pending.push(batch_entries[..mid].to_vec());
-                pending.push(batch_entries[mid..].to_vec());
+                pending.push_back(batch_entries[..mid].to_vec());
+                pending.push_back(batch_entries[mid..].to_vec());
             } else {
                 let tail = fs::read_to_string(&log_path)
                     .unwrap_or_default()
@@ -1956,12 +1970,14 @@ async fn check_batch(
             let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
+                    "[WARN] ⚠️ [Sing-Box] Consecutive core failure budget exhausted | Stopping remaining batch splits"
                 );
                 break;
             }
             continue;
         }
+
+        core_failures = update_core_failure_streak(core_failures, true);
 
         let mut active = Vec::with_capacity(batch_entries.len());
         let mut client_error = None;
@@ -2665,6 +2681,13 @@ pub fn render_subscription_file(input: &str, output: &str) -> Result<usize, Stri
 mod tests {
     use super::*;
     use crate::validator::STRICT_THROUGHPUT_BYTES;
+
+    #[test]
+    fn core_failure_budget_resets_after_successful_start() {
+        assert_eq!(super::update_core_failure_streak(11, true), 0);
+        assert_eq!(super::update_core_failure_streak(11, false), 12);
+        assert_eq!(super::update_core_failure_streak(usize::MAX, false), usize::MAX);
+    }
 
     #[tokio::test]
     async fn reuses_cached_singbox_endpoint() {
