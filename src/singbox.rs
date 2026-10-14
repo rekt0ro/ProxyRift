@@ -1494,8 +1494,6 @@ async fn check_batch_targets(
         return Ok(HashMap::new());
     }
 
-    // Descend promptly through failed batches so size-related startup timeouts reach
-    // a workable batch size before the timeout budget can be exhausted.
     let mut pending = vec![entries.to_vec()];
     let mut verified = HashMap::new();
     let mut core_failures = 0usize;
@@ -1901,8 +1899,6 @@ async fn check_batch(
         return Ok(HashMap::new());
     }
 
-    // Descend promptly through failed batches so size-related startup timeouts reach
-    // a workable batch size before the timeout budget can be exhausted.
     let mut pending = vec![entries.to_vec()];
     let mut verified = HashMap::new();
     let mut core_failures = 0usize;
