@@ -114,7 +114,7 @@ format_model_decision() {
     insufficient_speed_samples_or_temporal_coverage) printf 'Not enabled — collecting more recent speed measurements' ;;
     insufficient_distinct_timestamps) printf 'Not enabled — not enough separate test runs' ;;
     insufficient_unseen_candidate_holdout) printf 'Not enabled — not enough unseen configs to validate' ;;
-    model_did_not_beat_temporal_speed_baseline) printf 'Not enabled — MAE did not improve on the temporal baseline by at least 1%' ;;
+    model_did_not_beat_temporal_speed_baseline) printf 'Not enabled — MAE did not improve on the temporal baseline by at least 1%%' ;;
     top_20pct_speed_ranking_did_not_improve) printf 'Not enabled — top-20%% speed lift did not exceed the baseline' ;;
     final_model_fit_failed|holdout_model_fit_failed) printf 'Not enabled — model training failed' ;;
     *) local readable="${reason//_/ }"; printf 'Not evaluated — %s.' "${readable:-no evaluation report}" ;;
