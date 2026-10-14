@@ -2252,31 +2252,29 @@ async fn run_transfer_gate_consumer(
 
         // Run one bounded batch per healthy host concurrently. The combined worker budget
         // stays capped, while each host is independently throttled or quarantined on 429.
-        let results = futures::future::join_all(
-            wave_batches
-                .into_iter()
-                .map(|(target_index, target, batch, target_state_before, transfer_workers)| async move {
-                    let rate_limits_before = target_rate_limit_events(target);
-                    let batch_started = Instant::now();
-                    let result =
-                        validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target)
-                            .await;
-                    let batch_elapsed = batch_started.elapsed().as_secs();
-                    let rate_limits = target_rate_limit_events(target)
-                        .saturating_sub(rate_limits_before)
-                        .min(batch.len() as u64);
-                    (
-                        target_index,
-                        target,
-                        batch,
-                        target_state_before,
-                        transfer_workers,
-                        batch_elapsed,
-                        rate_limits,
-                        result,
-                    )
-                }),
-        )
+        let results = futures::future::join_all(wave_batches.into_iter().map(
+            |(target_index, target, batch, target_state_before, transfer_workers)| async move {
+                let rate_limits_before = target_rate_limit_events(target);
+                let batch_started = Instant::now();
+                let result =
+                    validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target)
+                        .await;
+                let batch_elapsed = batch_started.elapsed().as_secs();
+                let rate_limits = target_rate_limit_events(target)
+                    .saturating_sub(rate_limits_before)
+                    .min(batch.len() as u64);
+                (
+                    target_index,
+                    target,
+                    batch,
+                    target_state_before,
+                    transfer_workers,
+                    batch_elapsed,
+                    rate_limits,
+                    result,
+                )
+            },
+        ))
         .await;
 
         let mut fatal_error = None;
