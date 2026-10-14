@@ -35,17 +35,17 @@ jobs:
             gh pr list \
               --repo "${GITHUB_REPOSITORY}" \
               --state open \
-              --json number,author,isDraft \
-              --jq '.[] | select(.author.login == "dependabot[bot]" and .isDraft == false) | .number'
+              --json number,author,isDraft,headRefName \
+              --jq '.[] | select((.author.login == "dependabot[bot]" or (.author.login == "github-actions[bot]" and .headRefName == "automation/update-core-pins")) and .isDraft == false) | .number'
           )
 
           if [ "${#prs[@]}" -eq 0 ]; then
-            echo "No open Dependabot tooling-update PRs."
+            echo "No open eligible tooling-update PRs."
             exit 0
           fi
 
           for pr in "${prs[@]}"; do
-            echo "Inspecting Dependabot PR #${pr}"
+            echo "Inspecting tooling-update PR #${pr}"
 
             mapfile -t files < <(
               gh pr view "${pr}" \
