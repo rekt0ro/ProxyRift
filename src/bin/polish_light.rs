@@ -2147,8 +2147,7 @@ async fn run_transfer_gate_consumer(
                 state.quarantined = true;
             }
         }
-        let Some(target_index) = select_transfer_target(&target_states)
-        else {
+        let Some(target_index) = select_transfer_target(&target_states) else {
             println!(
                 "[WARN] ⛔ [9 MiB sustained] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
                 transfer_tested.len(),
