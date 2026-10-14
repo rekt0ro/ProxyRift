@@ -17,7 +17,8 @@ use url::{Host, Url};
 
 pub const PRIMARY_TARGET: &str = "https://www.google.com/generate_204";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speedtest2.serverius.net/files/100mb.bin";
-pub const LINODE_SPEEDTEST_100MB_TARGET: &str = "https://speedtest.newark.linode.com/100MB-newark.bin";
+pub const LINODE_SPEEDTEST_100MB_TARGET: &str =
+    "https://speedtest.newark.linode.com/100MB-newark.bin";
 pub const TRUEFILESIZE_SPEEDTEST_100MB_TARGET: &str =
     "https://cdn.truefilesize.com/test/test-10mb.bin";
 pub const CACHEFLY_SPEEDTEST_100MB_TARGET: &str = "https://cachefly.cachefly.net/100mb.test";
