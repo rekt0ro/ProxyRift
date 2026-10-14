@@ -2147,7 +2147,15 @@ async fn run_transfer_gate_consumer(
                 state.quarantined = true;
             }
         }
-        let Some(target_index) = select_transfer_target(&target_states) else {
+
+        let mut rank_states = target_states.clone();
+        let mut target_order = Vec::with_capacity(target_states.len());
+        while let Some(target_index) = select_transfer_target(&rank_states) {
+            target_order.push(target_index);
+            // Rank every healthy target once; this is a scratch copy used only for scheduling.
+            rank_states[target_index].quarantined = true;
+        }
+        if target_order.is_empty() {
             println!(
                 "[WARN] ⛔ [9 MiB sustained] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
                 transfer_tested.len(),
@@ -2155,178 +2163,274 @@ async fn run_transfer_gate_consumer(
             );
             transfer_done.store(true, Ordering::Relaxed);
             break;
-        };
-        let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
-        let target_state_before = target_states[target_index];
-        let transfer_workers = target_concurrency[target_index].workers;
-
-        let queue_window = transfer_workers
-            .saturating_mul(FINAL_TRANSFER_QUEUE_MULTIPLIER)
-            .max(8);
-        let requested_batch_limit = dynamic_test_limit
-            .saturating_sub(transfer_tested.len())
-            .min(FINAL_TRANSFER_BATCH_SIZE)
-            .min(queue_window)
-            .min(eligible_untested.len())
-            .max(1);
-        let batch_limit = transfer_target_batch_limit(&target_state_before, requested_batch_limit);
-
-        let batch = diversify_recheck_candidates(&eligible_untested, batch_limit, 1);
-        let batch_set = batch.iter().cloned().collect::<HashSet<_>>();
-
-        for config in eligible_untested {
-            if !batch_set.contains(&config) {
-                pending.push_back(config);
-            }
         }
 
-        if batch.is_empty() {
+        // Keep the wave bounded globally, then split it across every currently healthy host.
+        let mut wave_budget = dynamic_test_limit
+            .saturating_sub(transfer_tested.len())
+            .min(FINAL_TRANSFER_BATCH_SIZE);
+        let wave_target_count = target_order
+            .len()
+            .min(eligible_untested.len())
+            .min(wave_budget);
+        let mut targets_left = wave_target_count;
+        let mut remaining_candidates = eligible_untested;
+        let mut wave_batches: Vec<(usize, &'static str, Vec<String>, TransferTargetState, usize)> =
+            Vec::with_capacity(wave_target_count);
+
+        for target_index in target_order.into_iter().take(wave_target_count) {
+            if wave_budget == 0 || remaining_candidates.is_empty() {
+                break;
+            }
+
+            let fair_share = wave_budget.div_ceil(targets_left.max(1));
+            targets_left = targets_left.saturating_sub(1);
+
+            let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
+            let target_state_before = target_states[target_index];
+            let worker_share = (FINAL_TRANSFER_WORKERS / wave_target_count.max(1))
+                .max(FINAL_TRANSFER_MIN_WORKERS);
+            let transfer_workers = target_concurrency[target_index]
+                .workers
+                .min(worker_share)
+                .max(FINAL_TRANSFER_MIN_WORKERS);
+            let queue_window = transfer_workers
+                .saturating_mul(FINAL_TRANSFER_QUEUE_MULTIPLIER)
+                .max(8);
+            let requested_batch_limit = fair_share
+                .min(FINAL_TRANSFER_BATCH_SIZE)
+                .min(queue_window)
+                .min(remaining_candidates.len());
+            let batch_limit =
+                transfer_target_batch_limit(&target_state_before, requested_batch_limit);
+
+            let batch = diversify_recheck_candidates(&remaining_candidates, batch_limit, 1);
+            if batch.is_empty() {
+                continue;
+            }
+            let batch_set = batch.iter().cloned().collect::<HashSet<_>>();
+            remaining_candidates.retain(|config| !batch_set.contains(config));
+            wave_budget = wave_budget.saturating_sub(batch.len());
+
+            transfer_tested.extend(batch.iter().cloned());
+            target_tested_candidates[target_index].extend(batch.iter().cloned());
+            wave_batches.push((
+                target_index,
+                target,
+                batch,
+                target_state_before,
+                transfer_workers,
+            ));
+        }
+
+        pending.extend(remaining_candidates);
+        if wave_batches.is_empty() {
             if receiver_closed {
                 break;
             }
             continue;
         }
 
-        transfer_tested.extend(batch.iter().cloned());
+        for (_, target, batch, target_state_before, _) in &wave_batches {
+            proxyrift::emit_log_if!(
+                proxyrift::should_emit_compact_progress(
+                    transfer_tested.len(),
+                    batch.len(),
+                    1000,
+                    transfer_tested.len() >= dynamic_test_limit
+                );
+                "[INFO] 📥 [9 MiB sustained] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {} | Parallel target wave: {} hosts",
+                remaining,
+                batch.len(),
+                dynamic_test_limit,
+                target,
+                transfer_target_score(target_state_before),
+                target_state_before.quarantined,
+                wave_batches.len()
+            );
+        }
 
-        target_tested_candidates[target_index].extend(batch.iter().cloned());
+        // Run one bounded batch per healthy host concurrently. The combined worker budget
+        // stays capped, while each host is independently throttled or quarantined on 429.
+        let results = futures::future::join_all(
+            wave_batches
+                .into_iter()
+                .map(|(target_index, target, batch, target_state_before, transfer_workers)| async move {
+                    let rate_limits_before = target_rate_limit_events(target);
+                    let batch_started = Instant::now();
+                    let result =
+                        validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target)
+                            .await;
+                    let batch_elapsed = batch_started.elapsed().as_secs();
+                    let rate_limits = target_rate_limit_events(target)
+                        .saturating_sub(rate_limits_before)
+                        .min(batch.len() as u64);
+                    (
+                        target_index,
+                        target,
+                        batch,
+                        target_state_before,
+                        transfer_workers,
+                        batch_elapsed,
+                        rate_limits,
+                        result,
+                    )
+                }),
+        )
+        .await;
 
-        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 1000, transfer_tested.len() >= dynamic_test_limit);
-            "[INFO] 📥 [9 MiB sustained] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {} | Pipeline: 1 MiB producer active",
-            remaining,
-            batch.len(),
-            dynamic_test_limit,
+        let mut fatal_error = None;
+        let mut reached_publication_count = None;
+        for (
+            target_index,
             target,
-            transfer_target_score(&target_state_before),
-            target_state_before.quarantined
-        );
-
-        let rate_limits_before = target_rate_limit_events(target);
-        let batch_started = Instant::now();
-        let metadata =
-            match validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target)
-                .await
-            {
+            batch,
+            target_state_before,
+            _transfer_workers,
+            batch_elapsed,
+            rate_limits,
+            result,
+        ) in results
+        {
+            let metadata = match result {
                 Ok(metadata) => metadata,
                 Err(error) => {
-                    transfer_done.store(true, Ordering::Relaxed);
-                    return Err(error);
+                    if fatal_error.is_none() {
+                        fatal_error = Some(error);
+                    }
+                    continue;
                 }
             };
-        let batch_elapsed = batch_started.elapsed().as_secs();
-        let batch_passed = metadata.len();
-        transfer_verified.extend(metadata);
-        transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
-        transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
-        let rate_limits = target_rate_limit_events(target)
-            .saturating_sub(rate_limits_before)
-            .min(batch.len() as u64);
+            let batch_passed = metadata.len();
+            transfer_verified.extend(metadata);
+            transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
+            transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
-        let target_state_before = target_states[target_index];
-        update_transfer_target_state(
-            &mut target_states[target_index],
-            batch.len(),
-            batch_passed,
-            rate_limits,
-            batch_elapsed,
-        );
-        if target_is_rate_limited(target) {
-            target_states[target_index].quarantined = true;
-        }
-        if target_states[target_index].quarantined && !target_state_before.quarantined {
-            let alternative_target_available = target_states
-                .iter()
-                .enumerate()
-                .any(|(index, state)| index != target_index && !state.quarantined);
-
-            println!(
-                "[WARN] ⚠️ [9 MiB sustained] Quarantining target for this run | Target: {} | Tested: {} | Passed: {} | Pass rate: {:.1}% | Rate limits: {}",
-                target,
-                target_states[target_index].tested,
-                target_states[target_index].passed,
-                transfer_target_pass_rate(&target_states[target_index]) * 100.0,
-                target_states[target_index].rate_limits
+            update_transfer_target_state(
+                &mut target_states[target_index],
+                batch.len(),
+                batch_passed,
+                rate_limits,
+                batch_elapsed,
             );
+            if target_is_rate_limited(target) {
+                target_states[target_index].quarantined = true;
+            }
+            if target_states[target_index].quarantined && !target_state_before.quarantined {
+                let alternative_target_available = target_states
+                    .iter()
+                    .enumerate()
+                    .any(|(index, state)| index != target_index && !state.quarantined);
 
-            if alternative_target_available {
-                let mut requeued = 0usize;
-                for config in &target_tested_candidates[target_index] {
-                    if !transfer_verified.contains_key(config) && transfer_tested.remove(config) {
-                        if !pending.iter().any(|queued| queued == config) {
-                            pending.push_back(config.clone());
+                println!(
+                    "[WARN] ⚠️ [9 MiB sustained] Quarantining target for this run | Target: {} | Tested: {} | Passed: {} | Pass rate: {:.1}% | Rate limits: {}",
+                    target,
+                    target_states[target_index].tested,
+                    target_states[target_index].passed,
+                    transfer_target_pass_rate(&target_states[target_index]) * 100.0,
+                    target_states[target_index].rate_limits
+                );
+
+                if alternative_target_available {
+                    let mut requeued = 0usize;
+                    for config in &target_tested_candidates[target_index] {
+                        if !transfer_verified.contains_key(config) && transfer_tested.remove(config) {
+                            if !pending.iter().any(|queued| queued == config) {
+                                pending.push_back(config.clone());
+                            }
+                            requeued += 1;
                         }
-                        requeued += 1;
                     }
-                }
 
-                if requeued > 0 {
+                    if requeued > 0 {
+                        println!(
+                            "[INFO] ↪️ [9 MiB sustained] Requeued {} failed candidates after target quarantine | Target: {}",
+                            requeued, target
+                        );
+                    }
+                } else {
                     println!(
-                        "[INFO] ↪️ [9 MiB sustained] Requeued {} failed candidates after target quarantine | Target: {}",
-                        requeued, target
+                        "[WARN] ⚠️ [9 MiB sustained] All transfer targets are quarantined | Keeping failed candidates closed to avoid retry loop"
                     );
                 }
-            } else {
-                println!(
-                    "[WARN] ⚠️ [9 MiB sustained] All transfer targets are quarantined | Keeping failed candidates closed to avoid retry loop"
-                );
             }
-        }
-        transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
-        transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
-        let (previous_workers, previous_clean_batches) =
-            target_concurrency[target_index].observe(rate_limits, batch.len());
-        if rate_limits > 0 {
-            let rate_limit_percent = if batch.is_empty() {
-                0
-            } else {
-                rate_limits.saturating_mul(100).div_ceil(batch.len() as u64)
-            };
+            transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
+            transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
-            if target_concurrency[target_index].workers < previous_workers {
-                println!(
-                    "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Reducing workers {} -> {}",
-                    rate_limits,
-                    target,
+            let (previous_workers, previous_clean_batches) =
+                target_concurrency[target_index].observe(rate_limits, batch.len());
+            if rate_limits > 0 {
+                let rate_limit_percent = if batch.is_empty() {
+                    0
+                } else {
+                    rate_limits.saturating_mul(100).div_ceil(batch.len() as u64)
+                };
+
+                if target_concurrency[target_index].workers < previous_workers {
+                    println!(
+                        "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Reducing workers {} -> {}",
+                        rate_limits,
+                        target,
+                        previous_workers,
+                        target_concurrency[target_index].workers
+                    );
+                } else {
+                    proxyrift::emit_log_if!(
+                        !proxyrift::compact_logs_enabled();
+                        "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Within tolerance, keeping workers at {}",
+                        rate_limits,
+                        target,
+                        previous_workers
+                    );
+                }
+            } else if target_concurrency[target_index].workers > previous_workers {
+                proxyrift::emit_log_if!(
+                    !proxyrift::compact_logs_enabled();
+                    "[INFO] 📈 Light transfer: {} clean batches; increasing workers {} -> {}",
+                    previous_clean_batches + 1,
                     previous_workers,
                     target_concurrency[target_index].workers
                 );
-            } else {
-                proxyrift::emit_log_if!(
-                    !proxyrift::compact_logs_enabled();
-                    "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Within tolerance, keeping workers at {}",
-                    rate_limits,
-                    target,
-                    previous_workers
-                );
             }
-        } else if target_concurrency[target_index].workers > previous_workers {
+
+            let publishable_count = select_current_publication(
+                transfer_verified,
+                repeat_candidate_fingerprints,
+                recent_families,
+                selection_limit,
+                max_per_endpoint,
+                max_per_family,
+            )
+            .0
+            .len();
             proxyrift::emit_log_if!(
-                !proxyrift::compact_logs_enabled();
-                "[INFO] 📈 Light transfer: {} clean batches; increasing workers {} -> {}",
-                previous_clean_batches + 1,
-                previous_workers,
-                target_concurrency[target_index].workers
+                proxyrift::should_emit_compact_progress(
+                    transfer_tested.len(),
+                    batch.len(),
+                    1000,
+                    publishable_count >= selection_limit || (receiver_closed && pending.is_empty())
+                );
+                "[INFO] ✅ [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Publication-ready: {}/{} | Remaining: {}",
+                batch_passed,
+                batch.len(),
+                batch_elapsed,
+                transfer_verified.len(),
+                publishable_count,
+                selection_limit,
+                selection_limit.saturating_sub(publishable_count),
             );
+            if publishable_count >= selection_limit {
+                reached_publication_count = Some(publishable_count);
+            }
         }
 
-        let publishable_count = select_current_publication(
-            transfer_verified,
-            repeat_candidate_fingerprints,
-            recent_families,
-            selection_limit,
-            max_per_endpoint,
-            max_per_family,
-        )
-        .0
-        .len();
-        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 1000, publishable_count >= selection_limit || (receiver_closed && pending.is_empty()));
-            "[INFO] ✅ [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Publication-ready: {}/{} | Remaining: {}",
-            batch_passed, batch.len(), batch_elapsed, transfer_verified.len(),
-            publishable_count, selection_limit, selection_limit.saturating_sub(publishable_count),
-        );
-        if publishable_count >= selection_limit {
+        if let Some(error) = fatal_error {
+            transfer_done.store(true, Ordering::Relaxed);
+            return Err(error);
+        }
+        if let Some(publishable_count) = reached_publication_count {
             proxyrift::emit_log_if!(
                 !proxyrift::compact_logs_enabled();
                 "[INFO] 🎯 [Light] Publication target reached ({publishable_count}/{selection_limit}); stopping further transfer validation"
@@ -2335,6 +2439,7 @@ async fn run_transfer_gate_consumer(
             transfer_done.store(true, Ordering::Relaxed);
             return Ok(publishable_count);
         }
+
     }
 
     transfer_done.store(true, Ordering::Relaxed);
