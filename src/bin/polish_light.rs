@@ -1719,9 +1719,7 @@ fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
             transfer_target_normalized_load(left)
                 .total_cmp(&transfer_target_normalized_load(right))
                 .then_with(|| left.tested.cmp(&right.tested))
-                .then_with(|| {
-                    transfer_target_score(right).total_cmp(&transfer_target_score(left))
-                })
+                .then_with(|| transfer_target_score(right).total_cmp(&transfer_target_score(left)))
                 .then_with(|| left_index.cmp(right_index))
         })
         .map(|(index, _)| index)
