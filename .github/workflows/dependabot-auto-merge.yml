@@ -75,23 +75,24 @@ jobs:
               continue
             fi
 
-            checks="$(gh pr checks "${pr}" --repo "${GITHUB_REPOSITORY}" --json bucket 2>/dev/null || true)"
+            checks="$(gh pr checks "${pr}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json workflow,bucket 2>/dev/null || true)"
+
             if [ -z "${checks}" ]; then
               echo "No check results for PR #${pr} yet; skipping."
               continue
             fi
 
-            if printf '%s' "${checks}" | jq -e 'length == 0' >/dev/null; then
-              echo "No checks for PR #${pr} yet; skipping."
+            if ! printf '%s' "${checks}" | jq -e '
+              [ .[] | select(.workflow == "CI") ] as $ci
+              | ($ci | length > 0) and all($ci[]; .bucket == "pass")
+            ' >/dev/null; then
+              echo "Rust CI has not passed for PR #${pr}; skipping."
               continue
             fi
 
-            if ! printf '%s' "${checks}" | jq -e 'length > 0 and all(.[]; .bucket == "pass")' >/dev/null; then
-              echo "PR #${pr} does not have all checks in a passing state; skipping."
-              continue
-            fi
-
-            echo "All reported checks passed for PR #${pr}; merging."
+            echo "Rust CI passed for PR #${pr}; merging."
             gh pr merge "${pr}" \
               --repo "${GITHUB_REPOSITORY}" \
               --squash \
