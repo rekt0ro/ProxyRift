@@ -1796,7 +1796,7 @@ impl TransferConcurrencyState {
 
 const FINAL_TRANSFER_TARGET_PROBE_SIZE: usize = 8;
 const FINAL_TRANSFER_TARGET_BACKOFF_SIZE: usize = 4;
-const FINAL_TRANSFER_TARGET_MAX_BATCH_SIZE: usize = 32;
+const FINAL_TRANSFER_TARGET_MAX_BATCH_SIZE: usize = 12;
 
 fn transfer_target_batch_limit(state: &TransferTargetState, requested: usize) -> usize {
     if state.batches == 0 {
@@ -1809,9 +1809,7 @@ fn transfer_target_batch_limit(state: &TransferTargetState, requested: usize) ->
 
     let adaptive_limit = match state.consecutive_clean_batches {
         0 => FINAL_TRANSFER_TARGET_PROBE_SIZE,
-        1 => 12,
-        2 => 16,
-        3 => 24,
+        1 => 10,
         _ => FINAL_TRANSFER_TARGET_MAX_BATCH_SIZE,
     };
     requested.min(adaptive_limit)
@@ -5425,18 +5423,16 @@ mod tests {
         assert_eq!(transfer_target_batch_limit(&state, 32), 8);
 
         update_transfer_target_state(&mut state, 8, 7, 0, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 10);
+        update_transfer_target_state(&mut state, 10, 9, 0, 5);
         assert_eq!(transfer_target_batch_limit(&state, 32), 12);
-        update_transfer_target_state(&mut state, 12, 10, 0, 5);
-        assert_eq!(transfer_target_batch_limit(&state, 32), 16);
-        update_transfer_target_state(&mut state, 16, 14, 0, 5);
-        assert_eq!(transfer_target_batch_limit(&state, 32), 24);
-        update_transfer_target_state(&mut state, 24, 22, 0, 5);
-        assert_eq!(transfer_target_batch_limit(&state, 32), 32);
+        update_transfer_target_state(&mut state, 12, 11, 0, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 12);
 
-        update_transfer_target_state(&mut state, 32, 28, 1, 5);
+        update_transfer_target_state(&mut state, 12, 10, 1, 5);
         assert_eq!(transfer_target_batch_limit(&state, 32), 4);
         update_transfer_target_state(&mut state, 4, 4, 0, 5);
-        assert_eq!(transfer_target_batch_limit(&state, 32), 12);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 10);
     }
 
     #[test]
