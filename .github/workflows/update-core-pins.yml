@@ -1,0 +1,249 @@
+name: Update Core Release Pins
+
+on:
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: update-core-release-pins
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-pins:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          show-progress: false
+
+      - name: Resolve latest stable releases and update pins
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          xray_release="$(curl -fsSL \
+            --retry 5 \
+            --retry-delay 2 \
+            --retry-max-time 45 \
+            --retry-connrefused \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: ProxyRift" \
+            https://api.github.com/repos/XTLS/Xray-core/releases/latest)"
+
+          singbox_release="$(curl -fsSL \
+            --retry 5 \
+            --retry-delay 2 \
+            --retry-max-time 45 \
+            --retry-connrefused \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: ProxyRift" \
+            https://api.github.com/repos/SagerNet/sing-box/releases/latest)"
+
+          xray_tag="$(jq -er '.tag_name // empty' <<< "$xray_release")"
+          singbox_tag="$(jq -er '.tag_name // empty' <<< "$singbox_release")"
+
+          if [[ ! "$xray_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid Xray stable release tag: $xray_tag" >&2
+            exit 1
+          fi
+          if [[ ! "$singbox_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid sing-box stable release tag: $singbox_tag" >&2
+            exit 1
+          fi
+
+          xray_version="$(printf '%s' "$xray_tag" | cut -c 2-)"
+          singbox_version="$(printf '%s' "$singbox_tag" | cut -c 2-)"
+          xray_asset="Xray-linux-64.zip"
+          singbox_asset="sing-box-$singbox_version-linux-amd64.tar.gz"
+
+          xray_digest="$(jq -er --arg name "$xray_asset" '
+            .assets[]
+            | select(.name == $name)
+            | .digest
+            | select(type == "string" and test("^sha256:[0-9a-fA-F]{64}$"))
+          ' <<< "$xray_release")"
+          singbox_digest="$(jq -er --arg name "$singbox_asset" '
+            .assets[]
+            | select(.name == $name)
+            | .digest
+            | select(type == "string" and test("^sha256:[0-9a-fA-F]{64}$"))
+          ' <<< "$singbox_release")"
+
+          xray_sha="$(printf '%s' "$xray_digest" | cut -d: -f2)"
+          singbox_sha="$(printf '%s' "$singbox_digest" | cut -d: -f2)"
+
+          XRAY_VERSION_PIN="$xray_version" \
+          XRAY_SHA256_PIN="$xray_sha" \
+          XRAY_ASSET_PIN="$xray_asset" \
+          SINGBOX_VERSION_PIN="$singbox_version" \
+          SINGBOX_SHA256_PIN="$singbox_sha" \
+          SINGBOX_ASSET_PIN="$singbox_asset" \
+            python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path(".github/workflows/update.yml")
+          content = path.read_text(encoding="utf-8")
+          values = {
+              "XRAY_VERSION_PIN": os.environ["XRAY_VERSION_PIN"],
+              "XRAY_SHA256_PIN": os.environ["XRAY_SHA256_PIN"],
+              "XRAY_ASSET_PIN": os.environ["XRAY_ASSET_PIN"],
+              "SINGBOX_VERSION_PIN": os.environ["SINGBOX_VERSION_PIN"],
+              "SINGBOX_SHA256_PIN": os.environ["SINGBOX_SHA256_PIN"],
+              "SINGBOX_ASSET_PIN": os.environ["SINGBOX_ASSET_PIN"],
+          }
+
+          for key, value in values.items():
+              pattern = rf'(?m)^([ \t]*{re.escape(key)}:[ \t]*)"[^"]*"$'
+              content, count = re.subn(
+                  pattern,
+                  lambda match: f'{match.group(1)}"{value}"',
+                  content,
+              )
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one {key} pin, found {count}")
+
+          path.write_text(content, encoding="utf-8")
+          print(
+              f"Resolved Xray {values['XRAY_VERSION_PIN']} and "
+              f"sing-box {values['SINGBOX_VERSION_PIN']}; both release asset "
+              "SHA-256 digests were verified as present in GitHub metadata."
+          )
+          PY
+
+          git diff --check
+          bash scripts/update/test_resolve_validation_cores.sh
+
+      - name: Create or update core-pin pull request
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ github.token }}
+          base: main
+          branch: automation/update-core-pins
+          delete-branch: true
+          add-paths: .github/workflows/update.yml
+          commit-message: "chore: update Xray and sing-box pins"
+          title: "chore: update Xray and sing-box versions"
+          body: |
+            Automated update of the pinned Xray-core and sing-box releases.
+
+            Versions, Linux asset names, and SHA-256 digests are read from each project's official GitHub Releases API. The updater refuses to create changes if the release tags, asset names, or digests do not match the expected format.
+
+            The PR is validated by the repository's Rust CI before the auto-merge workflow is asked to merge it.
+
+      - name: Dispatch Rust CI for the generated PR
+        id: dispatch-ci
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          head_sha="$(gh pr view "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json headRefOid \
+            --jq '.headRefOid')"
+
+          prior_run_ids="$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow validate.yml \
+            --branch automation/update-core-pins \
+            --event workflow_dispatch \
+            --limit 50 \
+            --json databaseId | jq '[.[].databaseId]')"
+
+          echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "prior-run-ids=$prior_run_ids" >> "$GITHUB_OUTPUT"
+
+          gh workflow run validate.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref automation/update-core-pins
+
+      - name: Wait for Rust CI to finish
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ steps.dispatch-ci.outputs.head-sha }}
+          PRIOR_RUN_IDS: ${{ steps.dispatch-ci.outputs.prior-run-ids }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          deadline=$((SECONDS + 3300))
+          ci_conclusion=""
+
+          while (( SECONDS < deadline )); do
+            runs="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow validate.yml \
+              --branch automation/update-core-pins \
+              --event workflow_dispatch \
+              --limit 50 \
+              --json databaseId,headSha,status,conclusion)"
+
+            run_id="$(jq -r \
+              --arg sha "$EXPECTED_HEAD_SHA" \
+              --argjson prior "$PRIOR_RUN_IDS" '
+                [
+                  .[]
+                  | select(.headSha == $sha)
+                  | select(.databaseId as $id | ($prior | index($id)) == null)
+                ]
+                | first
+                | .databaseId // empty
+              ' <<< "$runs")"
+
+            if [[ -n "$run_id" ]]; then
+              run_details="$(gh run view "$run_id" \
+                --repo "$GITHUB_REPOSITORY" \
+                --json status,conclusion)"
+              status="$(jq -r '.status' <<< "$run_details")"
+              conclusion="$(jq -r '.conclusion // empty' <<< "$run_details")"
+
+              if [[ "$status" == "completed" ]]; then
+                ci_conclusion="$conclusion"
+                break
+              fi
+            fi
+
+            sleep 15
+          done
+
+          if [[ "$ci_conclusion" != "success" ]]; then
+            echo "Rust CI did not succeed; leaving the core update PR open for inspection." >&2
+            exit 1
+          fi
+
+          echo "Rust CI passed for $EXPECTED_HEAD_SHA."
+
+      - name: Request auto-merge evaluation
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run dependabot-auto-merge.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main

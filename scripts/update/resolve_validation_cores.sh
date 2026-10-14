@@ -6,7 +6,7 @@ set -euo pipefail
 [[ "$SINGBOX_VERSION_PIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 [[ "$SINGBOX_SHA256_PIN" =~ ^[0-9a-f]{64}$ ]]
 test "$XRAY_ASSET_PIN" = "Xray-linux-64.zip"
-test "$SINGBOX_ASSET_PIN" = "sing-box-1.14.2-linux-amd64.tar.gz"
+test "$SINGBOX_ASSET_PIN" = "sing-box-${SINGBOX_VERSION_PIN}-linux-amd64.tar.gz"
 
 {
   echo "xray_version=$XRAY_VERSION_PIN"

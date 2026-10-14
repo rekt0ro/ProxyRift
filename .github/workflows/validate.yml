@@ -21,6 +21,7 @@ on:
       - ".github/dependabot.yml"
       - ".gitignore"
       - "scripts/**"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -69,6 +70,9 @@ jobs:
 
       - name: Test source-sensitive build cache keys
         run: bash scripts/update/test_compute_cache_keys.sh
+
+      - name: Test pinned core release validation
+        run: bash scripts/update/test_resolve_validation_cores.sh
 
       - name: Test cache cleanup safety when keys are unavailable
         run: bash scripts/update/test_cleanup_caches.sh
