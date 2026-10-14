@@ -117,14 +117,14 @@ format_model_decision() {
     model_did_not_beat_temporal_speed_baseline) printf 'Not enabled — MAE did not improve on the temporal baseline by at least 1%' ;;
     top_20pct_speed_ranking_did_not_improve) printf 'Not enabled — top-20%% speed lift did not exceed the baseline' ;;
     final_model_fit_failed|holdout_model_fit_failed) printf 'Not enabled — model training failed' ;;
-    *) local readable="${reason//_/ }"; printf 'Not enabled — %s' "${readable:-not evaluated}" ;;
+    *) local readable="${reason//_/ }"; printf 'Not evaluated — %s.' "${readable:-no evaluation report}" ;;
   esac
 }
 
 format_model_evaluation() {
   local reason="$1" model_mae="$2" baseline_mae="$3" improvement="$4"
   local speed_lift="$5" speed_samples="$6" unique_candidates="$7"
-  local unique_timestamps="$8" train_rows="$9" holdout_rows="\${10}"
+  local unique_timestamps="$8" train_rows="$9" holdout_rows="${10}"
 
   if [[ "$model_mae" =~ ^-?[0-9]+([.][0-9]+)?$ \
     && "$baseline_mae" =~ ^-?[0-9]+([.][0-9]+)?$ \
@@ -148,7 +148,7 @@ format_model_evaluation() {
     top_20pct_speed_ranking_did_not_improve)
       printf 'Metrics unavailable, but the artifact reports that the top-20%% speed ranking did not improve.' ;;
     final_model_fit_failed|holdout_model_fit_failed) printf 'Not evaluated — model fitting failed.' ;;
-    *) local readable="\${reason//_/ }"; printf 'Not evaluated — %s.' "\${readable:-no evaluation report}" ;;
+    *) local readable="${reason//_/ }"; printf 'Not evaluated — %s.' "${readable:-no evaluation report}" ;;
   esac
 }
 
@@ -482,7 +482,7 @@ mkdir -p "$(dirname "$summary_output_file")"
   echo "| Measure | Result |"
   echo "|---|---|"
   echo "| Ranking mode | $(format_ranking_strategy "$lightgbm_ranking_strategy") |"
-  echo "| Recent speed data | $(format_count "$lightgbm_training_rows") samples in the last 72 hours; $(format_count "$ml_new_rows") new this run; $(format_count "$lightgbm_unique_candidates") candidate identities across $(format_count "$lightgbm_unique_timestamps") timestamps |"
+  echo "| Recent speed data | $(format_count "$lightgbm_speed_samples") speed measurements in the last 72 hours; $(format_count "$ml_new_rows") new this run; $(format_count "$lightgbm_unique_candidates") candidate identities across $(format_count "$lightgbm_unique_timestamps") timestamps |"
   if [[ "$lightgbm_train_rows" =~ ^[0-9]+$ && "$lightgbm_holdout_rows" =~ ^[0-9]+$ ]] && { (( lightgbm_train_rows > 0 || lightgbm_holdout_rows > 0 )); }; then
     echo "| Temporal validation split | $(format_count "$lightgbm_train_rows") training rows / $(format_count "$lightgbm_holdout_rows") holdout rows |"
   else
