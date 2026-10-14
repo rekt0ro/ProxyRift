@@ -4525,6 +4525,7 @@ async fn main() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::{split_new_and_expired_published_candidates, HistoryEntry};
     use super::{
         active_revalidated_fingerprints, adaptive_discovery_batch_size, adaptive_recheck_limit,
         adaptive_stability_pool_target, adaptive_stability_target,
