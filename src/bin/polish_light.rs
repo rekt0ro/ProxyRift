@@ -2439,7 +2439,6 @@ async fn run_transfer_gate_consumer(
             transfer_done.store(true, Ordering::Relaxed);
             return Ok(publishable_count);
         }
-
     }
 
     transfer_done.store(true, Ordering::Relaxed);
