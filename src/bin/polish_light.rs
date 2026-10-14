@@ -1697,7 +1697,6 @@ fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
         return None;
     }
 
-    // Give every healthy host a small initial probe before performance-weighted scheduling.
     let unprobed = eligible
         .iter()
         .copied()
@@ -1714,7 +1713,6 @@ fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
             .map(|(index, _)| index);
     }
 
-    // Keep load balanced, allowing consistently faster/reliable hosts a bounded share advantage.
     eligible
         .into_iter()
         .min_by(|(left_index, left), (right_index, right)| {
@@ -2150,7 +2148,6 @@ async fn run_transfer_gate_consumer(
         let mut target_order = Vec::with_capacity(target_states.len());
         while let Some(target_index) = select_transfer_target(&rank_states) {
             target_order.push(target_index);
-            // Rank every healthy target once; this is a scratch copy used only for scheduling.
             rank_states[target_index].quarantined = true;
         }
         if target_order.is_empty() {
@@ -2163,7 +2160,6 @@ async fn run_transfer_gate_consumer(
             break;
         }
 
-        // Keep the wave bounded globally, then split it across every currently healthy host.
         let mut wave_budget = dynamic_test_limit
             .saturating_sub(transfer_tested.len())
             .min(FINAL_TRANSFER_BATCH_SIZE);
@@ -2248,8 +2244,6 @@ async fn run_transfer_gate_consumer(
             );
         }
 
-        // Run one bounded batch per healthy host concurrently. The combined worker budget
-        // stays capped, while each host is independently throttled or quarantined on 429.
         let results = futures::future::join_all(wave_batches.into_iter().map(
             |(target_index, target, batch, target_state_before, transfer_workers)| async move {
                 let rate_limits_before = target_rate_limit_events(target);
@@ -5445,8 +5439,6 @@ mod tests {
         states[3].passed = 2;
         states[3].batches = 1;
 
-        // A consistently healthy target may receive a bounded share advantage,
-        // but it is not pinned as a primary and cannot absorb an unbounded queue.
         assert_eq!(select_transfer_target(&states), Some(0));
         states[0].tested = 16;
         assert_eq!(select_transfer_target(&states), Some(2));
