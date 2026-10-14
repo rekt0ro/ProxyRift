@@ -4781,7 +4781,8 @@ mod tests {
         assert!(targets.contains(&proxyrift::validator::STRICT_THROUGHPUT_TARGET));
         assert!(targets.contains(&proxyrift::validator::LINODE_SPEEDTEST_100MB_TARGET));
         assert!(targets.contains(&proxyrift::validator::TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
-        assert!(targets.contains(&proxyrift::validator::CACHEFLY_SPEEDTEST_100MB_TARGET));        assert_eq!(
+        assert!(targets.contains(&proxyrift::validator::CACHEFLY_SPEEDTEST_100MB_TARGET));
+        assert_eq!(
             proxyrift::validator::STRICT_THROUGHPUT_TARGET,
             "https://speedtest2.serverius.net/files/100mb.bin"
         );
