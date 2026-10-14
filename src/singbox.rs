@@ -2686,7 +2686,10 @@ mod tests {
     fn core_failure_budget_resets_after_successful_start() {
         assert_eq!(super::update_core_failure_streak(11, true), 0);
         assert_eq!(super::update_core_failure_streak(11, false), 12);
-        assert_eq!(super::update_core_failure_streak(usize::MAX, false), usize::MAX);
+        assert_eq!(
+            super::update_core_failure_streak(usize::MAX, false),
+            usize::MAX
+        );
     }
 
     #[tokio::test]
