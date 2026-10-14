@@ -524,7 +524,8 @@ fn write_light_stats(
     fresh_family_target_percent: usize,
     score_independent_exploration_percent: usize,
     published_from_fresh_families: usize,
-    published_new_or_expired: usize,
+    published_new_candidates: usize,
+    published_expired_candidates: usize,
     published_revalidated: usize,
 ) -> Result<(), String> {
     if path.is_empty() {
@@ -556,7 +557,8 @@ fn write_light_stats(
         "score_independent_exploration_percent": score_independent_exploration_percent,
         "published_from_fresh_families": published_from_fresh_families,
         "published_from_recent_families": published.saturating_sub(published_from_fresh_families),
-        "published_new_or_expired": published_new_or_expired,
+        "published_new_candidates": published_new_candidates,
+        "published_expired_candidates": published_expired_candidates,
         "published_revalidated": published_revalidated,
         "revalidated_candidate_max_percent": REVALIDATED_CANDIDATE_PERCENT,
         "revalidation_window_seconds": REVALIDATION_WINDOW_SECS,
@@ -2803,6 +2805,31 @@ fn select_current_publication(
     )
 }
 
+fn split_new_and_expired_published_candidates(
+    selected: &[String],
+    not_recently_revalidated: usize,
+    history: &HashMap<String, HistoryEntry>,
+    historical_cohorts: &[Vec<String>],
+) -> (usize, usize) {
+    let previously_known = history
+        .keys()
+        .cloned()
+        .chain(
+            historical_cohorts
+                .iter()
+                .flatten()
+                .map(|config| history_fingerprint(config)),
+        )
+        .collect::<HashSet<_>>();
+    let new_candidates = selected
+        .iter()
+        .filter(|config| !previously_known.contains(&history_fingerprint(config)))
+        .count()
+        .min(not_recently_revalidated);
+    let expired_candidates = not_recently_revalidated.saturating_sub(new_candidates);
+    (new_candidates, expired_candidates)
+}
+
 fn select_verified_configs(
     configs: &[String],
     limit: usize,
@@ -4284,6 +4311,13 @@ async fn main() -> Result<(), String> {
         .filter(|config| !recent_families.contains(&family_key(config)))
         .count();
     let selected_revalidated_count = selected.len().saturating_sub(selected_new_count);
+    let (selected_new_candidates, selected_expired_candidates) =
+        split_new_and_expired_published_candidates(
+            &selected,
+            selected_new_count,
+            &history,
+            &light_cohorts,
+        );
     let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
     sort_by_measured_stream_speed(&mut stream_ranked, &stream_verified);
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(
@@ -4382,7 +4416,8 @@ async fn main() -> Result<(), String> {
         FRESH_FAMILY_TARGET_PERCENT,
         RECHECK_EXPLORATION_PERCENT,
         fresh_family_selected,
-        selected_new_count,
+        selected_new_candidates,
+        selected_expired_candidates,
         selected_revalidated_count,
     )?;
 
@@ -4827,6 +4862,34 @@ mod tests {
             select_current_publication(&verified, &repeats, &HashSet::new(), 200, 1, 3);
         assert_eq!(selected.len(), 200);
         assert_eq!(fresh, 163);
+    }
+
+    #[test]
+    fn new_and_revalidation_expired_published_candidates_are_counted_separately() {
+        let new_candidate = "vless://new@new.example:443".to_string();
+        let historical_candidate = "vless://known@known.example:443".to_string();
+        let cohort_candidate = "vless://cohort@old.example:443".to_string();
+        let selected = vec![
+            new_candidate.clone(),
+            historical_candidate.clone(),
+            cohort_candidate.clone(),
+        ];
+        let history = HashMap::from([(
+            history_fingerprint(&historical_candidate),
+            HistoryEntry {
+                checks: 1,
+                passes: 1,
+                last_seen: 100,
+            },
+        )]);
+        let cohorts = vec![vec![cohort_candidate.clone()]];
+
+        let (new_count, expired_count) =
+            split_new_and_expired_published_candidates(&selected, 3, &history, &cohorts);
+
+        assert_eq!(new_count, 1);
+        assert_eq!(expired_count, 2);
+        assert_eq!(new_count + expired_count, 3);
     }
 
     #[test]
