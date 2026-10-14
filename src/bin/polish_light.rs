@@ -51,7 +51,7 @@ const MAX_RECHECK_EXPLORATION: usize = 64;
 const MAX_FINAL_RECHECK_ATTEMPTS: usize = 2;
 const FINAL_TRANSFER_BATCH_SIZE: usize = 32;
 const FINAL_TRANSFER_WORKERS: usize = 12;
-const FINAL_TRANSFER_INITIAL_WORKERS: usize = 10;
+const FINAL_TRANSFER_INITIAL_WORKERS: usize = 6;
 const FINAL_TRANSFER_MIN_WORKERS: usize = 2;
 const FINAL_TRANSFER_QUEUE_MULTIPLIER: usize = 3;
 const FINAL_TRANSFER_CLEAN_BATCHES_TO_RAMP: usize = 2;
@@ -1613,7 +1613,6 @@ async fn validate_light_transfer_stability_batch(
 
 const FINAL_TRANSFER_RATE_LIMIT_TOLERANCE_PERCENT: u64 = 25;
 const FINAL_TRANSFER_RATE_LIMIT_SEVERE_PERCENT: u64 = 50;
-const PRIMARY_TRANSFER_TARGET_COUNT: usize = 2;
 const FINAL_TRANSFER_TARGET_MIN_TESTS: usize = 8;
 const FINAL_TRANSFER_TARGET_RATE_LIMIT_PENALTY_PERCENT: u64 = 75;
 
@@ -1624,6 +1623,8 @@ struct TransferTargetState {
     rate_limits: u64,
     elapsed_secs: u64,
     batches: usize,
+    last_batch_rate_limits: u64,
+    consecutive_clean_batches: usize,
     quarantined: bool,
 }
 
@@ -1674,51 +1675,56 @@ fn should_quarantine_transfer_target(state: &TransferTargetState) -> bool {
     rate_limit_percent >= FINAL_TRANSFER_TARGET_RATE_LIMIT_PENALTY_PERCENT && pass_rate < 0.25
 }
 
-fn select_transfer_target(
-    states: &[TransferTargetState],
-    next_preferred_primary: usize,
-) -> Option<usize> {
-    if states.is_empty() {
+fn transfer_target_normalized_load(state: &TransferTargetState) -> f64 {
+    let score = if state.batches == 0 {
+        0.5
+    } else {
+        transfer_target_score(state).clamp(0.0, 1.0)
+    };
+    let weight = 0.75 + (score * 0.5);
+    state.tested as f64 / weight
+}
+
+fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
+    let eligible = states
+        .iter()
+        .enumerate()
+        .filter(|(_, state)| !state.quarantined)
+        .collect::<Vec<_>>();
+    if eligible.is_empty() {
         return None;
     }
 
-    let primary_count = states.len().min(PRIMARY_TRANSFER_TARGET_COUNT);
-    let healthy_primary = (0..primary_count)
-        .filter(|&index| !states[index].quarantined)
+    // Give every healthy host a small initial probe before performance-weighted scheduling.
+    let unprobed = eligible
+        .iter()
+        .copied()
+        .filter(|(_, state)| state.batches == 0)
         .collect::<Vec<_>>();
-    let has_healthy_primary = !healthy_primary.is_empty();
-    let both_primaries_healthy = primary_count == PRIMARY_TRANSFER_TARGET_COUNT
-        && healthy_primary.len() == PRIMARY_TRANSFER_TARGET_COUNT;
-    let healthy = if has_healthy_primary {
-        healthy_primary
-    } else {
-        states
-            .iter()
-            .enumerate()
-            .filter(|(_, state)| !state.quarantined)
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>()
-    };
+    if !unprobed.is_empty() {
+        return unprobed
+            .into_iter()
+            .min_by(|(left_index, left), (right_index, right)| {
+                left.tested
+                    .cmp(&right.tested)
+                    .then_with(|| left_index.cmp(right_index))
+            })
+            .map(|(index, _)| index);
+    }
 
-    let minimum_tested = healthy.iter().map(|&index| states[index].tested).min()?;
-    let mut least_tested = healthy
+    // Keep load balanced, allowing consistently faster/reliable hosts a bounded share advantage.
+    eligible
         .into_iter()
-        .filter(|&index| states[index].tested == minimum_tested)
-        .collect::<Vec<_>>();
-
-    if least_tested.len() == 1 {
-        return least_tested.pop();
-    }
-
-    if both_primaries_healthy && least_tested.contains(&next_preferred_primary) {
-        return Some(next_preferred_primary);
-    }
-
-    least_tested.into_iter().min_by(|left, right| {
-        transfer_target_score(&states[*right])
-            .total_cmp(&transfer_target_score(&states[*left]))
-            .then_with(|| left.cmp(right))
-    })
+        .min_by(|(left_index, left), (right_index, right)| {
+            transfer_target_normalized_load(left)
+                .total_cmp(&transfer_target_normalized_load(right))
+                .then_with(|| left.tested.cmp(&right.tested))
+                .then_with(|| {
+                    transfer_target_score(right).total_cmp(&transfer_target_score(left))
+                })
+                .then_with(|| left_index.cmp(right_index))
+        })
+        .map(|(index, _)| index)
 }
 
 fn update_transfer_target_state(
@@ -1731,6 +1737,12 @@ fn update_transfer_target_state(
     state.tested = state.tested.saturating_add(tested);
     state.passed = state.passed.saturating_add(passed.min(tested));
     state.rate_limits = state.rate_limits.saturating_add(rate_limits);
+    state.last_batch_rate_limits = rate_limits;
+    state.consecutive_clean_batches = if rate_limits == 0 {
+        state.consecutive_clean_batches.saturating_add(1)
+    } else {
+        0
+    };
     state.elapsed_secs = state.elapsed_secs.saturating_add(elapsed_secs.max(1));
     state.batches = state.batches.saturating_add(1);
     state.quarantined = state.quarantined || should_quarantine_transfer_target(state);
@@ -1784,14 +1796,27 @@ impl TransferConcurrencyState {
     }
 }
 
-const FINAL_TRANSFER_TARGET_PROBE_SIZE: usize = 12;
+const FINAL_TRANSFER_TARGET_PROBE_SIZE: usize = 8;
+const FINAL_TRANSFER_TARGET_BACKOFF_SIZE: usize = 4;
+const FINAL_TRANSFER_TARGET_MAX_BATCH_SIZE: usize = 32;
 
 fn transfer_target_batch_limit(state: &TransferTargetState, requested: usize) -> usize {
     if state.batches == 0 {
-        requested.min(FINAL_TRANSFER_TARGET_PROBE_SIZE)
-    } else {
-        requested
+        return requested.min(FINAL_TRANSFER_TARGET_PROBE_SIZE);
     }
+
+    if state.last_batch_rate_limits > 0 {
+        return requested.min(FINAL_TRANSFER_TARGET_BACKOFF_SIZE);
+    }
+
+    let adaptive_limit = match state.consecutive_clean_batches {
+        0 => FINAL_TRANSFER_TARGET_PROBE_SIZE,
+        1 => 12,
+        2 => 16,
+        3 => 24,
+        _ => FINAL_TRANSFER_TARGET_MAX_BATCH_SIZE,
+    };
+    requested.min(adaptive_limit)
 }
 
 fn adaptive_stability_pool_target(
@@ -2017,7 +2042,6 @@ async fn run_transfer_gate_consumer(
         vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     let mut pending = VecDeque::<String>::new();
     let mut receiver_closed = false;
-    let mut next_preferred_primary = 0usize;
     loop {
         if transfer_done.load(Ordering::Relaxed)
             || publication_target_reached.load(Ordering::Relaxed)
@@ -2123,7 +2147,7 @@ async fn run_transfer_gate_consumer(
                 state.quarantined = true;
             }
         }
-        let Some(target_index) = select_transfer_target(&target_states, next_preferred_primary)
+        let Some(target_index) = select_transfer_target(&target_states)
         else {
             println!(
                 "[WARN] ⛔ [9 MiB sustained] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
@@ -2208,9 +2232,6 @@ async fn run_transfer_gate_consumer(
             rate_limits,
             batch_elapsed,
         );
-        if target_index < PRIMARY_TRANSFER_TARGET_COUNT {
-            next_preferred_primary = (target_index + 1) % PRIMARY_TRANSFER_TARGET_COUNT;
-        }
         if target_is_rate_limited(target) {
             target_states[target_index].quarantined = true;
         }
@@ -4767,15 +4788,15 @@ mod tests {
             proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()
         ];
         assert_eq!(states.len(), 4);
-        assert_eq!(select_transfer_target(&states, 0), Some(0));
+        assert_eq!(select_transfer_target(&states), Some(0));
         states[0].quarantined = true;
-        assert_eq!(select_transfer_target(&states, 0), Some(1));
+        assert_eq!(select_transfer_target(&states), Some(1));
         states[1].quarantined = true;
-        assert_eq!(select_transfer_target(&states, 0), Some(2));
+        assert_eq!(select_transfer_target(&states), Some(2));
         states[2].quarantined = true;
-        assert_eq!(select_transfer_target(&states, 0), Some(3));
+        assert_eq!(select_transfer_target(&states), Some(3));
         states[3].quarantined = true;
-        assert_eq!(select_transfer_target(&states, 0), None);
+        assert_eq!(select_transfer_target(&states), None);
 
         let targets = proxyrift::validator::STRICT_THROUGHPUT_TARGETS;
         assert!(targets.contains(&proxyrift::validator::STRICT_THROUGHPUT_TARGET));
@@ -5241,29 +5262,32 @@ mod tests {
     }
 
     #[test]
-    fn transfer_target_selector_balances_iranian_hosts_before_backups() {
+    fn transfer_target_selector_balances_all_hosts_by_observed_load() {
         let mut states = vec![TransferTargetState::default(); 4];
-        assert_eq!(select_transfer_target(&states, 0), Some(0));
+        assert_eq!(select_transfer_target(&states), Some(0));
 
-        states[0].tested = 12;
-        states[0].passed = 11;
+        states[0].tested = 8;
+        states[0].passed = 7;
         states[0].batches = 1;
-        assert_eq!(select_transfer_target(&states, 1), Some(1));
+        assert_eq!(select_transfer_target(&states), Some(1));
 
-        states[1].tested = 12;
-        states[1].passed = 10;
+        states[1].tested = 8;
+        states[1].passed = 6;
         states[1].batches = 1;
-        assert_eq!(select_transfer_target(&states, 0), Some(0));
+        assert_eq!(select_transfer_target(&states), Some(2));
 
-        states[0].passed = 4;
-        states[1].quarantined = true;
-        states[2].tested = 12;
-        states[2].passed = 12;
+        states[2].tested = 8;
+        states[2].passed = 7;
         states[2].batches = 1;
-        states[3].tested = 12;
-        states[3].passed = 3;
+        states[3].tested = 8;
+        states[3].passed = 2;
         states[3].batches = 1;
-        assert_eq!(select_transfer_target(&states, 1), Some(0));
+
+        // A consistently healthy target may receive a bounded share advantage,
+        // but it is not pinned as a primary and cannot absorb an unbounded queue.
+        assert_eq!(select_transfer_target(&states), Some(0));
+        states[0].tested = 16;
+        assert_eq!(select_transfer_target(&states), Some(2));
     }
 
     #[test]
@@ -5278,9 +5302,9 @@ mod tests {
         states[3].passed = 29;
         states[3].batches = 2;
 
-        assert_eq!(select_transfer_target(&states, 0), Some(2));
+        assert_eq!(select_transfer_target(&states), Some(2));
         states[2].quarantined = true;
-        assert_eq!(select_transfer_target(&states, 0), Some(3));
+        assert_eq!(select_transfer_target(&states), Some(3));
     }
 
     #[test]
@@ -5292,19 +5316,27 @@ mod tests {
             };
             4
         ];
-        assert_eq!(select_transfer_target(&states, 0), None);
+        assert_eq!(select_transfer_target(&states), None);
     }
 
     #[test]
-    fn transfer_target_probe_starts_small_then_uses_normal_batches() {
+    fn transfer_target_batches_ramp_after_clean_batches_and_back_off_on_rate_limits() {
         let mut state = TransferTargetState::default();
-        assert_eq!(transfer_target_batch_limit(&state, 32), 12);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 8);
 
-        state.tested = 12;
-        state.passed = 9;
-        state.batches = 1;
+        update_transfer_target_state(&mut state, 8, 7, 0, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 12);
+        update_transfer_target_state(&mut state, 12, 10, 0, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 16);
+        update_transfer_target_state(&mut state, 16, 14, 0, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 24);
+        update_transfer_target_state(&mut state, 24, 22, 0, 5);
         assert_eq!(transfer_target_batch_limit(&state, 32), 32);
-        assert_eq!(transfer_target_batch_limit(&state, 5), 5);
+
+        update_transfer_target_state(&mut state, 32, 28, 1, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 4);
+        update_transfer_target_state(&mut state, 4, 4, 0, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 12);
     }
 
     #[test]
