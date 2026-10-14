@@ -122,11 +122,15 @@ jq '
   | .model_report.holdout_rows = 0
 ' "$work/proxyrift/lightgbm-scores.json" > "$tmp/fallback-scores.json"
 cp "$tmp/fallback-scores.json" "$work/proxyrift/lightgbm-scores.json"
+jq '.dataset.speed_samples = 20 | .dataset.new_speed_samples = 8' "$work/subscriptions/light-training-stats.json" > "$tmp/fallback-training-stats.json"
+cp "$tmp/fallback-training-stats.json" "$work/subscriptions/light-training-stats.json"
 run_summary "$tmp/fallback-summary.md"
 grep -Fq '| Ranking mode | Recent speed estimates |' "$tmp/fallback-summary.md"
-grep -Fq '| Recent speed data | 20 speed measurements in the last 72 hours; 120 new this run; 12 candidate identities across 1 timestamps |' "$tmp/fallback-summary.md"
+grep -Fq '| Recent speed data | 20 speed measurements in the last 72 hours; 8 new this run; 12 candidate identities across 1 timestamps |' "$tmp/fallback-summary.md"
 grep -Fq '| Evaluation | Not evaluated — insufficient speed samples or temporal coverage (samples: 20; candidates: 12; timestamps: 1). |' "$tmp/fallback-summary.md"
 grep -Fq '| Decision | Not enabled — collecting more recent speed measurements |' "$tmp/fallback-summary.md"
+jq '.dataset.speed_samples = 1200 | .dataset.new_speed_samples = 120' "$work/subscriptions/light-training-stats.json" > "$tmp/restored-training-stats.json"
+cp "$tmp/restored-training-stats.json" "$work/subscriptions/light-training-stats.json"
 
 jq '
   .trained = true
