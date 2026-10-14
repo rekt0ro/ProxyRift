@@ -1539,7 +1539,10 @@ async fn check_batch_targets(
             let _ = child.kill();
             let _ = child.wait();
 
-            if batch_entries.len() > 1 && (core_readiness == CoreReadiness::Exited || core_failures < MAX_CORE_FAILURES_PER_VALIDATION) {
+            if batch_entries.len() > 1
+                && (core_readiness == CoreReadiness::Exited
+                    || core_failures < MAX_CORE_FAILURES_PER_VALIDATION)
+            {
                 let mid = batch_entries.len() / 2;
                 pending.push(batch_entries[..mid].to_vec());
                 pending.push(batch_entries[mid..].to_vec());
@@ -1943,7 +1946,10 @@ async fn check_batch(
             let _ = child.kill();
             let _ = child.wait();
 
-            if batch_entries.len() > 1 && (core_readiness == CoreReadiness::Exited || core_failures < MAX_CORE_FAILURES_PER_VALIDATION) {
+            if batch_entries.len() > 1
+                && (core_readiness == CoreReadiness::Exited
+                    || core_failures < MAX_CORE_FAILURES_PER_VALIDATION)
+            {
                 let mid = batch_entries.len() / 2;
                 pending.push(batch_entries[..mid].to_vec());
                 pending.push(batch_entries[mid..].to_vec());
