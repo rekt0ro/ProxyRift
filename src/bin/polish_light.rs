@@ -2188,8 +2188,8 @@ async fn run_transfer_gate_consumer(
 
             let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
             let target_state_before = target_states[target_index];
-            let worker_share = (FINAL_TRANSFER_WORKERS / wave_target_count.max(1))
-                .max(FINAL_TRANSFER_MIN_WORKERS);
+            let worker_share =
+                (FINAL_TRANSFER_WORKERS / wave_target_count.max(1)).max(FINAL_TRANSFER_MIN_WORKERS);
             let transfer_workers = target_concurrency[target_index]
                 .workers
                 .min(worker_share)
