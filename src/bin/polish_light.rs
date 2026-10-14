@@ -4525,7 +4525,6 @@ async fn main() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{split_new_and_expired_published_candidates, HistoryEntry};
     use super::{
         active_revalidated_fingerprints, adaptive_discovery_batch_size, adaptive_recheck_limit,
         adaptive_stability_pool_target, adaptive_stability_target,
@@ -4548,6 +4547,7 @@ mod tests {
         FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES,
         STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
     };
+    use crate::{split_new_and_expired_published_candidates, HistoryEntry};
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::{HashMap, HashSet};
