@@ -89,7 +89,7 @@ run_summary() {
 }
 
 run_summary "$tmp/summary.md"
-grep -Fq '| Candidates checked | 20,000 |' "$tmp/summary.md"
+grep -Fq '| Candidates received | 20,000 |' "$tmp/summary.md"
 grep -Fq '| Strict validation | 300 / 317 |' "$tmp/summary.md"
 grep -Fq '| 10 MiB transfer | 211 / 232 |' "$tmp/summary.md"
 grep -Fq '| Sustained stream | 209 / 211 |' "$tmp/summary.md"
