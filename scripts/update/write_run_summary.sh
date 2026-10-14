@@ -86,6 +86,15 @@ format_percentage() {
   fi
 }
 
+format_mae_change() {
+  local value="$1"
+  if [[ "$value" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+    awk -v value="$value" 'BEGIN { pct = value * 100; if (pct >= 0) printf "%.1f%% lower", pct; else printf "%.1f%% higher", -pct }'
+  else
+    printf '%s' "$value"
+  fi
+}
+
 format_multiplier() {
   local value="$1"
   if [[ "$value" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
@@ -105,10 +114,41 @@ format_model_decision() {
     insufficient_speed_samples_or_temporal_coverage) printf 'Not enabled — collecting more recent speed measurements' ;;
     insufficient_distinct_timestamps) printf 'Not enabled — not enough separate test runs' ;;
     insufficient_unseen_candidate_holdout) printf 'Not enabled — not enough unseen configs to validate' ;;
-    model_did_not_beat_temporal_speed_baseline) printf 'Not enabled — predictions did not beat the baseline' ;;
-    top_20pct_speed_ranking_did_not_improve) printf 'Not enabled — the highest-ranked configs were not faster' ;;
+    model_did_not_beat_temporal_speed_baseline) printf 'Not enabled — MAE did not improve on the temporal baseline by at least 1%%' ;;
+    top_20pct_speed_ranking_did_not_improve) printf 'Not enabled — top-20%% speed lift did not exceed the baseline' ;;
     final_model_fit_failed|holdout_model_fit_failed) printf 'Not enabled — model training failed' ;;
-    *) local readable="${reason//_/ }"; printf 'Not enabled — %s' "${readable:-not evaluated}" ;;
+    *) local readable="${reason//_/ }"; printf 'Not evaluated — %s.' "${readable:-no evaluation report}" ;;
+  esac
+}
+
+format_model_evaluation() {
+  local reason="$1" model_mae="$2" baseline_mae="$3" improvement="$4"
+  local speed_lift="$5" speed_samples="$6" unique_candidates="$7"
+  local unique_timestamps="$8" train_rows="$9" holdout_rows="${10}"
+
+  if [[ "$model_mae" =~ ^-?[0-9]+([.][0-9]+)?$ \
+    && "$baseline_mae" =~ ^-?[0-9]+([.][0-9]+)?$ \
+    && "$improvement" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+    printf 'Evaluated — model MAE %s vs baseline %s (%s); top-20%% holdout speed lift %s.' \
+      "$(format_decimal "$model_mae")" "$(format_decimal "$baseline_mae")" \
+      "$(format_mae_change "$improvement")" "$(format_multiplier "$speed_lift")"
+    return
+  fi
+  case "$reason" in
+    insufficient_speed_samples_or_temporal_coverage)
+      printf 'Not evaluated — insufficient speed samples or temporal coverage (samples: %s; candidates: %s; timestamps: %s).' \
+        "$(format_count "$speed_samples")" "$(format_count "$unique_candidates")" "$(format_count "$unique_timestamps")" ;;
+    insufficient_distinct_timestamps)
+      printf 'Not evaluated — fewer than two distinct measurement timestamps (found %s).' "$(format_count "$unique_timestamps")" ;;
+    insufficient_unseen_candidate_holdout)
+      printf 'Not evaluated — insufficient unseen-candidate holdout (train rows: %s; holdout rows: %s).' \
+        "$(format_count "$train_rows")" "$(format_count "$holdout_rows")" ;;
+    model_did_not_beat_temporal_speed_baseline)
+      printf 'Metrics unavailable, but the artifact reports that the model did not beat the temporal baseline.' ;;
+    top_20pct_speed_ranking_did_not_improve)
+      printf 'Metrics unavailable, but the artifact reports that the top-20%% speed ranking did not improve.' ;;
+    final_model_fit_failed|holdout_model_fit_failed) printf 'Not evaluated — model fitting failed.' ;;
+    *) local readable="${reason//_/ }"; printf 'Not evaluated — %s.' "${readable:-no evaluation report}" ;;
   esac
 }
 
@@ -148,7 +188,8 @@ stream_tested="unknown"
 stream_passed="unknown"
 published="unknown"
 fresh_family_target_percent="unknown"
-published_new_or_expired="unknown"
+published_new_candidates="unknown"
+published_expired_candidates="unknown"
 published_revalidated="unknown"
 revalidated_candidate_max_percent="unknown"
 published_from_fresh_families="unknown"
@@ -163,6 +204,11 @@ lightgbm_baseline_mae="n/a"
 lightgbm_model_mae="n/a"
 lightgbm_relative_improvement="n/a"
 lightgbm_top20_lift="n/a"
+lightgbm_speed_samples="n/a"
+lightgbm_unique_candidates="n/a"
+lightgbm_unique_timestamps="n/a"
+lightgbm_train_rows="n/a"
+lightgbm_holdout_rows="n/a"
 
 if [ -s "$score_file" ]; then
   trained="$(read_json_value "$score_file" '.trained' 'false')"
@@ -179,6 +225,11 @@ if [ -s "$score_file" ]; then
   lightgbm_model_mae="$(read_json_value "$score_file" '.model_report.model_log_mae' 'n/a')"
   lightgbm_relative_improvement="$(read_json_value "$score_file" '.model_report.relative_mae_improvement' 'n/a')"
   lightgbm_top20_lift="$(read_json_value "$score_file" '.model_report.top_20pct_speed_lift' 'n/a')"
+  lightgbm_speed_samples="$(read_json_value "$score_file" '.model_report.speed_samples' 'n/a')"
+  lightgbm_unique_candidates="$(read_json_value "$score_file" '.model_report.unique_candidates' 'n/a')"
+  lightgbm_unique_timestamps="$(read_json_value "$score_file" '.model_report.unique_timestamps' 'n/a')"
+  lightgbm_train_rows="$(read_json_value "$score_file" '.model_report.train_rows' 'n/a')"
+  lightgbm_holdout_rows="$(read_json_value "$score_file" '.model_report.holdout_rows' 'n/a')"
 fi
 
 ml_rows="n/a"
@@ -200,7 +251,8 @@ if [ -s "$PROXYRIFT_TMP_DIR/light-stats.json" ]; then
   stream_passed="$(jq -r '.stream_continuity_passed // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   published="$(jq -r '.published // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   fresh_family_target_percent="$(jq -r '.fresh_family_target_percent // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
-  published_new_or_expired="$(jq -r '.published_new_or_expired // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  published_new_candidates="$(jq -r '.published_new_candidates // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  published_expired_candidates="$(jq -r '.published_expired_candidates // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   published_revalidated="$(jq -r '.published_revalidated // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   revalidated_candidate_max_percent="$(jq -r '.revalidated_candidate_max_percent // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   published_from_fresh_families="$(jq -r '.published_from_fresh_families // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
@@ -397,39 +449,47 @@ mkdir -p "$(dirname "$summary_output_file")"
     echo "_No previous completed update run was found for comparison._"
   fi
   echo
-  echo "## Published subscriptions"
+  echo "## Published output"
   echo
-  echo "| Subscription | Configs published |"
+  echo "| Subscription | Published configs |"
   echo "|---|---:|"
   echo "| All | $(format_count "$all_count") |"
   echo "| Light | $(format_count "$light_count") |"
   echo
   echo "## Light validation"
   echo
-  echo "| Check | Result |"
+  echo "| Stage | Passed / tested |"
   echo "|---|---:|"
-  echo "| Candidates checked | $(format_count "$input_candidates") |"
+  echo "| Candidates received | $(format_count "$input_candidates") |"
   echo "| Strict validation | $(format_count "$strict_verified") / $(format_count "$strict_attempts") |"
   echo "| 10 MiB transfer | $(format_count "$transfer_passed") / $(format_count "$transfer_tested") |"
   echo "| Sustained stream | $(format_count "$stream_passed") / $(format_count "$stream_tested") |"
-  echo "| Fresh families | $(format_count "$published_from_fresh_families") of $(format_count "$published") ($fresh_family_actual_percent; target ${fresh_family_target_percent}%) |"
-  echo "| New or expired candidates | $(format_count "$published_new_or_expired") |"
-  echo "| Recently reused | $(format_count "$published_revalidated") of $(format_count "$published") (max ${revalidated_candidate_max_percent}%; active and checked within 24 hours) |"
+  echo
+  echo "## Light selection mix"
+  echo
+  echo "| Category | Result |"
+  echo "|---|---:|"
+  echo "| New candidates (not in retained history) | $(format_count "$published_new_candidates") |"
+  echo "| Previously known; 24-hour revalidation expired | $(format_count "$published_expired_candidates") |"
+  echo "| Recently reused (validated within 24 hours) | $(format_count "$published_revalidated") of $(format_count "$published") (maximum ${revalidated_candidate_max_percent}%) |"
+  echo "| Configs from unseen families | $(format_count "$published_from_fresh_families") of $(format_count "$published") ($fresh_family_actual_percent; target ${fresh_family_target_percent}%) |"
   echo "| Light published | $(format_count "$published") of $(format_count "$selection_target") target |"
   echo
-  echo "## Speed ranking"
+  echo "_New means the candidate was not found in retained validation history or prior Light subscription revisions. Revalidation-expired means it was previously known but had not been fully validated within the last 24 hours. Unseen-family coverage measures diversity of published configs, not candidate age; it is a separate dimension._"
   echo
-  echo "**Mode:** $(format_ranking_strategy "$lightgbm_ranking_strategy")."
+  echo "## Speed ranking (LightGBM)"
   echo
-  echo "**Training:** $(format_count "$lightgbm_training_rows") samples from the last 72 hours ($(format_count "$ml_new_rows") new this run)."
-  echo
-  if [[ "$lightgbm_model_accepted" == "true" ]]; then
-    echo "**Evaluation:** Prediction error (model / baseline) $(format_decimal "$lightgbm_model_mae") / $(format_decimal "$lightgbm_baseline_mae") ($(format_percentage "$lightgbm_relative_improvement") lower); top 20% averaged $(format_multiplier "$lightgbm_top20_lift") holdout speed."
+  echo "| Measure | Result |"
+  echo "|---|---|"
+  echo "| Ranking mode | $(format_ranking_strategy "$lightgbm_ranking_strategy") |"
+  echo "| Recent speed data | $(format_count "$lightgbm_speed_samples") speed measurements in the last 72 hours; $(format_count "$ml_new_rows") new this run; $(format_count "$lightgbm_unique_candidates") candidate identities across $(format_count "$lightgbm_unique_timestamps") timestamps |"
+  if [[ "$lightgbm_train_rows" =~ ^[0-9]+$ && "$lightgbm_holdout_rows" =~ ^[0-9]+$ ]] && { (( lightgbm_train_rows > 0 || lightgbm_holdout_rows > 0 )); }; then
+    echo "| Temporal validation split | $(format_count "$lightgbm_train_rows") training rows / $(format_count "$lightgbm_holdout_rows") holdout rows |"
   else
-    echo "**Evaluation:** Not enough recent measurements to validate a speed model."
+    echo "| Temporal validation split | Not available — validation data requirements were not met |"
   fi
-  echo
-  echo "**Decision:** $(format_model_decision "$lightgbm_model_accepted" "$lightgbm_model_reason")."
+  echo "| Evaluation | $(format_model_evaluation "$lightgbm_model_reason" "$lightgbm_model_mae" "$lightgbm_baseline_mae" "$lightgbm_relative_improvement" "$lightgbm_top20_lift" "$lightgbm_speed_samples" "$lightgbm_unique_candidates" "$lightgbm_unique_timestamps" "$lightgbm_train_rows" "$lightgbm_holdout_rows") |"
+  echo "| Decision | $(format_model_decision "$lightgbm_model_accepted" "$lightgbm_model_reason") |"
   echo
   echo "<details>"
   echo "<summary>Validation tool versions</summary>"

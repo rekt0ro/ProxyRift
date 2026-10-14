@@ -51,7 +51,7 @@ const MAX_RECHECK_EXPLORATION: usize = 64;
 const MAX_FINAL_RECHECK_ATTEMPTS: usize = 2;
 const FINAL_TRANSFER_BATCH_SIZE: usize = 32;
 const FINAL_TRANSFER_WORKERS: usize = 12;
-const FINAL_TRANSFER_INITIAL_WORKERS: usize = 10;
+const FINAL_TRANSFER_INITIAL_WORKERS: usize = 6;
 const FINAL_TRANSFER_MIN_WORKERS: usize = 2;
 const FINAL_TRANSFER_QUEUE_MULTIPLIER: usize = 3;
 const FINAL_TRANSFER_CLEAN_BATCHES_TO_RAMP: usize = 2;
@@ -524,7 +524,8 @@ fn write_light_stats(
     fresh_family_target_percent: usize,
     score_independent_exploration_percent: usize,
     published_from_fresh_families: usize,
-    published_new_or_expired: usize,
+    published_new_candidates: usize,
+    published_expired_candidates: usize,
     published_revalidated: usize,
 ) -> Result<(), String> {
     if path.is_empty() {
@@ -556,7 +557,8 @@ fn write_light_stats(
         "score_independent_exploration_percent": score_independent_exploration_percent,
         "published_from_fresh_families": published_from_fresh_families,
         "published_from_recent_families": published.saturating_sub(published_from_fresh_families),
-        "published_new_or_expired": published_new_or_expired,
+        "published_new_candidates": published_new_candidates,
+        "published_expired_candidates": published_expired_candidates,
         "published_revalidated": published_revalidated,
         "revalidated_candidate_max_percent": REVALIDATED_CANDIDATE_PERCENT,
         "revalidation_window_seconds": REVALIDATION_WINDOW_SECS,
@@ -1613,7 +1615,6 @@ async fn validate_light_transfer_stability_batch(
 
 const FINAL_TRANSFER_RATE_LIMIT_TOLERANCE_PERCENT: u64 = 25;
 const FINAL_TRANSFER_RATE_LIMIT_SEVERE_PERCENT: u64 = 50;
-const PRIMARY_TRANSFER_TARGET_COUNT: usize = 2;
 const FINAL_TRANSFER_TARGET_MIN_TESTS: usize = 8;
 const FINAL_TRANSFER_TARGET_RATE_LIMIT_PENALTY_PERCENT: u64 = 75;
 
@@ -1624,6 +1625,8 @@ struct TransferTargetState {
     rate_limits: u64,
     elapsed_secs: u64,
     batches: usize,
+    last_batch_rate_limits: u64,
+    consecutive_clean_batches: usize,
     quarantined: bool,
 }
 
@@ -1674,51 +1677,52 @@ fn should_quarantine_transfer_target(state: &TransferTargetState) -> bool {
     rate_limit_percent >= FINAL_TRANSFER_TARGET_RATE_LIMIT_PENALTY_PERCENT && pass_rate < 0.25
 }
 
-fn select_transfer_target(
-    states: &[TransferTargetState],
-    next_preferred_primary: usize,
-) -> Option<usize> {
-    if states.is_empty() {
+fn transfer_target_normalized_load(state: &TransferTargetState) -> f64 {
+    let score = if state.batches == 0 {
+        0.5
+    } else {
+        transfer_target_score(state).clamp(0.0, 1.0)
+    };
+    let weight = 0.75 + (score * 0.5);
+    state.tested as f64 / weight
+}
+
+fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
+    let eligible = states
+        .iter()
+        .enumerate()
+        .filter(|(_, state)| !state.quarantined)
+        .collect::<Vec<_>>();
+    if eligible.is_empty() {
         return None;
     }
 
-    let primary_count = states.len().min(PRIMARY_TRANSFER_TARGET_COUNT);
-    let healthy_primary = (0..primary_count)
-        .filter(|&index| !states[index].quarantined)
+    let unprobed = eligible
+        .iter()
+        .copied()
+        .filter(|(_, state)| state.batches == 0)
         .collect::<Vec<_>>();
-    let has_healthy_primary = !healthy_primary.is_empty();
-    let both_primaries_healthy = primary_count == PRIMARY_TRANSFER_TARGET_COUNT
-        && healthy_primary.len() == PRIMARY_TRANSFER_TARGET_COUNT;
-    let healthy = if has_healthy_primary {
-        healthy_primary
-    } else {
-        states
-            .iter()
-            .enumerate()
-            .filter(|(_, state)| !state.quarantined)
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>()
-    };
+    if !unprobed.is_empty() {
+        return unprobed
+            .into_iter()
+            .min_by(|(left_index, left), (right_index, right)| {
+                left.tested
+                    .cmp(&right.tested)
+                    .then_with(|| left_index.cmp(right_index))
+            })
+            .map(|(index, _)| index);
+    }
 
-    let minimum_tested = healthy.iter().map(|&index| states[index].tested).min()?;
-    let mut least_tested = healthy
+    eligible
         .into_iter()
-        .filter(|&index| states[index].tested == minimum_tested)
-        .collect::<Vec<_>>();
-
-    if least_tested.len() == 1 {
-        return least_tested.pop();
-    }
-
-    if both_primaries_healthy && least_tested.contains(&next_preferred_primary) {
-        return Some(next_preferred_primary);
-    }
-
-    least_tested.into_iter().min_by(|left, right| {
-        transfer_target_score(&states[*right])
-            .total_cmp(&transfer_target_score(&states[*left]))
-            .then_with(|| left.cmp(right))
-    })
+        .min_by(|(left_index, left), (right_index, right)| {
+            transfer_target_normalized_load(left)
+                .total_cmp(&transfer_target_normalized_load(right))
+                .then_with(|| left.tested.cmp(&right.tested))
+                .then_with(|| transfer_target_score(right).total_cmp(&transfer_target_score(left)))
+                .then_with(|| left_index.cmp(right_index))
+        })
+        .map(|(index, _)| index)
 }
 
 fn update_transfer_target_state(
@@ -1731,6 +1735,12 @@ fn update_transfer_target_state(
     state.tested = state.tested.saturating_add(tested);
     state.passed = state.passed.saturating_add(passed.min(tested));
     state.rate_limits = state.rate_limits.saturating_add(rate_limits);
+    state.last_batch_rate_limits = rate_limits;
+    state.consecutive_clean_batches = if rate_limits == 0 {
+        state.consecutive_clean_batches.saturating_add(1)
+    } else {
+        0
+    };
     state.elapsed_secs = state.elapsed_secs.saturating_add(elapsed_secs.max(1));
     state.batches = state.batches.saturating_add(1);
     state.quarantined = state.quarantined || should_quarantine_transfer_target(state);
@@ -1784,14 +1794,25 @@ impl TransferConcurrencyState {
     }
 }
 
-const FINAL_TRANSFER_TARGET_PROBE_SIZE: usize = 12;
+const FINAL_TRANSFER_TARGET_PROBE_SIZE: usize = 8;
+const FINAL_TRANSFER_TARGET_BACKOFF_SIZE: usize = 4;
+const FINAL_TRANSFER_TARGET_MAX_BATCH_SIZE: usize = 12;
 
 fn transfer_target_batch_limit(state: &TransferTargetState, requested: usize) -> usize {
     if state.batches == 0 {
-        requested.min(FINAL_TRANSFER_TARGET_PROBE_SIZE)
-    } else {
-        requested
+        return requested.min(FINAL_TRANSFER_TARGET_PROBE_SIZE);
     }
+
+    if state.last_batch_rate_limits > 0 {
+        return requested.min(FINAL_TRANSFER_TARGET_BACKOFF_SIZE);
+    }
+
+    let adaptive_limit = match state.consecutive_clean_batches {
+        0 => FINAL_TRANSFER_TARGET_PROBE_SIZE,
+        1 => 10,
+        _ => FINAL_TRANSFER_TARGET_MAX_BATCH_SIZE,
+    };
+    requested.min(adaptive_limit)
 }
 
 fn adaptive_stability_pool_target(
@@ -2017,7 +2038,6 @@ async fn run_transfer_gate_consumer(
         vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     let mut pending = VecDeque::<String>::new();
     let mut receiver_closed = false;
-    let mut next_preferred_primary = 0usize;
     loop {
         if transfer_done.load(Ordering::Relaxed)
             || publication_target_reached.load(Ordering::Relaxed)
@@ -2123,8 +2143,14 @@ async fn run_transfer_gate_consumer(
                 state.quarantined = true;
             }
         }
-        let Some(target_index) = select_transfer_target(&target_states, next_preferred_primary)
-        else {
+
+        let mut rank_states = target_states.clone();
+        let mut target_order = Vec::with_capacity(target_states.len());
+        while let Some(target_index) = select_transfer_target(&rank_states) {
+            target_order.push(target_index);
+            rank_states[target_index].quarantined = true;
+        }
+        if target_order.is_empty() {
             println!(
                 "[WARN] ⛔ [9 MiB sustained] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
                 transfer_tested.len(),
@@ -2132,181 +2158,270 @@ async fn run_transfer_gate_consumer(
             );
             transfer_done.store(true, Ordering::Relaxed);
             break;
-        };
-        let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
-        let target_state_before = target_states[target_index];
-        let transfer_workers = target_concurrency[target_index].workers;
-
-        let queue_window = transfer_workers
-            .saturating_mul(FINAL_TRANSFER_QUEUE_MULTIPLIER)
-            .max(8);
-        let requested_batch_limit = dynamic_test_limit
-            .saturating_sub(transfer_tested.len())
-            .min(FINAL_TRANSFER_BATCH_SIZE)
-            .min(queue_window)
-            .min(eligible_untested.len())
-            .max(1);
-        let batch_limit = transfer_target_batch_limit(&target_state_before, requested_batch_limit);
-
-        let batch = diversify_recheck_candidates(&eligible_untested, batch_limit, 1);
-        let batch_set = batch.iter().cloned().collect::<HashSet<_>>();
-
-        for config in eligible_untested {
-            if !batch_set.contains(&config) {
-                pending.push_back(config);
-            }
         }
 
-        if batch.is_empty() {
+        let mut wave_budget = dynamic_test_limit
+            .saturating_sub(transfer_tested.len())
+            .min(FINAL_TRANSFER_BATCH_SIZE);
+        let wave_target_count = target_order
+            .len()
+            .min(eligible_untested.len())
+            .min(wave_budget);
+        let mut targets_left = wave_target_count;
+        let mut remaining_candidates = eligible_untested;
+        let mut wave_batches: Vec<(usize, &'static str, Vec<String>, TransferTargetState, usize)> =
+            Vec::with_capacity(wave_target_count);
+
+        for target_index in target_order.into_iter().take(wave_target_count) {
+            if wave_budget == 0 || remaining_candidates.is_empty() {
+                break;
+            }
+
+            let fair_share = wave_budget.div_ceil(targets_left.max(1));
+            targets_left = targets_left.saturating_sub(1);
+
+            let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[target_index];
+            let target_state_before = target_states[target_index];
+            let worker_share =
+                (FINAL_TRANSFER_WORKERS / wave_target_count.max(1)).max(FINAL_TRANSFER_MIN_WORKERS);
+            let transfer_workers = target_concurrency[target_index]
+                .workers
+                .min(worker_share)
+                .max(FINAL_TRANSFER_MIN_WORKERS);
+            let queue_window = transfer_workers
+                .saturating_mul(FINAL_TRANSFER_QUEUE_MULTIPLIER)
+                .max(8);
+            let requested_batch_limit = fair_share
+                .min(FINAL_TRANSFER_BATCH_SIZE)
+                .min(queue_window)
+                .min(remaining_candidates.len());
+            let batch_limit =
+                transfer_target_batch_limit(&target_state_before, requested_batch_limit);
+
+            let batch = diversify_recheck_candidates(&remaining_candidates, batch_limit, 1);
+            if batch.is_empty() {
+                continue;
+            }
+            let batch_set = batch.iter().cloned().collect::<HashSet<_>>();
+            remaining_candidates.retain(|config| !batch_set.contains(config));
+            wave_budget = wave_budget.saturating_sub(batch.len());
+
+            transfer_tested.extend(batch.iter().cloned());
+            target_tested_candidates[target_index].extend(batch.iter().cloned());
+            wave_batches.push((
+                target_index,
+                target,
+                batch,
+                target_state_before,
+                transfer_workers,
+            ));
+        }
+
+        pending.extend(remaining_candidates);
+        if wave_batches.is_empty() {
             if receiver_closed {
                 break;
             }
             continue;
         }
 
-        transfer_tested.extend(batch.iter().cloned());
+        for (_, target, batch, target_state_before, _) in &wave_batches {
+            proxyrift::emit_log_if!(
+                proxyrift::should_emit_compact_progress(
+                    transfer_tested.len(),
+                    batch.len(),
+                    1000,
+                    transfer_tested.len() >= dynamic_test_limit
+                );
+                "[INFO] 📥 [9 MiB sustained] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {} | Parallel target wave: {} hosts",
+                remaining,
+                batch.len(),
+                dynamic_test_limit,
+                target,
+                transfer_target_score(target_state_before),
+                target_state_before.quarantined,
+                wave_batches.len()
+            );
+        }
 
-        target_tested_candidates[target_index].extend(batch.iter().cloned());
+        let results = futures::future::join_all(wave_batches.into_iter().map(
+            |(target_index, target, batch, target_state_before, transfer_workers)| async move {
+                let rate_limits_before = target_rate_limit_events(target);
+                let batch_started = Instant::now();
+                let result =
+                    validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target)
+                        .await;
+                let batch_elapsed = batch_started.elapsed().as_secs();
+                let rate_limits = target_rate_limit_events(target)
+                    .saturating_sub(rate_limits_before)
+                    .min(batch.len() as u64);
+                (
+                    target_index,
+                    target,
+                    batch,
+                    target_state_before,
+                    transfer_workers,
+                    batch_elapsed,
+                    rate_limits,
+                    result,
+                )
+            },
+        ))
+        .await;
 
-        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 1000, transfer_tested.len() >= dynamic_test_limit);
-            "[INFO] 📥 [9 MiB sustained] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {} | Pipeline: 1 MiB producer active",
-            remaining,
-            batch.len(),
-            dynamic_test_limit,
+        let mut fatal_error = None;
+        let mut reached_publication_count = None;
+        for (
+            target_index,
             target,
-            transfer_target_score(&target_state_before),
-            target_state_before.quarantined
-        );
-
-        let rate_limits_before = target_rate_limit_events(target);
-        let batch_started = Instant::now();
-        let metadata =
-            match validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target)
-                .await
-            {
+            batch,
+            target_state_before,
+            _transfer_workers,
+            batch_elapsed,
+            rate_limits,
+            result,
+        ) in results
+        {
+            let metadata = match result {
                 Ok(metadata) => metadata,
                 Err(error) => {
-                    transfer_done.store(true, Ordering::Relaxed);
-                    return Err(error);
+                    if fatal_error.is_none() {
+                        fatal_error = Some(error);
+                    }
+                    continue;
                 }
             };
-        let batch_elapsed = batch_started.elapsed().as_secs();
-        let batch_passed = metadata.len();
-        transfer_verified.extend(metadata);
-        transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
-        transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
-        let rate_limits = target_rate_limit_events(target)
-            .saturating_sub(rate_limits_before)
-            .min(batch.len() as u64);
+            let batch_passed = metadata.len();
+            transfer_verified.extend(metadata);
+            transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
+            transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
-        let target_state_before = target_states[target_index];
-        update_transfer_target_state(
-            &mut target_states[target_index],
-            batch.len(),
-            batch_passed,
-            rate_limits,
-            batch_elapsed,
-        );
-        if target_index < PRIMARY_TRANSFER_TARGET_COUNT {
-            next_preferred_primary = (target_index + 1) % PRIMARY_TRANSFER_TARGET_COUNT;
-        }
-        if target_is_rate_limited(target) {
-            target_states[target_index].quarantined = true;
-        }
-        if target_states[target_index].quarantined && !target_state_before.quarantined {
-            let alternative_target_available = target_states
-                .iter()
-                .enumerate()
-                .any(|(index, state)| index != target_index && !state.quarantined);
-
-            println!(
-                "[WARN] ⚠️ [9 MiB sustained] Quarantining target for this run | Target: {} | Tested: {} | Passed: {} | Pass rate: {:.1}% | Rate limits: {}",
-                target,
-                target_states[target_index].tested,
-                target_states[target_index].passed,
-                transfer_target_pass_rate(&target_states[target_index]) * 100.0,
-                target_states[target_index].rate_limits
+            update_transfer_target_state(
+                &mut target_states[target_index],
+                batch.len(),
+                batch_passed,
+                rate_limits,
+                batch_elapsed,
             );
+            if target_is_rate_limited(target) {
+                target_states[target_index].quarantined = true;
+            }
+            if target_states[target_index].quarantined && !target_state_before.quarantined {
+                let alternative_target_available = target_states
+                    .iter()
+                    .enumerate()
+                    .any(|(index, state)| index != target_index && !state.quarantined);
 
-            if alternative_target_available {
-                let mut requeued = 0usize;
-                for config in &target_tested_candidates[target_index] {
-                    if !transfer_verified.contains_key(config) && transfer_tested.remove(config) {
-                        if !pending.iter().any(|queued| queued == config) {
-                            pending.push_back(config.clone());
+                println!(
+                    "[WARN] ⚠️ [9 MiB sustained] Quarantining target for this run | Target: {} | Tested: {} | Passed: {} | Pass rate: {:.1}% | Rate limits: {}",
+                    target,
+                    target_states[target_index].tested,
+                    target_states[target_index].passed,
+                    transfer_target_pass_rate(&target_states[target_index]) * 100.0,
+                    target_states[target_index].rate_limits
+                );
+
+                if alternative_target_available {
+                    let mut requeued = 0usize;
+                    for config in &target_tested_candidates[target_index] {
+                        if !transfer_verified.contains_key(config) && transfer_tested.remove(config)
+                        {
+                            if !pending.iter().any(|queued| queued == config) {
+                                pending.push_back(config.clone());
+                            }
+                            requeued += 1;
                         }
-                        requeued += 1;
                     }
-                }
 
-                if requeued > 0 {
+                    if requeued > 0 {
+                        println!(
+                            "[INFO] ↪️ [9 MiB sustained] Requeued {} failed candidates after target quarantine | Target: {}",
+                            requeued, target
+                        );
+                    }
+                } else {
                     println!(
-                        "[INFO] ↪️ [9 MiB sustained] Requeued {} failed candidates after target quarantine | Target: {}",
-                        requeued, target
+                        "[WARN] ⚠️ [9 MiB sustained] All transfer targets are quarantined | Keeping failed candidates closed to avoid retry loop"
                     );
                 }
-            } else {
-                println!(
-                    "[WARN] ⚠️ [9 MiB sustained] All transfer targets are quarantined | Keeping failed candidates closed to avoid retry loop"
-                );
             }
-        }
-        transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
-        transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
-        let (previous_workers, previous_clean_batches) =
-            target_concurrency[target_index].observe(rate_limits, batch.len());
-        if rate_limits > 0 {
-            let rate_limit_percent = if batch.is_empty() {
-                0
-            } else {
-                rate_limits.saturating_mul(100).div_ceil(batch.len() as u64)
-            };
+            transfer_tested_count.store(transfer_tested.len(), Ordering::Relaxed);
+            transfer_passed_count.store(transfer_verified.len(), Ordering::Relaxed);
 
-            if target_concurrency[target_index].workers < previous_workers {
-                println!(
-                    "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Reducing workers {} -> {}",
-                    rate_limits,
-                    target,
+            let (previous_workers, previous_clean_batches) =
+                target_concurrency[target_index].observe(rate_limits, batch.len());
+            if rate_limits > 0 {
+                let rate_limit_percent = if batch.is_empty() {
+                    0
+                } else {
+                    rate_limits.saturating_mul(100).div_ceil(batch.len() as u64)
+                };
+
+                if target_concurrency[target_index].workers < previous_workers {
+                    println!(
+                        "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Reducing workers {} -> {}",
+                        rate_limits,
+                        target,
+                        previous_workers,
+                        target_concurrency[target_index].workers
+                    );
+                } else {
+                    proxyrift::emit_log_if!(
+                        !proxyrift::compact_logs_enabled();
+                        "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Within tolerance, keeping workers at {}",
+                        rate_limits,
+                        target,
+                        previous_workers
+                    );
+                }
+            } else if target_concurrency[target_index].workers > previous_workers {
+                proxyrift::emit_log_if!(
+                    !proxyrift::compact_logs_enabled();
+                    "[INFO] 📈 Light transfer: {} clean batches; increasing workers {} -> {}",
+                    previous_clean_batches + 1,
                     previous_workers,
                     target_concurrency[target_index].workers
                 );
-            } else {
-                proxyrift::emit_log_if!(
-                    !proxyrift::compact_logs_enabled();
-                    "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Within tolerance, keeping workers at {}",
-                    rate_limits,
-                    target,
-                    previous_workers
-                );
             }
-        } else if target_concurrency[target_index].workers > previous_workers {
+
+            let publishable_count = select_current_publication(
+                transfer_verified,
+                repeat_candidate_fingerprints,
+                recent_families,
+                selection_limit,
+                max_per_endpoint,
+                max_per_family,
+            )
+            .0
+            .len();
             proxyrift::emit_log_if!(
-                !proxyrift::compact_logs_enabled();
-                "[INFO] 📈 Light transfer: {} clean batches; increasing workers {} -> {}",
-                previous_clean_batches + 1,
-                previous_workers,
-                target_concurrency[target_index].workers
+                proxyrift::should_emit_compact_progress(
+                    transfer_tested.len(),
+                    batch.len(),
+                    1000,
+                    publishable_count >= selection_limit || (receiver_closed && pending.is_empty())
+                );
+                "[INFO] ✅ [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Publication-ready: {}/{} | Remaining: {}",
+                batch_passed,
+                batch.len(),
+                batch_elapsed,
+                transfer_verified.len(),
+                publishable_count,
+                selection_limit,
+                selection_limit.saturating_sub(publishable_count),
             );
+            if publishable_count >= selection_limit {
+                reached_publication_count = Some(publishable_count);
+            }
         }
 
-        let publishable_count = select_current_publication(
-            transfer_verified,
-            repeat_candidate_fingerprints,
-            recent_families,
-            selection_limit,
-            max_per_endpoint,
-            max_per_family,
-        )
-        .0
-        .len();
-        proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(transfer_tested.len(), batch.len(), 1000, publishable_count >= selection_limit || (receiver_closed && pending.is_empty()));
-            "[INFO] ✅ [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Publication-ready: {}/{} | Remaining: {}",
-            batch_passed, batch.len(), batch_elapsed, transfer_verified.len(),
-            publishable_count, selection_limit, selection_limit.saturating_sub(publishable_count),
-        );
-        if publishable_count >= selection_limit {
+        if let Some(error) = fatal_error {
+            transfer_done.store(true, Ordering::Relaxed);
+            return Err(error);
+        }
+        if let Some(publishable_count) = reached_publication_count {
             proxyrift::emit_log_if!(
                 !proxyrift::compact_logs_enabled();
                 "[INFO] 🎯 [Light] Publication target reached ({publishable_count}/{selection_limit}); stopping further transfer validation"
@@ -2682,6 +2797,31 @@ fn select_current_publication(
         max_per_endpoint,
         max_per_family,
     )
+}
+
+fn split_new_and_expired_published_candidates(
+    selected: &[String],
+    not_recently_revalidated: usize,
+    history: &HashMap<String, HistoryEntry>,
+    historical_cohorts: &[Vec<String>],
+) -> (usize, usize) {
+    let previously_known = history
+        .keys()
+        .cloned()
+        .chain(
+            historical_cohorts
+                .iter()
+                .flatten()
+                .map(|config| history_fingerprint(config)),
+        )
+        .collect::<HashSet<_>>();
+    let new_candidates = selected
+        .iter()
+        .filter(|config| !previously_known.contains(&history_fingerprint(config)))
+        .count()
+        .min(not_recently_revalidated);
+    let expired_candidates = not_recently_revalidated.saturating_sub(new_candidates);
+    (new_candidates, expired_candidates)
 }
 
 fn select_verified_configs(
@@ -4165,6 +4305,13 @@ async fn main() -> Result<(), String> {
         .filter(|config| !recent_families.contains(&family_key(config)))
         .count();
     let selected_revalidated_count = selected.len().saturating_sub(selected_new_count);
+    let (selected_new_candidates, selected_expired_candidates) =
+        split_new_and_expired_published_candidates(
+            &selected,
+            selected_new_count,
+            &history,
+            &light_cohorts,
+        );
     let mut stream_ranked = stream_verified.keys().cloned().collect::<Vec<_>>();
     sort_by_measured_stream_speed(&mut stream_ranked, &stream_verified);
     let (_, endpoint_rejected, family_rejected) = selection_rejection_counts(
@@ -4263,7 +4410,8 @@ async fn main() -> Result<(), String> {
         FRESH_FAMILY_TARGET_PERCENT,
         RECHECK_EXPLORATION_PERCENT,
         fresh_family_selected,
-        selected_new_count,
+        selected_new_candidates,
+        selected_expired_candidates,
         selected_revalidated_count,
     )?;
 
@@ -4393,6 +4541,7 @@ mod tests {
         FINAL_TRANSFER_INITIAL_WORKERS, FINAL_TRANSFER_WORKERS, LIGHT_TRANSFER_STABILITY_BYTES,
         STREAM_CONTINUITY_SEGMENTS, STREAM_CONTINUITY_SEGMENT_BYTES,
     };
+    use crate::{split_new_and_expired_published_candidates, HistoryEntry};
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::{HashMap, HashSet};
@@ -4711,6 +4860,34 @@ mod tests {
     }
 
     #[test]
+    fn new_and_revalidation_expired_published_candidates_are_counted_separately() {
+        let new_candidate = "vless://new@new.example:443".to_string();
+        let historical_candidate = "vless://known@known.example:443".to_string();
+        let cohort_candidate = "vless://cohort@old.example:443".to_string();
+        let selected = vec![
+            new_candidate.clone(),
+            historical_candidate.clone(),
+            cohort_candidate.clone(),
+        ];
+        let history = HashMap::from([(
+            history_fingerprint(&historical_candidate),
+            HistoryEntry {
+                checks: 1,
+                passes: 1,
+                last_seen: 100,
+            },
+        )]);
+        let cohorts = vec![vec![cohort_candidate.clone()]];
+
+        let (new_count, expired_count) =
+            split_new_and_expired_published_candidates(&selected, 3, &history, &cohorts);
+
+        assert_eq!(new_count, 1);
+        assert_eq!(expired_count, 2);
+        assert_eq!(new_count + expired_count, 3);
+    }
+
+    #[test]
     fn stream_pool_early_exit_uses_final_diversity_selection() {
         let configs = [
             "vless://a@example.com:443".to_string(),
@@ -4767,21 +4944,30 @@ mod tests {
             proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()
         ];
         assert_eq!(states.len(), 4);
-        assert_eq!(select_transfer_target(&states, 0), Some(0));
+        assert_eq!(select_transfer_target(&states), Some(0));
         states[0].quarantined = true;
-        assert_eq!(select_transfer_target(&states, 0), Some(1));
+        assert_eq!(select_transfer_target(&states), Some(1));
         states[1].quarantined = true;
-        assert_eq!(select_transfer_target(&states, 0), Some(2));
+        assert_eq!(select_transfer_target(&states), Some(2));
         states[2].quarantined = true;
-        assert_eq!(select_transfer_target(&states, 0), Some(3));
+        assert_eq!(select_transfer_target(&states), Some(3));
         states[3].quarantined = true;
-        assert_eq!(select_transfer_target(&states, 0), None);
+        assert_eq!(select_transfer_target(&states), None);
 
         let targets = proxyrift::validator::STRICT_THROUGHPUT_TARGETS;
         assert!(targets.contains(&proxyrift::validator::STRICT_THROUGHPUT_TARGET));
-        assert!(targets.contains(&proxyrift::validator::HETZNER_SPEEDTEST_100MB_TARGET));
+        assert!(targets.contains(&proxyrift::validator::LINODE_SPEEDTEST_100MB_TARGET));
         assert!(targets.contains(&proxyrift::validator::TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
-        assert!(targets.contains(&proxyrift::validator::TELE2_SPEEDTEST_100MB_TARGET));
+        assert!(targets.contains(&proxyrift::validator::CACHEFLY_SPEEDTEST_100MB_TARGET));
+        assert_eq!(
+            proxyrift::validator::STRICT_THROUGHPUT_TARGET,
+            "https://speedtest2.serverius.net/files/100mb.bin"
+        );
+        assert!(!targets.iter().any(|target| {
+            target.contains("speed.cloudflare.com")
+                || target.contains("hetzner.com")
+                || target.contains("tele2.net")
+        }));
     }
 
     #[test]
@@ -5232,29 +5418,30 @@ mod tests {
     }
 
     #[test]
-    fn transfer_target_selector_balances_iranian_hosts_before_backups() {
+    fn transfer_target_selector_balances_all_hosts_by_observed_load() {
         let mut states = vec![TransferTargetState::default(); 4];
-        assert_eq!(select_transfer_target(&states, 0), Some(0));
+        assert_eq!(select_transfer_target(&states), Some(0));
 
-        states[0].tested = 12;
-        states[0].passed = 11;
+        states[0].tested = 8;
+        states[0].passed = 7;
         states[0].batches = 1;
-        assert_eq!(select_transfer_target(&states, 1), Some(1));
+        assert_eq!(select_transfer_target(&states), Some(1));
 
-        states[1].tested = 12;
-        states[1].passed = 10;
+        states[1].tested = 8;
+        states[1].passed = 6;
         states[1].batches = 1;
-        assert_eq!(select_transfer_target(&states, 0), Some(0));
+        assert_eq!(select_transfer_target(&states), Some(2));
 
-        states[0].passed = 4;
-        states[1].quarantined = true;
-        states[2].tested = 12;
-        states[2].passed = 12;
+        states[2].tested = 8;
+        states[2].passed = 7;
         states[2].batches = 1;
-        states[3].tested = 12;
-        states[3].passed = 3;
+        states[3].tested = 8;
+        states[3].passed = 2;
         states[3].batches = 1;
-        assert_eq!(select_transfer_target(&states, 1), Some(0));
+
+        assert_eq!(select_transfer_target(&states), Some(0));
+        states[0].tested = 16;
+        assert_eq!(select_transfer_target(&states), Some(2));
     }
 
     #[test]
@@ -5269,9 +5456,9 @@ mod tests {
         states[3].passed = 29;
         states[3].batches = 2;
 
-        assert_eq!(select_transfer_target(&states, 0), Some(2));
+        assert_eq!(select_transfer_target(&states), Some(2));
         states[2].quarantined = true;
-        assert_eq!(select_transfer_target(&states, 0), Some(3));
+        assert_eq!(select_transfer_target(&states), Some(3));
     }
 
     #[test]
@@ -5283,19 +5470,25 @@ mod tests {
             };
             4
         ];
-        assert_eq!(select_transfer_target(&states, 0), None);
+        assert_eq!(select_transfer_target(&states), None);
     }
 
     #[test]
-    fn transfer_target_probe_starts_small_then_uses_normal_batches() {
+    fn transfer_target_batches_ramp_after_clean_batches_and_back_off_on_rate_limits() {
         let mut state = TransferTargetState::default();
+        assert_eq!(transfer_target_batch_limit(&state, 32), 8);
+
+        update_transfer_target_state(&mut state, 8, 7, 0, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 10);
+        update_transfer_target_state(&mut state, 10, 9, 0, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 12);
+        update_transfer_target_state(&mut state, 12, 11, 0, 5);
         assert_eq!(transfer_target_batch_limit(&state, 32), 12);
 
-        state.tested = 12;
-        state.passed = 9;
-        state.batches = 1;
-        assert_eq!(transfer_target_batch_limit(&state, 32), 32);
-        assert_eq!(transfer_target_batch_limit(&state, 5), 5);
+        update_transfer_target_state(&mut state, 12, 10, 1, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 4);
+        update_transfer_target_state(&mut state, 4, 4, 0, 5);
+        assert_eq!(transfer_target_batch_limit(&state, 32), 10);
     }
 
     #[test]

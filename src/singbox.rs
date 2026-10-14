@@ -30,6 +30,21 @@ const START_TIMEOUT: Duration = Duration::from_secs(5);
 const BATCH_SIZE: usize = 500;
 const MAX_CORE_FAILURES_PER_VALIDATION: usize = 12;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CoreReadiness {
+    Ready,
+    Exited,
+    TimedOut,
+}
+
+fn update_core_failure_streak(failures: usize, readiness: CoreReadiness) -> usize {
+    match readiness {
+        CoreReadiness::Ready => 0,
+        CoreReadiness::Exited => failures,
+        CoreReadiness::TimedOut => failures.saturating_add(1),
+    }
+}
+
 fn clean(url: &str) -> &str {
     url.split('#').next().unwrap_or(url)
 }
@@ -1211,14 +1226,14 @@ fn start_singbox(
         .map_err(|error| error.to_string())
 }
 
-async fn ports_ready(child: &mut Child, ports: &[u16]) -> bool {
+async fn ports_ready(child: &mut Child, ports: &[u16]) -> CoreReadiness {
     let deadline = tokio::time::Instant::now() + START_TIMEOUT;
     let workers = ports.len().clamp(1, 64);
     let mut pending = ports.to_vec();
 
     while !pending.is_empty() && tokio::time::Instant::now() < deadline {
         if child.try_wait().ok().flatten().is_some() {
-            return false;
+            return CoreReadiness::Exited;
         }
 
         let checks = stream::iter(pending.clone())
@@ -1247,7 +1262,11 @@ async fn ports_ready(child: &mut Child, ports: &[u16]) -> bool {
         }
     }
 
-    pending.is_empty()
+    if pending.is_empty() {
+        CoreReadiness::Ready
+    } else {
+        CoreReadiness::TimedOut
+    }
 }
 
 fn client_for_port(
@@ -1512,12 +1531,16 @@ async fn check_batch_targets(
             }
         };
 
-        if !ports_ready(&mut child, &local_ports).await {
-            core_failures += 1;
+        let core_readiness = ports_ready(&mut child, &local_ports).await;
+        if core_readiness != CoreReadiness::Ready {
+            core_failures = update_core_failure_streak(core_failures, core_readiness);
             let _ = child.kill();
             let _ = child.wait();
 
-            if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
+            if batch_entries.len() > 1
+                && (core_readiness == CoreReadiness::Exited
+                    || core_failures < MAX_CORE_FAILURES_PER_VALIDATION)
+            {
                 let mid = batch_entries.len() / 2;
                 pending.push(batch_entries[..mid].to_vec());
                 pending.push(batch_entries[mid..].to_vec());
@@ -1544,12 +1567,14 @@ async fn check_batch_targets(
             let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
+                    "[WARN] ⚠️ [Sing-Box] Startup timeout budget exhausted | Stopping remaining batch splits"
                 );
                 break;
             }
             continue;
         }
+
+        core_failures = update_core_failure_streak(core_failures, CoreReadiness::Ready);
 
         let mut clients = Vec::with_capacity(batch_entries.len());
         for (index, _) in batch_entries.iter().enumerate() {
@@ -1580,8 +1605,7 @@ async fn check_batch_targets(
             .await;
 
             if child.try_wait().ok().flatten().is_some() {
-                core_failures += 1;
-                if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
+                if batch_entries.len() > 1 {
                     let mid = batch_entries.len() / 2;
                     pending.push(batch_entries[..mid].to_vec());
                     pending.push(batch_entries[mid..].to_vec());
@@ -1595,12 +1619,6 @@ async fn check_batch_targets(
                 let _ = child.kill();
                 let _ = child.wait();
                 let _ = fs::remove_dir_all(&work);
-                if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
-                    println!(
-                        "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
-                    );
-                    break;
-                }
                 continue;
             }
 
@@ -1662,8 +1680,7 @@ async fn check_batch_targets(
                 .await;
 
             if child.try_wait().ok().flatten().is_some() {
-                core_failures += 1;
-                if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
+                if batch_entries.len() > 1 {
                     let mid = batch_entries.len() / 2;
                     pending.push(batch_entries[..mid].to_vec());
                     pending.push(batch_entries[mid..].to_vec());
@@ -1676,12 +1693,6 @@ async fn check_batch_targets(
                 let _ = child.kill();
                 let _ = child.wait();
                 let _ = fs::remove_dir_all(&work);
-                if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
-                    println!(
-                        "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
-                    );
-                    break;
-                }
                 continue;
             }
 
@@ -1925,12 +1936,16 @@ async fn check_batch(
             }
         };
 
-        if !ports_ready(&mut child, &local_ports).await {
-            core_failures += 1;
+        let core_readiness = ports_ready(&mut child, &local_ports).await;
+        if core_readiness != CoreReadiness::Ready {
+            core_failures = update_core_failure_streak(core_failures, core_readiness);
             let _ = child.kill();
             let _ = child.wait();
 
-            if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
+            if batch_entries.len() > 1
+                && (core_readiness == CoreReadiness::Exited
+                    || core_failures < MAX_CORE_FAILURES_PER_VALIDATION)
+            {
                 let mid = batch_entries.len() / 2;
                 pending.push(batch_entries[..mid].to_vec());
                 pending.push(batch_entries[mid..].to_vec());
@@ -1956,12 +1971,14 @@ async fn check_batch(
             let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [Sing-Box] Core failure budget exhausted | Stopping further batch splits"
+                    "[WARN] ⚠️ [Sing-Box] Startup timeout budget exhausted | Stopping remaining batch splits"
                 );
                 break;
             }
             continue;
         }
+
+        core_failures = update_core_failure_streak(core_failures, CoreReadiness::Ready);
 
         let mut active = Vec::with_capacity(batch_entries.len());
         let mut client_error = None;
@@ -2665,6 +2682,26 @@ pub fn render_subscription_file(input: &str, output: &str) -> Result<usize, Stri
 mod tests {
     use super::*;
     use crate::validator::STRICT_THROUGHPUT_BYTES;
+
+    #[test]
+    fn core_failure_budget_resets_after_successful_start() {
+        assert_eq!(
+            super::update_core_failure_streak(11, super::CoreReadiness::Ready),
+            0
+        );
+        assert_eq!(
+            super::update_core_failure_streak(11, super::CoreReadiness::TimedOut),
+            12
+        );
+        assert_eq!(
+            super::update_core_failure_streak(11, super::CoreReadiness::Exited),
+            11
+        );
+        assert_eq!(
+            super::update_core_failure_streak(usize::MAX, super::CoreReadiness::TimedOut),
+            usize::MAX
+        );
+    }
 
     #[tokio::test]
     async fn reuses_cached_singbox_endpoint() {

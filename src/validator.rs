@@ -16,22 +16,23 @@ use tokio::time::{sleep, timeout};
 use url::{Host, Url};
 
 pub const PRIMARY_TARGET: &str = "https://www.google.com/generate_204";
-pub const STRICT_THROUGHPUT_TARGET: &str = "https://speed.cloudflare.com/__down?bytes=10485760";
-pub const HETZNER_SPEEDTEST_100MB_TARGET: &str = "https://fsn1-speed.hetzner.com/100MB.bin";
+pub const STRICT_THROUGHPUT_TARGET: &str = "https://speedtest2.serverius.net/files/100mb.bin";
+pub const LINODE_SPEEDTEST_100MB_TARGET: &str =
+    "https://speedtest.newark.linode.com/100MB-newark.bin";
 pub const TRUEFILESIZE_SPEEDTEST_100MB_TARGET: &str =
     "https://cdn.truefilesize.com/test/test-10mb.bin";
-pub const TELE2_SPEEDTEST_100MB_TARGET: &str = "http://speedtest.tele2.net/10MB.zip";
+pub const CACHEFLY_SPEEDTEST_100MB_TARGET: &str = "https://cachefly.cachefly.net/100mb.test";
 pub const STRICT_THROUGHPUT_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
-    HETZNER_SPEEDTEST_100MB_TARGET,
+    LINODE_SPEEDTEST_100MB_TARGET,
     TRUEFILESIZE_SPEEDTEST_100MB_TARGET,
-    TELE2_SPEEDTEST_100MB_TARGET,
+    CACHEFLY_SPEEDTEST_100MB_TARGET,
 ];
 pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
-    HETZNER_SPEEDTEST_100MB_TARGET,
+    LINODE_SPEEDTEST_100MB_TARGET,
     TRUEFILESIZE_SPEEDTEST_100MB_TARGET,
-    TELE2_SPEEDTEST_100MB_TARGET,
+    CACHEFLY_SPEEDTEST_100MB_TARGET,
 ];
 pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 1;
 pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
@@ -5480,9 +5481,9 @@ mod tests {
             .collect::<HashSet<_>>();
         assert_eq!(hosts.len(), 4);
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&STRICT_THROUGHPUT_TARGET));
-        assert!(STRICT_THROUGHPUT_TARGETS.contains(&HETZNER_SPEEDTEST_100MB_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&LINODE_SPEEDTEST_100MB_TARGET));
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
-        assert!(STRICT_THROUGHPUT_TARGETS.contains(&TELE2_SPEEDTEST_100MB_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&CACHEFLY_SPEEDTEST_100MB_TARGET));
         assert!(!STRICT_THROUGHPUT_TARGETS
             .iter()
             .any(|target| { target.contains("arvancloud") || target.contains("mobinhost") }));
@@ -5859,9 +5860,9 @@ mod tests {
         assert_eq!(LIGHT_TRANSFER_STABILITY_TARGETS.len(), 4);
         assert_eq!(LIGHT_TRANSFER_MINIMUM_TARGETS, 1);
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&STRICT_THROUGHPUT_TARGET));
-        assert!(STRICT_THROUGHPUT_TARGETS.contains(&HETZNER_SPEEDTEST_100MB_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&LINODE_SPEEDTEST_100MB_TARGET));
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
-        assert!(STRICT_THROUGHPUT_TARGETS.contains(&TELE2_SPEEDTEST_100MB_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&CACHEFLY_SPEEDTEST_100MB_TARGET));
         for target in STRICT_THROUGHPUT_TARGETS {
             assert!(LIGHT_TRANSFER_STABILITY_TARGETS.contains(target));
         }

@@ -47,10 +47,11 @@ cat > "$stats_file" <<'JSON'
 JSON
 
 cat > "$summary_file" <<'MD'
-**Mode:** Speed model.
-**Training:** 100 samples from the last 72 hours (12 new this run).
-**Evaluation:** Prediction error (model / baseline) 0.100 / 0.120 (16.7% lower); top 20% averaged 1.25x holdout speed.
-**Decision:** Active.
+| Ranking mode | Speed model |
+| Recent speed data | 100 speed measurements in the last 72 hours; 12 new this run; 100 candidate identities across 15 timestamps |
+| Temporal validation split | 80 training rows / 20 holdout rows |
+| Evaluation | Evaluated — model MAE 0.100 vs baseline 0.120 (16.7% lower); top-20% holdout speed lift 1.25x. |
+| Decision | Active |
 MD
 
 bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$summary_file" "$score_file" "$stats_file"
@@ -66,6 +67,9 @@ jq '
   | .model_report.ranking_strategy = "historical_stream_speed_prior_fallback"
   | .model_report.accepted = false
   | .model_report.reason = "insufficient_speed_samples_or_temporal_coverage"
+  | .model_report.speed_samples = 20
+  | .model_report.unique_candidates = 12
+  | .model_report.unique_timestamps = 1
   | .model_report.baseline_log_mae = null
   | .model_report.model_log_mae = null
   | .model_report.relative_mae_improvement = null
@@ -74,18 +78,39 @@ jq '
   | .model_report.holdout_rows = 0
 ' "$score_file" > "$tmp/history-fallback.json"
 cat > "$tmp/history-fallback-summary.md" <<'MD'
-**Mode:** Recent speed estimates.
-**Training:** 100 samples from the last 72 hours (12 new this run).
-**Evaluation:** Not enough recent measurements to validate a speed model.
-**Decision:** Not enabled — collecting more recent speed measurements.
+| Ranking mode | Recent speed estimates |
+| Recent speed data | 20 speed measurements in the last 72 hours; 12 new this run; 12 candidate identities across 1 timestamps |
+| Temporal validation split | Not available — validation data requirements were not met |
+| Evaluation | Not evaluated — insufficient speed samples or temporal coverage (samples: 20; candidates: 12; timestamps: 1). |
+| Decision | Not enabled — collecting more recent speed measurements |
 MD
 bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/history-fallback-summary.md" "$tmp/history-fallback.json" "$stats_file"
 
-sed 's/Prediction error (model \/ baseline) 0.100 \/ 0.120/Prediction error (model \/ baseline) 9.990 \/ 0.120/' "$summary_file" > "$tmp/mismatch.md"
+sed 's/model MAE 0.100 vs baseline 0.120/model MAE 9.990 vs baseline 0.120/' "$summary_file" > "$tmp/mismatch.md"
 if bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/mismatch.md" "$score_file" "$stats_file" >/dev/null 2>&1; then
   printf '[ERROR] Summary validator accepted a mismatched model summary.\n' >&2
   exit 1
 fi
+
+jq '
+  .model_report.accepted = false
+  | .model_report.reason = "model_did_not_beat_temporal_speed_baseline"
+  | .model_report.model_log_mae = 0.125
+  | .model_report.baseline_log_mae = 0.12
+  | .model_report.relative_mae_improvement = -0.0416667
+  | .model_report.top_20pct_speed_lift = 1.08
+' "$score_file" > "$tmp/rejected-score.json"
+cp "$tmp/rejected-score.json" "$score_file"
+cat > "$tmp/rejected-summary.md" <<'MD'
+| Ranking mode | Speed model |
+| Recent speed data | 100 speed measurements in the last 72 hours; 12 new this run; 100 candidate identities across 15 timestamps |
+| Temporal validation split | 80 training rows / 20 holdout rows |
+| Evaluation | Evaluated — model MAE 0.125 vs baseline 0.120 (4.2% higher); top-20% holdout speed lift 1.08x. |
+| Decision | Not enabled — MAE did not improve on the temporal baseline by at least 1% |
+MD
+bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/rejected-summary.md" "$score_file" "$stats_file"
+bash "$repo_root/scripts/update/write_lightgbm_artifact.sh" "$score_file" "$tmp/rejected-artifact.json"
+jq -e '.available == true and .model_report.accepted == false and .model_report.reason == "model_did_not_beat_temporal_speed_baseline" and .model_report.relative_mae_improvement < 0' "$tmp/rejected-artifact.json" >/dev/null
 
 bash "$repo_root/scripts/update/write_lightgbm_artifact.sh" "$tmp/missing.json" "$tmp/unavailable.json"
 jq -e '.available == false and (has("scores") | not)' "$tmp/unavailable.json" >/dev/null
