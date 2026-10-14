@@ -2335,7 +2335,8 @@ async fn run_transfer_gate_consumer(
                 if alternative_target_available {
                     let mut requeued = 0usize;
                     for config in &target_tested_candidates[target_index] {
-                        if !transfer_verified.contains_key(config) && transfer_tested.remove(config) {
+                        if !transfer_verified.contains_key(config) && transfer_tested.remove(config)
+                        {
                             if !pending.iter().any(|queued| queued == config) {
                                 pending.push_back(config.clone());
                             }
