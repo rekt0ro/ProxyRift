@@ -4779,9 +4779,17 @@ mod tests {
 
         let targets = proxyrift::validator::STRICT_THROUGHPUT_TARGETS;
         assert!(targets.contains(&proxyrift::validator::STRICT_THROUGHPUT_TARGET));
-        assert!(targets.contains(&proxyrift::validator::HETZNER_SPEEDTEST_100MB_TARGET));
+        assert!(targets.contains(&proxyrift::validator::LINODE_SPEEDTEST_100MB_TARGET));
         assert!(targets.contains(&proxyrift::validator::TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
-        assert!(targets.contains(&proxyrift::validator::TELE2_SPEEDTEST_100MB_TARGET));
+        assert!(targets.contains(&proxyrift::validator::CACHEFLY_SPEEDTEST_100MB_TARGET));        assert_eq!(
+            proxyrift::validator::STRICT_THROUGHPUT_TARGET,
+            "https://speedtest2.serverius.net/files/100mb.bin"
+        );
+        assert!(!targets.iter().any(|target| {
+            target.contains("speed.cloudflare.com")
+                || target.contains("hetzner.com")
+                || target.contains("tele2.net")
+        }));
     }
 
     #[test]
