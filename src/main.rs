@@ -187,6 +187,60 @@ async fn safe_source_redirect(current_url: &Url, location: &str) -> Result<Url, 
     Ok(target_url)
 }
 
+fn is_emoji_codepoint(codepoint: u32) -> bool {
+    matches!(
+        codepoint,
+        0x00A9
+            | 0x00AE
+            | 0x203C
+            | 0x2049
+            | 0x2122
+            | 0x2139
+            | 0x2194..=0x2199
+            | 0x21A9..=0x21AA
+            | 0x231A..=0x231B
+            | 0x2328
+            | 0x23CF
+            | 0x23E9..=0x23F3
+            | 0x23F8..=0x23FA
+            | 0x24C2
+            | 0x25AA..=0x25AB
+            | 0x25B6
+            | 0x25C0
+            | 0x25FB..=0x25FE
+            | 0x2600..=0x27BF
+            | 0x2934..=0x2935
+            | 0x2B05..=0x2B07
+            | 0x2B1B..=0x2B1C
+            | 0x2B50
+            | 0x2B55
+            | 0x3030
+            | 0x303D
+            | 0x3297
+            | 0x3299
+            | 0x1F000..=0x1FAFF
+            | 0x200D
+            | 0x20E3
+            | 0xFE0F
+            | 0xE0020..=0xE007F
+    )
+}
+
+fn percent_encode_emoji_characters(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        if is_emoji_codepoint(character as u32) {
+            let mut bytes = [0u8; 4];
+            for byte in character.encode_utf8(&mut bytes).as_bytes() {
+                output.push_str(&format!("%{:02X}", byte));
+            }
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
 fn light_candidate_configs(ranked_working_configs: &[(String, u64)]) -> Vec<String> {
     ranked_working_configs
         .iter()
@@ -216,7 +270,7 @@ async fn write_atomic(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("[INFO] 🚀 ProxyRift starting...");
+    println!("[INFO] ProxyRift starting...");
 
     let root = project_root()?;
     let sources_path = root.join("sources.txt");
@@ -224,7 +278,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     fs::create_dir_all(&output_dir).await?;
 
     let sources = load_sources(&sources_path).await?;
-    println!("[INFO] 📡 Loaded {} sources", sources.len());
+    println!("[INFO] Loaded {} sources", sources.len());
 
     macro_rules! source_detail {
         ($($arg:tt)*) => {
@@ -246,7 +300,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                     _ => {
                         source_detail!(
-                            "[WARN] ⚠️ Source #{source_number} has an invalid or unsupported URL."
+                            "[WARN] Source #{source_number} has an invalid or unsupported URL."
                         );
                         return (source_index, Vec::new(), CollectionOutcome::Failed);
                     }
@@ -257,7 +311,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                     Err(reason) => {
                         source_detail!(
-                            "[WARN] ⚠️ Source #{source_number} rejected by safety policy: {reason}."
+                            "[WARN] Source #{source_number} rejected by safety policy: {reason}."
                         );
                         return (source_index, Vec::new(), CollectionOutcome::Failed);
                     }
@@ -273,7 +327,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             if status.is_redirection() {
                                 if redirect_count == MAX_SOURCE_REDIRECTS {
                                     source_detail!(
-                                        "[WARN] ⚠️ Source #{source_number} exceeded the {}-redirect limit.",
+                                        "[WARN] Source #{source_number} exceeded the {}-redirect limit.",
                                         MAX_SOURCE_REDIRECTS
                                     );
                                     return (source_index, Vec::new(), CollectionOutcome::Failed);
@@ -281,7 +335,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                                 let Some(location) = response.headers().get(LOCATION) else {
                                     source_detail!(
-                                        "[WARN] ⚠️ Source #{source_number} returned HTTP status {status} without a Location header."
+                                        "[WARN] Source #{source_number} returned HTTP status {status} without a Location header."
                                     );
                                     return (source_index, Vec::new(), CollectionOutcome::Failed);
                                 };
@@ -291,7 +345,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                                     Err(_) => {
                                         source_detail!(
-                                            "[WARN] ⚠️ Source #{source_number} returned an invalid redirect Location header."
+                                            "[WARN] Source #{source_number} returned an invalid redirect Location header."
                                         );
                                         return (source_index, Vec::new(), CollectionOutcome::Failed);
                                     }
@@ -306,7 +360,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                                             Err(reason) => {
                                                 source_detail!(
-                                                    "[WARN] ⚠️ Source #{source_number} redirect rejected by safety policy: {reason}."
+                                                    "[WARN] Source #{source_number} redirect rejected by safety policy: {reason}."
                                                 );
                                                 return (source_index, Vec::new(), CollectionOutcome::Failed);
                                             }
@@ -319,7 +373,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                                     Err(reason) => {
                                         source_detail!(
-                                            "[WARN] ⚠️ Source #{source_number} redirect rejected by safety policy: {reason}."
+                                            "[WARN] Source #{source_number} redirect rejected by safety policy: {reason}."
                                         );
                                         return (source_index, Vec::new(), CollectionOutcome::Failed);
                                     }
@@ -378,7 +432,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 }
 
                                 Err(SourceBodyError::Read) => {
-                                    source_detail!("[INFO] ↪️ Failed to read source #{source_number}.");
+                                    source_detail!("[INFO] Failed to read source #{source_number}.");
                                     return (source_index, Vec::new(), CollectionOutcome::Failed);
                                 }
                             }
@@ -396,7 +450,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             }
 
                             source_detail!(
-                                "[WARN] ⚠️ Failed to download source #{source_number}: {error}"
+                                "[WARN] Failed to download source #{source_number}: {error}"
                             );
                             return (source_index, Vec::new(), CollectionOutcome::Failed);
                         }
@@ -440,7 +494,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let non_http_source_failures = failed_sources.saturating_sub(http_status_failures);
     if non_http_source_failures > 0 {
         println!(
-            "[WARN] ⚠️ [Sources] {non_http_source_failures} fetch failures without an HTTP status"
+            "[WARN] [Sources] {non_http_source_failures} fetch failures without an HTTP status"
         );
     }
 
@@ -473,11 +527,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
             if matches!(status_code, 404 | 410) {
                 println!(
-                    "[INFO] 🔭 [Sources] HTTP {status_code} {reason} | Failed: {source_count} | Samples: {sources}{suffix}"
+                    "[INFO] [Sources] HTTP {status_code} {reason} | Failed: {source_count} | Samples: {sources}{suffix}"
                 );
             } else {
                 println!(
-                    "[WARN] ⚠️ [Sources] HTTP {status_code} {reason} | Failed: {source_count} | Samples: {sources}{suffix}"
+                    "[WARN] [Sources] HTTP {status_code} {reason} | Failed: {source_count} | Samples: {sources}{suffix}"
                 );
             }
         }
@@ -485,6 +539,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let mut deduped = HashMap::<String, (String, HashSet<String>)>::new();
     for (config, sources_for_config) in source_configs {
+        let config = percent_encode_emoji_characters(&config);
         let key = dedup_key(&config);
         let entry = deduped
             .entry(key)
@@ -518,7 +573,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cheaply_rejected = before_cheap_compatibility.saturating_sub(configs.len());
     if cheaply_rejected > 0 {
         println!(
-            "[INFO] 🧹 [Compatibility] Rejected {} collected configs by cheap compatibility screening",
+            "[INFO] [Compatibility] Rejected {} collected configs by cheap compatibility screening",
             cheaply_rejected
         );
     }
@@ -554,7 +609,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     if collected_before_global_cap > MAX_COLLECTED_CONFIGS {
         println!(
-            "[INFO] 🧮 [Collection] Global cap: 30k | {} configs",
+            "[INFO] [Collection] Global cap: 30k | {} configs",
             collected_before_global_cap
         );
     }
@@ -586,7 +641,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .map(|(scheme, count)| format!("{} {count}", scheme.to_ascii_uppercase()))
         .collect::<Vec<_>>()
         .join(" | ");
-    println!("[INFO] 📊 [Protocols] {summary}");
+    println!("[INFO] [Protocols] {summary}");
 
     let all_path = output_dir.join("all.txt");
 
@@ -607,7 +662,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .count();
 
     println!(
-        "[INFO] 🔎 [Transport] Plan | {} Configs | TCP {} Configs → {} unique | Non-TCP {}",
+        "[INFO] [Transport] Plan | {} Configs | TCP {} Configs → {} unique | Non-TCP {}",
         configs.len(),
         tcp_config_count,
         unique_tcp_endpoints,
@@ -621,7 +676,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .count();
 
     println!(
-        "[INFO] ✅ [Transport] Complete | {} Configs | {} Reachable",
+        "[INFO] [Transport] Complete | {} Configs | {} Reachable",
         configs.len(),
         reachable_probes
     );
@@ -665,7 +720,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     if transport_reachable_configs.is_empty() && deferred_transport_candidates.is_empty() {
         println!(
-            "[WARN] ⚠️ No usable configs remained after transport-aware reachability and compatibility screening."
+            "[WARN] No usable configs remained after transport-aware reachability and compatibility screening."
         );
 
         diagnose_configs(&configs).await;
@@ -686,7 +741,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .collect::<HashSet<_>>()
         .len();
     println!(
-        "[INFO] 🔎 [HTTP handshake] Plan | {} candidate variants | {} unique probe identities | Target: {} | Timeout: {}s | Max latency: {}ms",
+        "[INFO] [HTTP handshake] Plan | {} candidate variants | {} unique probe identities | Target: {} | Timeout: {}s | Max latency: {}ms",
         http_handshake_candidates.len(),
         unique_http_probe_count,
         HTTP_HANDSHAKE_TARGET,
@@ -715,13 +770,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     if ranked_working_configs.is_empty() {
         println!(
-            "[WARN] ⚠️ No configs passed the HTTP handshake reachability check; preserving existing published subscriptions."
+            "[WARN] No configs passed the HTTP handshake reachability check; preserving existing published subscriptions."
         );
         return Err("no configs remained after HTTP handshake validation".into());
     }
 
     println!(
-        "[INFO] ✅ [HTTP handshake] Complete | {} unique probe identities | {} candidate configs passed | Target: {} | Timeout: {}s",
+        "[INFO] [HTTP handshake] Complete | {} unique probe identities | {} candidate configs passed | Target: {} | Timeout: {}s",
         unique_http_probe_count,
         ranked_working_configs.len(),
         HTTP_HANDSHAKE_TARGET,
@@ -735,14 +790,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let light_gbm = match LightGbmScores::train_and_score(&light_gbm_candidates) {
         Ok(scores) => {
             println!(
-                "[INFO] 🧠 [LightGBM] Post-handshake candidate model | Trained: {} | Candidates: {}",
+                "[INFO] [LightGBM] Post-handshake candidate model | Trained: {} | Candidates: {}",
                 scores.trained(),
                 light_gbm_candidates.len()
             );
             scores
         }
         Err(error) => {
-            println!("[WARN] ⚠️ [LightGBM] Candidate ranking unavailable: {error}");
+            println!("[WARN] [LightGBM] Candidate ranking unavailable: {error}");
             LightGbmScores::default()
         }
     };
@@ -851,7 +906,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .len();
 
     println!(
-        "[INFO] ✅ [Collection] Complete | Light candidates: {} | All configs: {}/{} | Unique All endpoints: {}",
+        "[INFO] [Collection] Complete | Light candidates: {} | All configs: {}/{} | Unique All endpoints: {}",
         light_candidates.len(),
         working_configs.len(),
         MAX_ALL_CONFIGS,
@@ -3338,7 +3393,7 @@ async fn validate_singbox_http_candidates(
                 setup_failures += 1;
                 proxyrift::emit_log_if!(
                     !proxyrift::compact_logs_enabled();
-                    "[INFO] 🧹 [HTTP handshake] Candidate rejected by probe setup | {}",
+                    "[INFO] [HTTP handshake] Candidate rejected by probe setup | {}",
                     config_label(&batch[0])
                 );
                 if setup_failures > HTTP_HANDSHAKE_SETUP_FAILURE_LIMIT {
@@ -3353,7 +3408,7 @@ async fn validate_singbox_http_candidates(
 
     if setup_failures > 0 {
         println!(
-            "[WARN] ⚠️ [HTTP handshake] sing-box setup failures: {setup_failures} candidates omitted"
+            "[WARN] [HTTP handshake] sing-box setup failures: {setup_failures} candidates omitted"
         );
     }
     Ok(verified)
@@ -3392,7 +3447,7 @@ async fn validate_xray_http_candidates(
                 setup_failures += 1;
                 proxyrift::emit_log_if!(
                     !proxyrift::compact_logs_enabled();
-                    "[INFO] 🧹 [HTTP handshake] Candidate rejected by probe setup | {}",
+                    "[INFO] [HTTP handshake] Candidate rejected by probe setup | {}",
                     config_label(&batch[0])
                 );
                 if setup_failures > HTTP_HANDSHAKE_SETUP_FAILURE_LIMIT {
@@ -3407,7 +3462,7 @@ async fn validate_xray_http_candidates(
 
     if setup_failures > 0 {
         println!(
-            "[WARN] ⚠️ [HTTP handshake] Xray setup failures: {setup_failures} candidates omitted"
+            "[WARN] [HTTP handshake] Xray setup failures: {setup_failures} candidates omitted"
         );
     }
     Ok(verified)
@@ -3462,7 +3517,7 @@ async fn test_http_handshakes(
         .collect::<Vec<_>>();
     if !fallback_retry.is_empty() {
         println!(
-            "[INFO] 🔄 [HTTP handshake fallback] Retrying {} candidates with Xray",
+            "[INFO] [HTTP handshake fallback] Retrying {} candidates with Xray",
             fallback_retry.len()
         );
         xray_results.extend(validate_xray_http_candidates(&xray_binary, &fallback_retry).await?);
@@ -4211,5 +4266,24 @@ async fn diagnose_configs(configs: &[String]) {
                 "FAIL"
             }
         );
+    }
+}
+
+
+#[cfg(test)]
+mod uri_emoji_tests {
+    use super::percent_encode_emoji_characters;
+
+    #[test]
+    fn percent_encodes_emoji_as_utf8_without_losing_uri_bytes() {
+        let flag = format!(
+            "{}{}",
+            char::from_u32(0x1F1E8).unwrap(),
+            char::from_u32(0x1F1F3).unwrap()
+        );
+        let config = format!("vless://example.com:443?path=/ws{flag}");
+        let encoded = percent_encode_emoji_characters(&config);
+        assert!(encoded.contains("%F0%9F%87%A8%F0%9F%87%B3"));
+        assert!(!encoded.chars().any(|character| super::is_emoji_codepoint(character as u32)));
     }
 }

@@ -1556,18 +1556,18 @@ async fn check_batch_targets(
                     .collect::<String>();
 
                 crate::emit_log_if!(!crate::compact_logs_enabled();
-                    "[INFO] 🧹 [Sing-Box] Rejected | {} | Core could not start for this candidate",
+                    "[INFO] [Sing-Box] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty() {
-                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] ℹ️ [Sing-Box] Core log | {tail}");
+                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] [Sing-Box] Core log | {tail}");
                 }
             }
 
             let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [Sing-Box] Startup timeout budget exhausted | Stopping remaining batch splits"
+                    "[WARN] [Sing-Box] Startup timeout budget exhausted | Stopping remaining batch splits"
                 );
                 break;
             }
@@ -1611,7 +1611,7 @@ async fn check_batch_targets(
                     pending.push(batch_entries[mid..].to_vec());
                 } else {
                     crate::emit_log_if!(!crate::compact_logs_enabled();
-                        "[WARN] ⚠️ [Sing-Box] Core exited during pooled validation | {}",
+                        "[WARN] [Sing-Box] Core exited during pooled validation | {}",
                         config_label(&batch_entries[0].0)
                     );
                 }
@@ -1686,7 +1686,7 @@ async fn check_batch_targets(
                     pending.push(batch_entries[mid..].to_vec());
                 } else {
                     crate::emit_log_if!(!crate::compact_logs_enabled();
-                        "[WARN] ⚠️ [Sing-Box] Core exited | {}",
+                        "[WARN] [Sing-Box] Core exited | {}",
                         config_label(&batch_entries[0].0)
                     );
                 }
@@ -1818,19 +1818,19 @@ async fn check_batch_targets(
                 policy.sustained_stream_max_idle,
             ) {
                 crate::emit_log_if!(!crate::compact_logs_enabled();
-                    "[INFO] 🔎 [Stream] Target 1 | {primary_successes}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
+                    "[INFO] [Stream] Target 1 | {primary_successes}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
                 crate::emit_log_if!(!crate::compact_logs_enabled();
-                    "[INFO] 🔎 [Stream] Target 2 | {secondary_successes_count}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
+                    "[INFO] [Stream] Target 2 | {secondary_successes_count}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
             } else {
                 crate::emit_log_if!(!crate::compact_logs_enabled();
-                    "[INFO] 🔎 [Transfer] Target 1 | {primary_successes}/{count} Responded | Min body: {minimum} bytes"
+                    "[INFO] [Transfer] Target 1 | {primary_successes}/{count} Responded | Min body: {minimum} bytes"
                 );
                 crate::emit_log_if!(!crate::compact_logs_enabled();
-                    "[INFO] 🔎 [Transfer] Target 2 | {secondary_successes_count}/{count} Responded | Min body: {minimum} bytes"
+                    "[INFO] [Transfer] Target 2 | {secondary_successes_count}/{count} Responded | Min body: {minimum} bytes"
                 );
             }
         }
@@ -1960,18 +1960,18 @@ async fn check_batch(
                     .rev()
                     .collect::<String>();
                 crate::emit_log_if!(!crate::compact_logs_enabled();
-                    "[INFO] 🧹 [Sing-Box] Rejected | {}",
+                    "[INFO] [Sing-Box] Rejected | {}",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty() {
-                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] ℹ️ [Sing-Box] Core log | {tail}");
+                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] [Sing-Box] Core log | {tail}");
                 }
             }
 
             let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [Sing-Box] Startup timeout budget exhausted | Stopping remaining batch splits"
+                    "[WARN] [Sing-Box] Startup timeout budget exhausted | Stopping remaining batch splits"
                 );
                 break;
             }
@@ -2363,7 +2363,7 @@ async fn validate_candidates_with_targets_policy(
     }
 
     crate::emit_log_if!(!crate::compact_logs_enabled();
-        "[INFO] 🔬 [Sing-Box] Input | {} Configs | Accepted: {} | Rejected: {}",
+        "[INFO] [Sing-Box] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
@@ -2371,7 +2371,7 @@ async fn validate_candidates_with_targets_policy(
 
     for (config, reason) in rejected.iter().take(8) {
         crate::emit_log_if!(!crate::compact_logs_enabled();
-            "[INFO] 🧹 [Sing-Box] Rejected | {} | {reason}",
+            "[INFO] [Sing-Box] Rejected | {} | {reason}",
             config_label(config)
         );
     }
@@ -2395,7 +2395,7 @@ async fn validate_candidates_with_targets_policy(
     if parsed_targets.len() < policy.min_successful_targets {
         crate::emit_log_if!(
             !crate::compact_logs_enabled();
-            "[WARN] ⚠️ [Targets] Not enough non-throttled targets | Available: {} | Required: {} | Skipping Sing-box batch",
+            "[WARN] [Targets] Not enough non-throttled targets | Available: {} | Required: {} | Skipping Sing-box batch",
             parsed_targets.len(),
             policy.min_successful_targets
         );
@@ -2423,7 +2423,7 @@ async fn validate_candidates_with_targets_policy(
         .await?;
 
         crate::emit_log_if!(!crate::compact_logs_enabled();
-            "[INFO] ✅ [Sing-Box] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Destinations: {}",
+            "[INFO] [Sing-Box] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Destinations: {}",
             index + 1,
             total_batches,
             batch.len(),
@@ -2437,7 +2437,7 @@ async fn validate_candidates_with_targets_policy(
     }
 
     crate::emit_log_if!(!crate::compact_logs_enabled();
-        "[INFO] ✅ [Sing-Box] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Destinations: {}",
+        "[INFO] [Sing-Box] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Destinations: {}",
         metadata.len(),
         candidates.len(),
         targets.len(),
@@ -2474,7 +2474,7 @@ pub async fn validate_candidates_with_target(
     }
 
     crate::emit_log_if!(!crate::compact_logs_enabled();
-        "[INFO] 🔬 [Sing-Box] Input | {} Configs | Accepted: {} | Rejected: {}",
+        "[INFO] [Sing-Box] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
@@ -2482,7 +2482,7 @@ pub async fn validate_candidates_with_target(
 
     for (config, reason) in rejected.iter().take(8) {
         crate::emit_log_if!(!crate::compact_logs_enabled();
-            "[INFO] 🧹 [Sing-Box] Rejected | {} | {reason}",
+            "[INFO] [Sing-Box] Rejected | {} | {reason}",
             config_label(config)
         );
     }
@@ -2509,7 +2509,7 @@ pub async fn validate_candidates_with_target(
         .await?;
 
         crate::emit_log_if!(!crate::compact_logs_enabled();
-            "[INFO] ✅ [Sing-Box] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: 1",
+            "[INFO] [Sing-Box] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: 1",
             index + 1,
             total_batches,
             batch.len(),
@@ -2522,7 +2522,7 @@ pub async fn validate_candidates_with_target(
     }
 
     crate::emit_log_if!(!crate::compact_logs_enabled();
-        "[INFO] ✅ [Sing-Box] Complete | {}/{} Verified | Targets: 1 | Requirement: {}/{} | Latency ≤ {}ms",
+        "[INFO] [Sing-Box] Complete | {}/{} Verified | Targets: 1 | Requirement: {}/{} | Latency ≤ {}ms",
         metadata.len(),
         candidates.len(),
         MIN_SUCCESSFUL_ATTEMPTS,
@@ -2602,6 +2602,65 @@ fn subscription_config_name(config: &str, fallback_index: usize) -> String {
     format!("ProxyRift {:03}", fallback_index + 1)
 }
 
+fn is_emoji_codepoint(codepoint: u32) -> bool {
+    matches!(
+        codepoint,
+        0x00A9
+            | 0x00AE
+            | 0x203C
+            | 0x2049
+            | 0x2122
+            | 0x2139
+            | 0x2194..=0x2199
+            | 0x21A9..=0x21AA
+            | 0x231A..=0x231B
+            | 0x2328
+            | 0x23CF
+            | 0x23E9..=0x23F3
+            | 0x23F8..=0x23FA
+            | 0x24C2
+            | 0x25AA..=0x25AB
+            | 0x25B6
+            | 0x25C0
+            | 0x25FB..=0x25FE
+            | 0x2600..=0x27BF
+            | 0x2934..=0x2935
+            | 0x2B05..=0x2B07
+            | 0x2B1B..=0x2B1C
+            | 0x2B50
+            | 0x2B55
+            | 0x3030
+            | 0x303D
+            | 0x3297
+            | 0x3299
+            | 0x1F000..=0x1FAFF
+            | 0x200D
+            | 0x20E3
+            | 0xFE0F
+            | 0xE0020..=0xE007F
+    )
+}
+
+fn escape_emoji_codepoints_for_json(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        let codepoint = character as u32;
+        if is_emoji_codepoint(codepoint) {
+            if codepoint <= 0xFFFF {
+                output.push_str(&format!("\\u{:04x}", codepoint));
+            } else {
+                let scalar = codepoint - 0x10000;
+                let high = 0xD800 + (scalar >> 10);
+                let low = 0xDC00 + (scalar & 0x3FF);
+                output.push_str(&format!("\\u{:04x}\\u{:04x}", high, low));
+            }
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
 fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize), String> {
     let mut outbounds = Vec::with_capacity(configs.len());
     let mut rendered = 0usize;
@@ -2627,7 +2686,7 @@ fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize),
     if !skipped_by_reason.is_empty() {
         let skipped_total: usize = skipped_by_reason.values().map(Vec::len).sum();
         println!(
-            "[INFO] 🧹 [sing-box] Omitted {} configs that could not be converted to standard sing-box outbounds",
+            "[INFO] [sing-box] Omitted {} configs that could not be converted to standard sing-box outbounds",
             skipped_total
         );
 
@@ -2642,7 +2701,7 @@ fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize),
 
             crate::emit_log_if!(
                 !crate::compact_logs_enabled();
-                "[INFO]    {} config(s) | {} | indices: {}{}",
+                "[INFO] {} config(s) | {} | indices: {}{}",
                 indices.len(),
                 reason,
                 shown,
@@ -2656,6 +2715,7 @@ fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize),
         "outbounds": outbounds,
     }))
     .map_err(|error| error.to_string())?;
+    let json = escape_emoji_codepoints_for_json(&json);
 
     Ok((json, rendered))
 }
@@ -3185,4 +3245,17 @@ mod tests {
             singbox_outbound(config).expect_err("XHTTP is unsupported by standard sing-box");
         assert!(error.contains("XHTTP"));
     }
+    #[test]
+    fn json_escapes_preserve_emoji_as_surrogate_pairs() {
+        let flag = format!(
+            "{}{}",
+            char::from_u32(0x1F1E8).unwrap(),
+            char::from_u32(0x1F1F3).unwrap()
+        );
+        assert_eq!(
+            super::escape_emoji_codepoints_for_json(&flag),
+            "\\ud83c\\udde8\\ud83c\\uddf3"
+        );
+    }
+
 }

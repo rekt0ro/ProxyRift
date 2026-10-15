@@ -1,0 +1,93 @@
+name: Finalize update run
+description: Write the update report and archive validation diagnostics
+inputs:
+  job_status:
+    description: "Final status of the update job."
+    required: true
+  discovery_outcome:
+    description: "Outcome of source discovery."
+    required: true
+  collect_outcome:
+    description: "Outcome of configuration collection."
+    required: true
+  light_outcome:
+    description: "Outcome of Light validation."
+    required: true
+  generation_outcome:
+    description: "Outcome of subscription generation."
+    required: true
+  prepare_outcome:
+    description: "Outcome of publication preparation."
+    required: true
+  publish_outcome:
+    description: "Outcome of subscription publishing."
+    required: true
+  xray_version:
+    description: "Resolved Xray version."
+    required: true
+  singbox_version:
+    description: "Resolved sing-box version."
+    required: true
+  github_token:
+    description: "Token used to read workflow run metadata and persist learning state."
+    required: true
+  github_repository:
+    description: "Repository name used for workflow metadata."
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Upload Light validation report
+      if: ${{ always() && inputs.light_outcome == 'success' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: light-validation-report-${{ github.run_id }}-${{ github.run_attempt }}
+        path: /tmp/proxyrift/light-validation-report.json
+        if-no-files-found: error
+        retention-days: 14
+    - name: Write run summary
+      if: ${{ always() }}
+      env:
+        JOB_STATUS: ${{ inputs.job_status }}
+        DISCOVERY_OUTCOME: ${{ inputs.discovery_outcome }}
+        COLLECT_OUTCOME: ${{ inputs.collect_outcome }}
+        LIGHT_OUTCOME: ${{ inputs.light_outcome }}
+        GENERATION_OUTCOME: ${{ inputs.generation_outcome }}
+        PREPARE_OUTCOME: ${{ inputs.prepare_outcome }}
+        PUBLISH_OUTCOME: ${{ inputs.publish_outcome }}
+        PROXYRIFT_TMP_DIR: /tmp/proxyrift
+        GH_TOKEN: ${{ inputs.github_token }}
+        GH_REPOSITORY: ${{ inputs.github_repository }}
+        XRAY_VERSION: ${{ inputs.xray_version }}
+        SINGBOX_VERSION: ${{ inputs.singbox_version }}
+      shell: bash
+      run: bash scripts/update/write_run_summary.sh
+    - name: Verify LightGBM summary against run report
+      if: ${{ always() && inputs.light_outcome == 'success' }}
+      env:
+        PROXYRIFT_TMP_DIR: /tmp/proxyrift
+      shell: bash
+      run: bash scripts/update/verify_lightgbm_summary.sh "$PROXYRIFT_TMP_DIR/run-summary.md" "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "subscriptions/light-training-stats.json"
+    - name: Prepare sanitized LightGBM evaluation artifact
+      if: ${{ always() && inputs.light_outcome == 'success' }}
+      env:
+        PROXYRIFT_TMP_DIR: /tmp/proxyrift
+        LIGHTGBM_ARTIFACT_PATH: ${{ runner.temp }}/lightgbm-evaluation.json
+      shell: bash
+      run: bash scripts/update/write_lightgbm_artifact.sh "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "$LIGHTGBM_ARTIFACT_PATH"
+    - name: Upload LightGBM evaluation artifact
+      if: ${{ always() && inputs.light_outcome == 'success' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: lightgbm-evaluation-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/lightgbm-evaluation.json
+        if-no-files-found: error
+        retention-days: 14
+    - name: Upload compatibility rejection diagnostics
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: compatibility-rejections-${{ github.run_id }}-${{ github.run_attempt }}
+        path: /tmp/proxyrift/compatibility-rejections.jsonl
+        if-no-files-found: warn
+        retention-days: 14

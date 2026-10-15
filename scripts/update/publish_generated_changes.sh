@@ -32,9 +32,23 @@ git config user.name "rekt0ro"
 git config user.email "104654981+rekt0ro@users.noreply.github.com"
 
 for attempt in 1 2 3 4 5; do
-  echo "[INFO] 📤 [Publish] Attempt ${attempt}/5"
+  echo "[INFO] [Publish] Attempt ${attempt}/5"
 
-  git fetch origin main
+  fetch_output=""
+  fetch_status=0
+  fetch_output="$(git fetch origin main 2>&1)" || fetch_status=$?
+  if [ "$fetch_status" -ne 0 ]; then
+    printf '%s\n' "$fetch_output" >&2
+    if grep -Eiq 'could not resolve host|temporary failure in name resolution|failed to connect|could not connect|connection refused|operation timed out|connection timed out|connection reset|network is unreachable|remote end hung up unexpectedly|http/2.*(500|502|503|504)| (500|502|503|504) |temporarily unavailable|service unavailable|bad gateway|gateway timeout|tls handshake timeout' <<< "$fetch_output" && [ "$attempt" -lt 5 ]; then
+      retry_delay=$((attempt * 2))
+      echo "[WARN] [Publish] Fetch failed on attempt ${attempt}/5; retrying in ${retry_delay}s" >&2
+      sleep "$retry_delay"
+      continue
+    fi
+    echo "[ERROR] [Publish] Fetch failed on attempt ${attempt}/5" >&2
+    exit "$fetch_status"
+  fi
+
   git reset --hard origin/main
 
   for f in $files; do
@@ -88,7 +102,7 @@ for attempt in 1 2 3 4 5; do
 
 
   if git diff --cached --quiet; then
-    echo "[INFO] 📤 [Publish] No changes"
+    echo "[INFO] [Publish] No changes"
     exit 0
   fi
 
@@ -100,12 +114,12 @@ for attempt in 1 2 3 4 5; do
   printf '%s\n' "$push_output"
 
   if [ "$push_status" -eq 0 ]; then
-    echo "[INFO] ✅ [Publish] Subscription update published"
+    echo "[INFO] [Publish] Subscription update published"
     exit 0
   fi
 
   if grep -Eiq 'non-fast-forward|fetch first|tip of your current branch is behind|updates were rejected because the tip' <<< "$push_output"; then
-    echo "[WARN] ⚠️ [Publish] Main moved | Retrying"
+    echo "[WARN] [Publish] Main moved | Retrying"
     git reset --hard
     continue
   fi
@@ -113,19 +127,19 @@ for attempt in 1 2 3 4 5; do
   if grep -Eiq 'internal server error|http/2.*(500|502|503|504)| (500|502|503|504) |temporarily unavailable|service unavailable|bad gateway|gateway timeout' <<< "$push_output"; then
     if [ "$attempt" -lt 5 ]; then
       retry_delay=$((attempt * 2))
-      echo "[WARN] ⚠️ [Publish] Transient GitHub server error | Retrying in ${retry_delay}s"
+      echo "[WARN] [Publish] Transient GitHub server error | Retrying in ${retry_delay}s"
       git reset --hard
       sleep "$retry_delay"
       continue
     fi
 
-    echo "[ERROR] ❌ [Publish] GitHub server error persisted after 5 attempts" >&2
+    echo "[ERROR] [Publish] GitHub server error persisted after 5 attempts" >&2
     exit "$push_status"
   fi
 
-  echo "[ERROR] ❌ [Publish] Push failed for a non-race reason" >&2
+  echo "[ERROR] [Publish] Push failed for a non-race reason" >&2
   exit "$push_status"
 done
 
-echo "[ERROR] ❌ [Publish] Failed after 5 attempts" >&2
+echo "[ERROR] [Publish] Failed after 5 attempts" >&2
 exit 1

@@ -279,14 +279,14 @@ step_elapsed() {
   printf "%s" "$elapsed"
 }
 
-collect_elapsed="$(step_elapsed "🔎 Collect & transport-test configs")"
-light_elapsed="$(step_elapsed "💡 Build Light subscription")"
+collect_elapsed="$(step_elapsed "Collect & transport-test configs")"
+light_elapsed="$(step_elapsed "Build Light subscription")"
 
 current_job_started=""
 current_publish_completed=""
 if [ -n "$current_jobs" ]; then
-  current_job_started="$(jq -r '.jobs[] | select(.name == "🔎 Collect & Validate") | .started_at // empty' <<< "$current_jobs" | head -n 1)"
-  current_publish_completed="$(jq -r '.jobs[] | select(.name == "🔎 Collect & Validate") | .steps[] | select(.name == "🚀 Publish generated changes") | .completed_at // empty' <<< "$current_jobs" | head -n 1)"
+  current_job_started="$(jq -r '.jobs[] | select(.name == "Collect & Validate") | .started_at // empty' <<< "$current_jobs" | head -n 1)"
+  current_publish_completed="$(jq -r '.jobs[] | select(.name == "Collect & Validate") | .steps[] | select(.name == "Publish generated changes") | .completed_at // empty' <<< "$current_jobs" | head -n 1)"
 fi
 
 pipeline_elapsed="unknown"
@@ -363,7 +363,7 @@ if [ -n "$previous_run_id" ]; then
   )"; then
     previous_collect_elapsed="$(
       jq -r \
-        --arg step "🔎 Collect & transport-test configs" \
+        --arg step "Collect & transport-test configs" \
         '.jobs[]
          | .steps[]
          | select(.name == $step and .started_at != null and .completed_at != null)
@@ -373,7 +373,7 @@ if [ -n "$previous_run_id" ]; then
 
     previous_light_elapsed="$(
       jq -r \
-        --arg step "💡 Build Light subscription" \
+        --arg step "Build Light subscription" \
         '.jobs[]
          | .steps[]
          | select(.name == $step and .started_at != null and .completed_at != null)
@@ -382,10 +382,10 @@ if [ -n "$previous_run_id" ]; then
     )"
 
     previous_summary_epoch="$(
-      jq -r                   '.jobs[]
-         | select(.name == "🔎 Collect & Validate")
+      jq -r '.jobs[]
+         | select(.name == "Collect & Validate")
          | .steps[]
-         | select(.name == "🚀 Publish generated changes" and .completed_at != null)
+         | select(.name == "Publish generated changes" and .completed_at != null)
          | (.completed_at | fromdateiso8601)
          | tostring' <<< "$previous_jobs" | head -n 1
     )"
@@ -393,7 +393,7 @@ if [ -n "$previous_run_id" ]; then
     previous_job_started="$(
       jq -r \
         '.jobs[]
-         | select(.name == "🔎 Collect & Validate")
+         | select(.name == "Collect & Validate")
          | .started_at
          | select(. != null)
          | fromdateiso8601
