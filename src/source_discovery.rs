@@ -1257,9 +1257,9 @@ async fn log_github_core_rate_limit_headroom(client: &Client, token: Option<&str
             "[INFO] [Discovery] GitHub core API budget | Remaining: {}/{} | Reset epoch: {}",
             remaining, limit, reset
         ),
-        None => println!(
-            "[WARN] [Discovery] GitHub core API budget unavailable: missing core fields"
-        ),
+        None => {
+            println!("[WARN] [Discovery] GitHub core API budget unavailable: missing core fields")
+        }
     }
 }
 
