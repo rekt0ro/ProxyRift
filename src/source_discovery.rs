@@ -11,7 +11,6 @@ use url::Url;
 const REGISTRY_VERSION: u64 = 1;
 const SEARCH_PER_PAGE: usize = 100;
 const MAX_DISCOVERY_REPOS: usize = 500;
-// A bounded, read-only sample measures the marginal yield beyond the production cutoff.
 const MAX_CUTOFF_AUDIT_REPOS: usize = 25;
 const MAX_TREE_SCANS: usize = 150;
 const MAX_TREE_FILES_PER_REPO: usize = 40;
