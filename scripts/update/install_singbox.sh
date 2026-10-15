@@ -18,5 +18,5 @@ fi
 
 echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 singbox_version="$("$HOME/.local/bin/sing-box" version | head -n 1)"
-echo "[INFO] 🧩 [Sing-Box] Version | ${singbox_version}"
+echo "${singbox_version}"
 grep -F "$SINGBOX_VERSION" <<< "$singbox_version" >/dev/null
