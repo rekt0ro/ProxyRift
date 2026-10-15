@@ -17,4 +17,4 @@ test "$SINGBOX_ASSET_PIN" = "sing-box-${SINGBOX_VERSION_PIN}-linux-amd64.tar.gz"
   echo "singbox_asset=$SINGBOX_ASSET_PIN"
 } >> "$GITHUB_OUTPUT"
 
-echo "[INFO] 🧩 [Cores] Pinned releases | Xray $XRAY_VERSION_PIN | sing-box $SINGBOX_VERSION_PIN"
+echo "[INFO] [Cores] Pinned releases | Xray $XRAY_VERSION_PIN | sing-box $SINGBOX_VERSION_PIN"

@@ -24,7 +24,7 @@ status=$?
 set -e
 light_elapsed="$(( $(date +%s) - light_started_epoch ))s"
 if [ "$status" -ne 0 ]; then
-  echo "[WARN] ⚠️ [Light] Validation failed | Preserving previous subscription | Took: ${light_elapsed}" >&2
+  echo "[WARN] [Light] Validation failed | Preserving previous subscription | Took: ${light_elapsed}" >&2
   exit "$status"
 fi
 
@@ -77,17 +77,17 @@ if [ -s /tmp/proxyrift/light.next.txt ]; then
         if [ "$added_count" -gt 0 ]; then
           cat subscriptions/all.txt "$limited_additions" > subscriptions/.all.txt.next
           mv -f subscriptions/.all.txt.next subscriptions/all.txt
-          echo "[INFO] ✅ [All] Added $added_count deferred configs verified by Light consumer validation"
+          echo "[INFO] [All] Added $added_count deferred configs verified by Light consumer validation"
         fi
         rm -f "$limited_additions"
       fi
       rm -f "$additions"
     fi
 
-    echo "[INFO] ✅ [Light] Published ${light_count} configs | Target: ${LIGHT_SELECTION_LIMIT} | Took: ${light_elapsed}"
+    echo "[INFO] [Light] Published ${light_count} configs | Target: ${LIGHT_SELECTION_LIMIT} | Took: ${light_elapsed}"
   else
-    echo "[WARN] ⚠️ [Light] Pool too small | ${light_count}/${LIGHT_MIN_PUBLISH} minimum | Preserving previous subscription | Took: ${light_elapsed}"
+    echo "[WARN] [Light] Pool too small | ${light_count}/${LIGHT_MIN_PUBLISH} minimum | Preserving previous subscription | Took: ${light_elapsed}"
   fi
 else
-  echo "[WARN] ⚠️ [Light] No configs | Preserving previous subscription | Took: ${light_elapsed}"
+  echo "[WARN] [Light] No configs | Preserving previous subscription | Took: ${light_elapsed}"
 fi

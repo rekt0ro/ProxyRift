@@ -120,8 +120,69 @@ fn endpoint_from_url(url: &Url) -> Result<(String, u16), String> {
     Ok((server, port))
 }
 
+fn is_emoji_codepoint(codepoint: u32) -> bool {
+    matches!(
+        codepoint,
+        0x00A9
+            | 0x00AE
+            | 0x203C
+            | 0x2049
+            | 0x2122
+            | 0x2139
+            | 0x2194..=0x2199
+            | 0x21A9..=0x21AA
+            | 0x231A..=0x231B
+            | 0x2328
+            | 0x23CF
+            | 0x23E9..=0x23F3
+            | 0x23F8..=0x23FA
+            | 0x24C2
+            | 0x25AA..=0x25AB
+            | 0x25B6
+            | 0x25C0
+            | 0x25FB..=0x25FE
+            | 0x2600..=0x27BF
+            | 0x2934..=0x2935
+            | 0x2B05..=0x2B07
+            | 0x2B1B..=0x2B1C
+            | 0x2B50
+            | 0x2B55
+            | 0x3030
+            | 0x303D
+            | 0x3297
+            | 0x3299
+            | 0x1F000..=0x1FAFF
+            | 0x200D
+            | 0x20E3
+            | 0xFE0F
+            | 0xE0020..=0xE007F
+    )
+}
+
 fn yaml_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
+    if !value
+        .chars()
+        .any(|character| is_emoji_codepoint(character as u32))
+    {
+        return format!("'{}'", value.replace('\'', "''"));
+    }
+
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if is_emoji_codepoint(character as u32) {
+            escaped.push_str(&format!("\\U{:08X}", character as u32));
+        } else {
+            match character {
+                '"' => escaped.push_str("\\\""),
+                '\\' => escaped.push_str("\\\\"),
+                '\n' => escaped.push_str("\\n"),
+                '\r' => escaped.push_str("\\r"),
+                '\t' => escaped.push_str("\\t"),
+                _ => escaped.push(character),
+            }
+        }
+    }
+    format!("\"{escaped}\"")
 }
 
 fn push_field(lines: &mut Vec<String>, indent: usize, key: &str, value: &str) {
@@ -431,7 +492,7 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
     let short_id = query_any(&url, &["sid", "shortId", "short_id", "short-id"]);
 
     let mut lines = vec![format!(
-        "  - name: {}",
+        " - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "vless");
@@ -544,7 +605,7 @@ fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
         .to_string();
     let cipher = json_string(object.get("scy")).unwrap_or_else(|| "auto".to_string());
 
-    let mut lines = vec![format!("  - name: {}", yaml_quote(name.trim()))];
+    let mut lines = vec![format!(" - name: {}", yaml_quote(name.trim()))];
     push_field(&mut lines, 4, "type", "vmess");
     push_field(&mut lines, 4, "server", &server);
     push_raw_field(&mut lines, 4, "port", &port.to_string());
@@ -623,7 +684,7 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
     let short_id = query_any(&url, &["sid", "shortId", "short_id", "short-id"]);
 
     let mut lines = vec![format!(
-        "  - name: {}",
+        " - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "trojan");
@@ -724,7 +785,7 @@ fn push_shadowsocks_plugin(lines: &mut Vec<String>, url: &Url) -> Result<(), Str
             }
 
             push_field(lines, 4, "plugin", "obfs");
-            lines.push("    plugin-opts:".to_string());
+            lines.push(" plugin-opts:".to_string());
             push_field(lines, 6, "mode", &mode);
             if let Some(host) = host.filter(|value| !value.is_empty()) {
                 push_field(lines, 6, "host", &host);
@@ -778,7 +839,7 @@ fn push_shadowsocks_plugin(lines: &mut Vec<String>, url: &Url) -> Result<(), Str
             }
 
             push_field(lines, 4, "plugin", "v2ray-plugin");
-            lines.push("    plugin-opts:".to_string());
+            lines.push(" plugin-opts:".to_string());
             push_field(lines, 6, "mode", &mode);
             if let Some(tls) = tls {
                 push_raw_field(lines, 6, "tls", if tls { "true" } else { "false" });
@@ -841,7 +902,7 @@ fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
         };
 
     let mut lines = vec![format!(
-        "  - name: {}",
+        " - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "ss");
@@ -910,7 +971,7 @@ fn convert_hysteria(config: &str, index: usize) -> Result<String, String> {
     };
 
     let mut lines = vec![format!(
-        "  - name: {}",
+        " - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "hysteria");
@@ -1004,7 +1065,7 @@ fn convert_hysteria2(config: &str, index: usize) -> Result<String, String> {
     let down = get(&["down", "downmbps"]);
 
     let mut lines = vec![format!(
-        "  - name: {}",
+        " - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "hysteria2");
@@ -1047,7 +1108,7 @@ fn convert_socks(config: &str, index: usize) -> Result<String, String> {
     let (server, port) = endpoint_from_url(&url)?;
 
     let mut lines = vec![format!(
-        "  - name: {}",
+        " - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "socks5");
@@ -1075,7 +1136,7 @@ fn convert_http(config: &str, index: usize) -> Result<String, String> {
     let (server, port) = endpoint_from_url(&url)?;
 
     let mut lines = vec![format!(
-        "  - name: {}",
+        " - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "http");
@@ -1136,7 +1197,7 @@ fn log_skipped_configs(skipped: Vec<(usize, String)>) {
     for (reason, (count, sample_indexes)) in summarize_skipped_configs(skipped) {
         if count == 1 {
             eprintln!(
-                "[WARN] ⚠️ [Clash/Mihomo] Skipping config {} | {}",
+                "[WARN] [Clash/Mihomo] Skipping config {} | {}",
                 sample_indexes[0], reason
             );
             continue;
@@ -1155,7 +1216,7 @@ fn log_skipped_configs(skipped: Vec<(usize, String)>) {
         };
 
         eprintln!(
-            "[WARN] ⚠️ [Clash/Mihomo] Skipped {count} config(s) | {reason} | sample indexes: {sample}{suffix}"
+            "[WARN] [Clash/Mihomo] Skipped {count} config(s) | {reason} | sample indexes: {sample}{suffix}"
         );
     }
 }
@@ -1183,7 +1244,7 @@ fn render_with_count(configs: &[String]) -> Result<(String, usize), String> {
 
     if missing_port > 0 {
         eprintln!(
-            "[WARN] ⚠️ [Clash/Mihomo] Skipped {} config(s) | missing port",
+            "[WARN] [Clash/Mihomo] Skipped {} config(s) | missing port",
             missing_port
         );
     }
@@ -1402,7 +1463,7 @@ mod tests {
         let (yaml, rendered) = super::render_with_count(&configs).unwrap();
 
         assert_eq!(rendered, 2);
-        assert_eq!(yaml.matches("  - name:").count(), 2);
+        assert_eq!(yaml.matches(" - name:").count(), 2);
         assert!(yaml.contains("type: 'http'"));
         assert!(yaml.contains("type: 'socks5'"));
         assert!(yaml.contains("port: 80"));
@@ -1461,6 +1522,19 @@ mod tests {
         assert!(yaml.contains("type: 'hysteria2'"));
         assert!(yaml.contains("obfs: 'salamander'"));
         assert!(yaml.contains("obfs-password: 'secret'"));
+    }
+
+    #[test]
+    fn yaml_quotes_preserve_emoji_as_unicode_escapes() {
+        let flag = format!(
+            "{}{}",
+            char::from_u32(0x1F1E8).unwrap(),
+            char::from_u32(0x1F1F3).unwrap()
+        );
+        assert_eq!(
+            super::yaml_quote(&format!("ws-{flag}")),
+            "\"ws-\\U0001F1E8\\U0001F1F3\""
+        );
     }
 
     #[test]

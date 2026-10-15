@@ -21,7 +21,7 @@ env:
 
 jobs:
   collect:
-    name: "🔎 Collect & Validate"
+    name: "Collect & Validate"
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -30,11 +30,11 @@ jobs:
       actions: read
       contents: write
     outputs:
-      rust_toolchain_key: ${{ steps.keys.outputs.rust-toolchain }}
-      registry_key: ${{ steps.keys.outputs.registry }}
-      build_key: ${{ steps.keys.outputs.build }}
-      xray_key: ${{ steps.keys.outputs.xray }}
-      singbox_key: ${{ steps.keys.outputs.singbox }}
+      rust_toolchain_key: ${{ steps.prepare.outputs.rust_toolchain_key }}
+      registry_key: ${{ steps.prepare.outputs.registry_key }}
+      build_key: ${{ steps.prepare.outputs.build_key }}
+      xray_key: ${{ steps.prepare.outputs.xray_key }}
+      singbox_key: ${{ steps.prepare.outputs.singbox_key }}
 
     steps:
       - name: "Checkout source"
@@ -43,238 +43,62 @@ jobs:
           fetch-depth: 0
           show-progress: false
 
-      - name: "Initialize compatibility rejection artifacts"
-        run: |
-          mkdir -p /tmp/proxyrift
-          : > /tmp/proxyrift/compatibility-rejections.jsonl
-
-      - name: "🦀 Resolve stable Rust toolchain"
-        id: rust-toolchain
-        run: bash scripts/update/resolve_stable_rust.sh
-      - name: "🦀 Restore Rust toolchain cache"
-        id: rust-toolchain-cache-restore
-        uses: actions/cache/restore@v6
+      - name: Prepare update environment
+        id: prepare
+        uses: ./.github/actions/prepare-update
         with:
-          path: ~/.rustup/toolchains
-          key: ${{ runner.os }}-${{ runner.arch }}-rust-toolchain-${{ steps.rust-toolchain.outputs.version }}
+          lock_hash: ${{ hashFiles('Cargo.lock') }}
+          source_hash: ${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
+          runner_os: ${{ runner.os }}
+          runner_arch: ${{ runner.arch }}
+          github_token: ${{ github.token }}
 
-      - name: "🦀 Set up Rust"
-        env:
-          RUST_TOOLCHAIN_VERSION: ${{ steps.rust-toolchain.outputs.version }}
-        run: bash scripts/update/setup_rust.sh
-      - name: "📌 Record Rust version"
-        id: rust-version
-        env:
-          RUST_TOOLCHAIN_VERSION: ${{ steps.rust-toolchain.outputs.version }}
-        run: bash scripts/update/record_rust_version.sh
-      - name: "🔒 Verify dependency lock"
-        run: test -s Cargo.lock
-
-      - name: "🧠 Install native LightGBM runtime"
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash scripts/install_lightgbm.sh
-
-      - name: "🌐 Resolve pinned validation cores"
-        id: validation-cores
-        env:
-          XRAY_VERSION_PIN: "26.3.27"
-          XRAY_SHA256_PIN: "23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
-          XRAY_ASSET_PIN: "Xray-linux-64.zip"
-          SINGBOX_VERSION_PIN: "1.14.3"
-          SINGBOX_SHA256_PIN: "e2bdf179c15a3652955dc44867e33ca0965c9c9b91b34267dcc5a5d639a5feee"
-          SINGBOX_ASSET_PIN: "sing-box-1.14.3-linux-amd64.tar.gz"
-        run: bash scripts/update/resolve_validation_cores.sh
-      - name: "⚡ Compute cache keys"
-        id: keys
-        env:
-          RUNNER_OS_NAME: ${{ runner.os }}
-          RUNNER_ARCH_NAME: ${{ runner.arch }}
-          LOCK_HASH: ${{ hashFiles('Cargo.lock') }}
-          SOURCE_HASH: ${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
-          RUST_VERSION: ${{ steps.rust-version.outputs.version }}
-          XRAY_VERSION: ${{ steps.validation-cores.outputs.xray_version }}
-          XRAY_SHA256: ${{ steps.validation-cores.outputs.xray_sha256 }}
-          SINGBOX_VERSION: ${{ steps.validation-cores.outputs.singbox_version }}
-          SINGBOX_SHA256: ${{ steps.validation-cores.outputs.singbox_sha256 }}
-        run: bash scripts/update/compute_cache_keys.sh
-      - name: "💾 Restore Rust registry cache"
-        id: cargo-registry-restore
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ steps.keys.outputs.registry }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: "💾 Restore Rust build cache"
-        id: cargo-build-restore
-        uses: actions/cache/restore@v6
-        with:
-          path: target
-          key: ${{ steps.keys.outputs.build }}
-
-      - name: "📦 Restore Xray binary cache"
-        id: xray-cache-restore
-        uses: actions/cache/restore@v6
-        with:
-          path: ~/.local/bin/xray
-          key: ${{ steps.keys.outputs.xray }}
-
-      - name: "🛡️ Install Xray (latest stable, checksum-verified)"
-        env:
-          XRAY_VERSION: ${{ steps.validation-cores.outputs.xray_version }}
-          XRAY_SHA256: ${{ steps.validation-cores.outputs.xray_sha256 }}
-          XRAY_ASSET: ${{ steps.validation-cores.outputs.xray_asset }}
-        run: bash scripts/update/install_xray.sh
-      - name: "💾 Save Xray binary cache"
-        if: steps.xray-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.local/bin/xray
-          key: ${{ steps.keys.outputs.xray }}
-
-      - name: "📦 Restore sing-box binary cache"
-        id: singbox-cache-restore
-        uses: actions/cache/restore@v6
-        with:
-          path: ~/.local/bin/sing-box
-          key: ${{ steps.keys.outputs.singbox }}
-
-      - name: "🛡️ Install sing-box (latest stable, checksum-verified)"
-        env:
-          SINGBOX_VERSION: ${{ steps.validation-cores.outputs.singbox_version }}
-          SINGBOX_SHA256: ${{ steps.validation-cores.outputs.singbox_sha256 }}
-          SINGBOX_ASSET: ${{ steps.validation-cores.outputs.singbox_asset }}
-        run: bash scripts/update/install_singbox.sh
-      - name: "💾 Save sing-box binary cache"
-        if: steps.singbox-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.local/bin/sing-box
-          key: ${{ steps.keys.outputs.singbox }}
-
-      - name: "✨ Validate Rust formatting"
-        run: cargo fmt --all -- --check
-
-      - name: "🌍 Check runner network"
-        run: bash scripts/update/check_runner_network.sh
-      - name: "🔨 Build Rust binaries"
-        run: bash scripts/update/build_rust_binaries.sh
-      - name: "💾 Save Rust toolchain cache"
-        if: steps.rust-toolchain-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.rustup/toolchains
-          key: ${{ steps.keys.outputs.rust-toolchain }}
-
-      - name: "💾 Save Rust registry cache"
-        if: steps.cargo-registry-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        continue-on-error: true
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ steps.keys.outputs.registry }}
-
-      - name: "💾 Save Rust build cache"
-        if: steps.cargo-build-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        continue-on-error: true
-        with:
-          path: target
-          key: ${{ steps.keys.outputs.build }}
-
-      - name: "🔭 Discover GitHub subscription sources"
+      - name: "Discover GitHub subscription sources"
         id: discovery
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           ./target/release/discover_sources
 
-      - name: "🔎 Collect & transport-test configs"
+      - name: "Collect & transport-test configs"
         id: collect_transport
         run: |
           ./target/release/ProxyRift
 
-      - name: "💡 Build Light subscription"
+      - name: "Build Light subscription"
         id: build_light
         run: bash scripts/update/build_light_subscription.sh
 
 
-      - name: "📎 Upload Light validation report"
-        if: always() && steps.build_light.outcome == 'success'
-        uses: actions/upload-artifact@v7
-        with:
-          name: light-validation-report-${{ github.run_id }}-${{ github.run_attempt }}
-          path: /tmp/proxyrift/light-validation-report.json
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: "🧬 Generate subscriptions"
+      - name: "Generate subscriptions"
         id: generate_base64
         run: |
           ./target/release/encode_subscriptions
 
-      - name: "📦 Prepare published outputs"
+      - name: "Prepare published outputs"
         id: prepare_outputs
         run: bash scripts/update/prepare_published_outputs.sh
-      - name: "🚀 Publish generated changes"
+      - name: "Publish generated changes"
         id: publish
         run: bash scripts/update/publish_generated_changes.sh
 
-      - name: "📊 Write run summary"
+      - name: Write run summary and archive reports
         if: always()
-        env:
-          JOB_STATUS: ${{ job.status }}
-          DISCOVERY_OUTCOME: ${{ steps.discovery.outcome }}
-          COLLECT_OUTCOME: ${{ steps.collect_transport.outcome }}
-          LIGHT_OUTCOME: ${{ steps.build_light.outcome }}
-          GENERATION_OUTCOME: ${{ steps.generate_base64.outcome }}
-          PREPARE_OUTCOME: ${{ steps.prepare_outputs.outcome }}
-          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
-          PROXYRIFT_TMP_DIR: /tmp/proxyrift
-          GH_TOKEN: ${{ github.token }}
-          GH_REPOSITORY: ${{ github.repository }}
-          XRAY_VERSION: ${{ steps.validation-cores.outputs.xray_version }}
-          SINGBOX_VERSION: ${{ steps.validation-cores.outputs.singbox_version }}
-        run: bash scripts/update/write_run_summary.sh
-
-      - name: "🔎 Verify LightGBM summary against run report"
-        if: always() && steps.build_light.outcome == 'success'
-        env:
-          PROXYRIFT_TMP_DIR: /tmp/proxyrift
-        run: bash scripts/update/verify_lightgbm_summary.sh "$PROXYRIFT_TMP_DIR/run-summary.md" "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "subscriptions/light-training-stats.json"
-
-      - name: "🧾 Prepare sanitized LightGBM evaluation artifact"
-        if: always() && steps.build_light.outcome == 'success'
-        env:
-          PROXYRIFT_TMP_DIR: /tmp/proxyrift
-          LIGHTGBM_ARTIFACT_PATH: ${{ runner.temp }}/lightgbm-evaluation.json
-        run: bash scripts/update/write_lightgbm_artifact.sh "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "$LIGHTGBM_ARTIFACT_PATH"
-
-      - name: "📎 Upload LightGBM evaluation artifact"
-        if: always() && steps.build_light.outcome == 'success'
-        uses: actions/upload-artifact@v7
+        uses: ./.github/actions/finalize-update
         with:
-          name: lightgbm-evaluation-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/lightgbm-evaluation.json
-          if-no-files-found: error
-          retention-days: 14
+          job_status: ${{ job.status }}
+          discovery_outcome: ${{ steps.discovery.outcome }}
+          collect_outcome: ${{ steps.collect_transport.outcome }}
+          light_outcome: ${{ steps.build_light.outcome }}
+          generation_outcome: ${{ steps.generate_base64.outcome }}
+          prepare_outcome: ${{ steps.prepare_outputs.outcome }}
+          publish_outcome: ${{ steps.publish.outcome }}
+          xray_version: ${{ steps.prepare.outputs.xray_version }}
+          singbox_version: ${{ steps.prepare.outputs.singbox_version }}
+          github_token: ${{ github.token }}
+          github_repository: ${{ github.repository }}
 
-      - name: "📎 Upload compatibility rejection diagnostics"
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: compatibility-rejections-${{ github.run_id }}-${{ github.run_attempt }}
-          path: /tmp/proxyrift/compatibility-rejections.jsonl
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: "📚 Persist Light learning state"
+      - name: Persist Light learning state
         if: always() && steps.build_light.outcome == 'success' && steps.prepare_outputs.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -282,7 +106,7 @@ jobs:
 
   cleanup:
     if: always()
-    name: "🧹 Cleanup Caches"
+    name: "Cleanup Caches"
     needs: collect
     runs-on: ubuntu-latest
     permissions:
@@ -296,7 +120,7 @@ jobs:
           fetch-depth: 1
           show-progress: false
 
-      - name: "🧹 Clean obsolete caches"
+      - name: "Clean obsolete caches"
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

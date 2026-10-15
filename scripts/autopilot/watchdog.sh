@@ -130,7 +130,7 @@ if [[ "$EVENT_NAME" == "workflow_run" ]]; then
   if [[ "$conclusion" == "failure" || "$conclusion" == "timed_out" ]]; then
     jobs=""
     if jobs="$(gh api --method GET "/repos/$repo/actions/runs/$run_id/jobs?per_page=100" 2>/dev/null)"; then
-      published="$(jq -r '[.jobs[]?.steps[]? | select(.name == "🚀 Publish generated changes") | .conclusion] | any(. == "success")' <<< "$jobs")"
+      published="$(jq -r '[.jobs[]?.steps[]? | select(.name == "Publish generated changes") | .conclusion] | any(. == "success")' <<< "$jobs")"
       if [[ "$published" == "true" ]]; then
         echo "[WARN] Update Configs run $run_id failed after publishing outputs; not retrying the entire collection job."
         {
@@ -142,8 +142,8 @@ if [[ "$EVENT_NAME" == "workflow_run" ]]; then
       fi
 
       failed_step="$(jq -r '[.jobs[]?.steps[]? | select(.conclusion == "failure") | .name][0] // empty' <<< "$jobs")"
-      state_persisted="$(jq -r '[.jobs[]?.steps[]? | select(.name == "📚 Persist Light learning state") | .conclusion] | any(. == "success")' <<< "$jobs")"
-      if [[ "$failed_step" == "📦 Prepare published outputs" && "$state_persisted" == "true" ]]; then
+      state_persisted="$(jq -r '[.jobs[]?.steps[]? | select(.name == "Persist Light learning state") | .conclusion] | any(. == "success")' <<< "$jobs")"
+      if [[ "$failed_step" == "Prepare published outputs" && "$state_persisted" == "true" ]]; then
         echo "[WARN] Update Configs run $run_id failed the deterministic publication gate after persisting Light learning state; not retrying the expensive collection job."
         {
           echo "## ProxyRift Autopilot"

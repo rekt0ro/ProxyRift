@@ -154,7 +154,7 @@ fn render_clash_file(input: &str, output: &str) -> Result<usize, String> {
         format!("Clash renderer returned {rendered} entries for {source_count} source configs")
     })?;
     println!(
-        "[INFO] 🧩 [Clash/Mihomo] Rendered {rendered}/{source_count} configs | Omitted: {omitted} | {output}"
+        "[INFO] [Clash/Mihomo] Rendered {rendered}/{source_count} configs | Omitted: {omitted} | {output}"
     );
     Ok(rendered)
 }
@@ -166,7 +166,7 @@ fn render_singbox_file(input: &str, output: &str) -> Result<usize, String> {
         format!("sing-box renderer returned {rendered} entries for {source_count} source configs")
     })?;
     println!(
-        "[INFO] 🧩 [sing-box] Rendered {rendered}/{source_count} configs | Omitted: {omitted} | {output}"
+        "[INFO] [sing-box] Rendered {rendered}/{source_count} configs | Omitted: {omitted} | {output}"
     );
     Ok(rendered)
 }

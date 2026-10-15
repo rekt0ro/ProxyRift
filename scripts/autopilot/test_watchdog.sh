@@ -31,8 +31,8 @@ for name in ("all", "light"):
         '{"outbounds":[{"type":"direct","tag":"direct"}]}\n', encoding="utf-8"
     )
     (root / f"{name}-clash.yaml").write_text(
-        'proxies:\n  - name: "test proxy"\n    type: socks5\n'
-        '    server: example.com\n    port: 1080\n', encoding="utf-8"
+        'proxies:\n - name: "test proxy"\n type: socks5\n'
+        ' server: example.com\n port: 1080\n', encoding="utf-8"
     )
 PY
 
@@ -123,15 +123,15 @@ set -euo pipefail
 case "$*" in
   *"/actions/runs/123/jobs?per_page=100"*)
     if [[ "${WATCHDOG_PUBLISHED:-false}" == "true" ]]; then
-      printf '{"jobs":[{"steps":[{"name":"🚀 Publish generated changes","conclusion":"success"}]}]}\n'
+      printf '{"jobs":[{"steps":[{"name":"Publish generated changes","conclusion":"success"}]}]}\n'
     elif [[ "${WATCHDOG_GATE_FAILURE:-false}" == "true" ]]; then
       if [[ "${WATCHDOG_STATE_PERSISTED:-false}" == "true" ]]; then
-        printf '{"jobs":[{"steps":[{"name":"📦 Prepare published outputs","conclusion":"failure"},{"name":"📚 Persist Light learning state","conclusion":"success"},{"name":"🚀 Publish generated changes","conclusion":"skipped"}]}]}\n'
+        printf '{"jobs":[{"steps":[{"name":"Prepare published outputs","conclusion":"failure"},{"name":"Persist Light learning state","conclusion":"success"},{"name":"Publish generated changes","conclusion":"skipped"}]}]}\n'
       else
-        printf '{"jobs":[{"steps":[{"name":"📦 Prepare published outputs","conclusion":"failure"},{"name":"📚 Persist Light learning state","conclusion":"failure"},{"name":"🚀 Publish generated changes","conclusion":"skipped"}]}]}\n'
+        printf '{"jobs":[{"steps":[{"name":"Prepare published outputs","conclusion":"failure"},{"name":"Persist Light learning state","conclusion":"failure"},{"name":"Publish generated changes","conclusion":"skipped"}]}]}\n'
       fi
     else
-      printf '{"jobs":[{"steps":[{"name":"🚀 Publish generated changes","conclusion":"skipped"}]}]}\n'
+      printf '{"jobs":[{"steps":[{"name":"Publish generated changes","conclusion":"skipped"}]}]}\n'
     fi
     ;;
   *"/rerun-failed-jobs"*)

@@ -1195,7 +1195,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
             }
 
             println!(
-                "[WARN] 🔭 [Discovery] GitHub search unavailable: {error}; using the persisted registry"
+                "[WARN] [Discovery] GitHub search unavailable: {error}; using the persisted registry"
             );
             Vec::new()
         }
@@ -1216,7 +1216,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     if discovered.is_empty() {
         if let Some(active) = persisted_active_sources(&registry) {
             println!(
-                "[WARN] 🔭 [Discovery] No usable GitHub sources discovered; using {} persisted active sources",
+                "[WARN] [Discovery] No usable GitHub sources discovered; using {} persisted active sources",
                 active.len()
             );
             write_sources(&sources_path, &active).await?;
@@ -1263,7 +1263,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
         .count();
 
     println!(
-        "[INFO] 🔭 [Discovery] {} Repositories searched | {} New sources | {} Active sources | {} Proven core | {} Exploratory | {} Registry pruned",
+        "[INFO] [Discovery] {} Repositories searched | {} New sources | {} Active sources | {} Proven core | {} Exploratory | {} Registry pruned",
         repos.len(),
         new_candidates.len(),
         ordered.len(),
@@ -1324,7 +1324,7 @@ pub async fn record_collection_results(
             if removed > 0 {
                 write_sources(&sources_path, &active_sources).await?;
                 println!(
-                    "[INFO] 🔭 [Discovery] Permanently dead sources retired | Removed {} | Active {}",
+                    "[INFO] [Discovery] Permanently dead sources retired | Removed {} | Active {}",
                     removed,
                     active_sources.len()
                 );
@@ -1333,7 +1333,7 @@ pub async fn record_collection_results(
     }
 
     println!(
-        "[INFO] 🔭 [Discovery] Source health updated | Checked {} | Failed {} | Permanent {} | Registry quarantined total: {}",
+        "[INFO] [Discovery] Source health updated | Checked: {} | Transient failures: {} | Permanently failed this run: {} | Registry quarantined total: {}",
         results.len(),
         results
             .iter()
@@ -1477,14 +1477,14 @@ async fn discover_from_repos(
                 repository_probe_failures += 1;
                 crate::emit_log_if!(
                     !crate::compact_logs_enabled();
-                    "[WARN] 🔭 [Discovery] Repository probe failed: {error}"
+                    "[WARN] [Discovery] Repository probe failed: {error}"
                 );
             }
         }
     }
     if repository_probe_failures > 0 {
         println!(
-            "[WARN] 🔭 [Discovery] Repository probes failed: {repository_probe_failures}/{}",
+            "[WARN] [Discovery] Repository probes failed: {repository_probe_failures}/{}",
             repos.len()
         );
     }
@@ -1551,7 +1551,7 @@ async fn discover_from_repos(
                     tree_probe_failures += 1;
                     crate::emit_log_if!(
                         !crate::compact_logs_enabled();
-                        "[WARN] 🔭 [Discovery] Tree probe failed for {}: {error}",
+                        "[WARN] [Discovery] Tree probe failed for {}: {error}",
                         repo.name
                     );
                 }
@@ -1560,14 +1560,14 @@ async fn discover_from_repos(
 
         if tree_404_skipped > 0 || tree_conflict_skipped > 0 || tree_expected_skips > 0 {
             println!(
-                "[INFO] 🔭 [Discovery] Tree probes skipped | HTTP 404: {} | HTTP 409: {} | Size limit: {}",
+                "[INFO] [Discovery] Tree probes skipped | HTTP 404: {} | HTTP 409: {} | Size limit: {}",
                 tree_404_skipped,
                 tree_conflict_skipped,
                 tree_expected_skips
             );
         }
         if tree_probe_failures > 0 {
-            println!("[WARN] 🔭 [Discovery] Tree probes failed: {tree_probe_failures}");
+            println!("[WARN] [Discovery] Tree probes failed: {tree_probe_failures}");
         }
     }
 
@@ -1750,7 +1750,7 @@ async fn search_repositories(
 
     crate::emit_log_if!(
         !crate::compact_logs_enabled();
-        "[INFO] 🔭 [Discovery] Repository search strategy | Set {} | Sort {} | Queries {} | Max search requests {} | Base interval {}ms",
+        "[INFO] [Discovery] Repository search strategy | Set {} | Sort {} | Queries {} | Max search requests {} | Base interval {}ms",
         SEARCH_QUERY_SET_NAMES[query_set],
         sort,
         search_query_count,
@@ -1766,7 +1766,7 @@ async fn search_repositories(
         if search_rate_remaining.is_some_and(|value| value <= GITHUB_SEARCH_MIN_REMAINING) {
             crate::emit_log_if!(
                 !crate::compact_logs_enabled();
-                "[INFO] 🔭 [Discovery] Search budget exhausted for this run | Remaining {}",
+                "[INFO] [Discovery] Search budget exhausted for this run | Remaining {}",
                 search_rate_remaining.unwrap_or_default()
             );
             stopped_for_rate_limit = true;
@@ -1794,7 +1794,7 @@ async fn search_repositories(
                 search_errors += 1;
                 crate::emit_log_if!(
                     !crate::compact_logs_enabled();
-                    "[WARN] 🔭 [Discovery] GitHub search query failed after retries: {error}"
+                    "[WARN] [Discovery] GitHub search query failed after retries: {error}"
                 );
                 continue;
             }
@@ -1811,7 +1811,7 @@ async fn search_repositories(
                 || status == reqwest::StatusCode::TOO_MANY_REQUESTS
             {
                 println!(
-                    "[WARN] 🔭 [Discovery] GitHub repository search returned HTTP {}{}",
+                    "[WARN] [Discovery] GitHub repository search returned HTTP {}{}",
                     status,
                     remaining
                         .map(|value| format!(" | search rate remaining {}", value))
@@ -1821,7 +1821,7 @@ async fn search_repositories(
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "unknown".to_string());
                 println!(
-                    "[WARN] 🔭 [Discovery] Stopping remaining repository searches after rate-limit response | Reset {}",
+                    "[WARN] [Discovery] Stopping remaining repository searches after rate-limit response | Reset {}",
                     reset
                 );
                 stopped_for_rate_limit = true;
@@ -1830,7 +1830,7 @@ async fn search_repositories(
                 search_errors += 1;
                 crate::emit_log_if!(
                     !crate::compact_logs_enabled();
-                    "[WARN] 🔭 [Discovery] GitHub repository search returned HTTP {}{}",
+                    "[WARN] [Discovery] GitHub repository search returned HTTP {}{}",
                     status,
                     remaining
                         .map(|value| format!(" | search rate remaining {}", value))
@@ -1847,7 +1847,7 @@ async fn search_repositories(
             search_errors += 1;
             crate::emit_log_if!(
                 !crate::compact_logs_enabled();
-                "[WARN] 🔭 [Discovery] GitHub search response exceeds size limit"
+                "[WARN] [Discovery] GitHub search response exceeds size limit"
             );
             continue;
         }
@@ -1859,7 +1859,7 @@ async fn search_repositories(
             if value <= GITHUB_SEARCH_MIN_REMAINING + 2 {
                 crate::emit_log_if!(
                     !crate::compact_logs_enabled();
-                    "[INFO] 🔭 [Discovery] GitHub search budget low | Remaining {}",
+                    "[INFO] [Discovery] GitHub search budget low | Remaining {}",
                     value
                 );
             }
@@ -1871,7 +1871,7 @@ async fn search_repositories(
                 search_errors += 1;
                 crate::emit_log_if!(
                     !crate::compact_logs_enabled();
-                    "[WARN] 🔭 [Discovery] GitHub search response read failed: {error}"
+                    "[WARN] [Discovery] GitHub search response read failed: {error}"
                 );
                 if stop_after_response {
                     stopped_for_rate_limit = true;
@@ -1887,7 +1887,7 @@ async fn search_repositories(
                 search_errors += 1;
                 crate::emit_log_if!(
                     !crate::compact_logs_enabled();
-                    "[WARN] 🔭 [Discovery] GitHub search response parse failed: {error}"
+                    "[WARN] [Discovery] GitHub search response parse failed: {error}"
                 );
                 if stop_after_response {
                     stopped_for_rate_limit = true;
@@ -1948,7 +1948,7 @@ async fn search_repositories(
         if stop_after_response {
             stopped_for_rate_limit = true;
             println!(
-                "[INFO] 🔭 [Discovery] Stopping repository searches early | Search rate remaining {}",
+                "[INFO] [Discovery] Stopping repository searches early | Search rate remaining {}",
                 remaining.unwrap_or_default()
             );
             break;
@@ -1965,11 +1965,11 @@ async fn search_repositories(
 
     if search_errors > 0 {
         println!(
-            "[WARN] 🔭 [Discovery] Search errors: {search_errors} of {search_requests_made} requests"
+            "[WARN] [Discovery] Search errors: {search_errors} of {search_requests_made} requests"
         );
     }
     println!(
-        "[INFO] 🔭 [Discovery] Repository search complete | Set {} | Requests {} | Repositories discovered {} | Multi-query repos {} | Search rate remaining {} | Stopped for rate limit {}",
+        "[INFO] [Discovery] Repository search complete | Set {} | Requests {} | Repositories discovered {} | Multi-query repos {} | Search rate remaining {} | Stopped for rate limit {}",
         SEARCH_QUERY_SET_NAMES[query_set],
         search_requests_made,
         repos.len(),

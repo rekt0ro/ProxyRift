@@ -1,0 +1,200 @@
+name: Prepare update environment
+description: Set up and cache the toolchain and validation dependencies
+inputs:
+  lock_hash:
+    description: "Hash of Cargo.lock used to key the Rust caches."
+    required: true
+  source_hash:
+    description: "Hash of the Rust source files used to key the build cache."
+    required: true
+  runner_os:
+    description: "Operating system label for the runner cache keys."
+    required: true
+  runner_arch:
+    description: "Architecture label for the runner cache keys."
+    required: true
+  github_token:
+    description: "Token used to resolve the LightGBM release."
+    required: true
+outputs:
+  rust_toolchain_key:
+    description: "Exact Rust toolchain cache key."
+    value: ${{ steps.keys.outputs.rust-toolchain }}
+  registry_key:
+    description: "Cargo registry cache key."
+    value: ${{ steps.keys.outputs.registry }}
+  build_key:
+    description: "Rust build cache key."
+    value: ${{ steps.keys.outputs.build }}
+  xray_key:
+    description: "Xray binary cache key."
+    value: ${{ steps.keys.outputs.xray }}
+  singbox_key:
+    description: "sing-box binary cache key."
+    value: ${{ steps.keys.outputs.singbox }}
+  xray_version:
+    description: "Resolved Xray version."
+    value: ${{ steps.validation-cores.outputs.xray_version }}
+  singbox_version:
+    description: "Resolved sing-box version."
+    value: ${{ steps.validation-cores.outputs.singbox_version }}
+runs:
+  using: composite
+  steps:
+    - name: "Initialize compatibility rejection artifacts"
+      shell: bash
+      run: |
+        mkdir -p /tmp/proxyrift
+        : > /tmp/proxyrift/compatibility-rejections.jsonl
+  
+    - name: "Resolve stable Rust toolchain"
+      id: rust-toolchain
+      shell: bash
+      run: bash scripts/update/resolve_stable_rust.sh
+    - name: "Restore Rust toolchain cache"
+      id: rust-toolchain-cache-restore
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.rustup/toolchains
+        key: ${{ inputs.runner_os }}-${{ inputs.runner_arch }}-rust-toolchain-${{ steps.rust-toolchain.outputs.version }}
+  
+    - name: "Set up Rust"
+      env:
+        RUST_TOOLCHAIN_VERSION: ${{ steps.rust-toolchain.outputs.version }}
+      shell: bash
+      run: bash scripts/update/setup_rust.sh
+    - name: "Record Rust version"
+      id: rust-version
+      env:
+        RUST_TOOLCHAIN_VERSION: ${{ steps.rust-toolchain.outputs.version }}
+      shell: bash
+      run: bash scripts/update/record_rust_version.sh
+    - name: "Verify dependency lock"
+      shell: bash
+      run: test -s Cargo.lock
+  
+    - name: "Install native LightGBM runtime"
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      shell: bash
+      run: bash scripts/install_lightgbm.sh
+  
+    - name: "Resolve pinned validation cores"
+      id: validation-cores
+      env:
+        XRAY_VERSION_PIN: "26.3.27"
+        XRAY_SHA256_PIN: "23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
+        XRAY_ASSET_PIN: "Xray-linux-64.zip"
+        SINGBOX_VERSION_PIN: "1.14.3"
+        SINGBOX_SHA256_PIN: "e2bdf179c15a3652955dc44867e33ca0965c9c9b91b34267dcc5a5d639a5feee"
+        SINGBOX_ASSET_PIN: "sing-box-1.14.3-linux-amd64.tar.gz"
+      shell: bash
+      run: bash scripts/update/resolve_validation_cores.sh
+    - name: "Compute cache keys"
+      id: keys
+      env:
+        RUNNER_OS_NAME: ${{ inputs.runner_os }}
+        RUNNER_ARCH_NAME: ${{ inputs.runner_arch }}
+        LOCK_HASH: ${{ inputs.lock_hash }}
+        SOURCE_HASH: ${{ inputs.source_hash }}
+        RUST_VERSION: ${{ steps.rust-version.outputs.version }}
+        XRAY_VERSION: ${{ steps.validation-cores.outputs.xray_version }}
+        XRAY_SHA256: ${{ steps.validation-cores.outputs.xray_sha256 }}
+        SINGBOX_VERSION: ${{ steps.validation-cores.outputs.singbox_version }}
+        SINGBOX_SHA256: ${{ steps.validation-cores.outputs.singbox_sha256 }}
+      shell: bash
+      run: bash scripts/update/compute_cache_keys.sh
+    - name: "Restore Rust registry cache"
+      id: cargo-registry-restore
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: ${{ steps.keys.outputs.registry }}
+        restore-keys: |
+          ${{ inputs.runner_os }}-cargo-registry-
+  
+    - name: "Restore Rust build cache"
+      id: cargo-build-restore
+      uses: actions/cache/restore@v6
+      with:
+        path: target
+        key: ${{ steps.keys.outputs.build }}
+  
+    - name: "Restore Xray binary cache"
+      id: xray-cache-restore
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.local/bin/xray
+        key: ${{ steps.keys.outputs.xray }}
+  
+    - name: "Install Xray (latest stable, checksum-verified)"
+      env:
+        XRAY_VERSION: ${{ steps.validation-cores.outputs.xray_version }}
+        XRAY_SHA256: ${{ steps.validation-cores.outputs.xray_sha256 }}
+        XRAY_ASSET: ${{ steps.validation-cores.outputs.xray_asset }}
+      shell: bash
+      run: bash scripts/update/install_xray.sh
+    - name: "Save Xray binary cache"
+      if: steps.xray-cache-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.local/bin/xray
+        key: ${{ steps.keys.outputs.xray }}
+  
+    - name: "Restore sing-box binary cache"
+      id: singbox-cache-restore
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.local/bin/sing-box
+        key: ${{ steps.keys.outputs.singbox }}
+  
+    - name: "Install sing-box (latest stable, checksum-verified)"
+      env:
+        SINGBOX_VERSION: ${{ steps.validation-cores.outputs.singbox_version }}
+        SINGBOX_SHA256: ${{ steps.validation-cores.outputs.singbox_sha256 }}
+        SINGBOX_ASSET: ${{ steps.validation-cores.outputs.singbox_asset }}
+      shell: bash
+      run: bash scripts/update/install_singbox.sh
+    - name: "Save sing-box binary cache"
+      if: steps.singbox-cache-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.local/bin/sing-box
+        key: ${{ steps.keys.outputs.singbox }}
+  
+    - name: "Validate Rust formatting"
+      shell: bash
+      run: cargo fmt --all -- --check
+  
+    - name: "Check runner network"
+      shell: bash
+      run: bash scripts/update/check_runner_network.sh
+    - name: "Build Rust binaries"
+      shell: bash
+      run: bash scripts/update/build_rust_binaries.sh
+    - name: "Save Rust toolchain cache"
+      if: steps.rust-toolchain-cache-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.rustup/toolchains
+        key: ${{ steps.keys.outputs.rust-toolchain }}
+  
+    - name: "Save Rust registry cache"
+      if: steps.cargo-registry-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      continue-on-error: true
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: ${{ steps.keys.outputs.registry }}
+  
+    - name: "Save Rust build cache"
+      if: steps.cargo-build-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      continue-on-error: true
+      with:
+        path: target
+        key: ${{ steps.keys.outputs.build }}

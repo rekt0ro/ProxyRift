@@ -158,7 +158,7 @@ pub(crate) fn record_target_rate_limit(target: &str) {
         state.cooldown_until = Some(now + TARGET_RATE_LIMIT_COOLDOWN);
         if !cooldown_was_open {
             println!(
-                "[WARN] ⚠️ [Targets] Rate-limit circuit opened | Host: {key} | Cooling down for {}s",
+                "[WARN] [Targets] Rate-limit circuit opened | Host: {key} | Cooling down for {}s",
                 TARGET_RATE_LIMIT_COOLDOWN.as_secs()
             );
         }
@@ -3977,7 +3977,7 @@ pub(crate) async fn validate_clients_with_target_pool(
         if target_is_rate_limited(target.as_str()) {
             crate::emit_log_if!(
                 !crate::compact_logs_enabled();
-                "[INFO] ⏭️ [Targets] Switching away from cooling-down host | {}",
+                "[INFO] [Targets] Switching away from cooling-down host | {}",
                 target.host_str().unwrap_or(target.as_str())
             );
             continue;
@@ -4071,7 +4071,7 @@ pub(crate) async fn validate_clients_with_target_pool(
         if target_throttled {
             crate::emit_log_if!(
                 !crate::compact_logs_enabled();
-                "[WARN] 🔁 [Targets] Switching to an alternate download host | {}",
+                "[WARN] [Targets] Switching to an alternate download host | {}",
                 target.host_str().unwrap_or(target.as_str())
             );
         }
@@ -4207,7 +4207,7 @@ async fn check_batch(
                     .collect::<String>();
 
                 crate::emit_log_if!(!crate::compact_logs_enabled();
-                    "[INFO] 🧹 [Xray] Rejected | {} | Core could not start for this candidate",
+                    "[INFO] [Xray] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty()
@@ -4215,13 +4215,13 @@ async fn check_batch(
                         "The feature HTTP transport (without header padding, etc.) has been removed"
                     )
                 {
-                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] ℹ️ [Xray] Core log | {tail}");
+                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] [Xray] Core log | {tail}");
                 }
             }
 
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [Xray] Core failure budget exhausted | Stopping further batch splits"
+                    "[WARN] [Xray] Core failure budget exhausted | Stopping further batch splits"
                 );
                 let _ = fs::remove_dir_all(&work);
                 break;
@@ -4281,14 +4281,14 @@ async fn check_batch(
                     pending_batches.push(batch_entries[mid..].to_vec());
                 } else {
                     crate::emit_log_if!(!crate::compact_logs_enabled();
-                        "[WARN] ⚠️ [Xray] Core exited | {}",
+                        "[WARN] [Xray] Core exited | {}",
                         config_label(&batch_entries[0].0)
                     );
                 }
                 let _ = fs::remove_dir_all(&work);
                 if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                     println!(
-                        "[WARN] ⚠️ [Xray] Core failure budget exhausted | Stopping further batch splits"
+                        "[WARN] [Xray] Core failure budget exhausted | Stopping further batch splits"
                     );
                     break;
                 }
@@ -4379,19 +4379,18 @@ fn target_status_is_healthy(status: u16) -> bool {
     (200..300).contains(&status) && status != 429
 }
 
-fn target_order_changed(hosts: &[String]) -> bool {
-    static LAST_HOST_ORDER: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
-    let mut previous = LAST_HOST_ORDER
-        .get_or_init(|| Mutex::new(Vec::new()))
+type LoggedTargetOrders = HashSet<(Vec<String>, Vec<String>)>;
+
+fn should_log_target_order(pool: &[String], hosts: &[String]) -> bool {
+    static LOGGED_HOST_ORDERS: OnceLock<Mutex<LoggedTargetOrders>> = OnceLock::new();
+    let mut pool_key = pool.to_vec();
+    pool_key.sort_unstable();
+    pool_key.dedup();
+    let mut logged = LOGGED_HOST_ORDERS
+        .get_or_init(|| Mutex::new(HashSet::new()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-    if previous.as_slice() == hosts {
-        false
-    } else {
-        *previous = hosts.to_vec();
-        true
-    }
+    logged.insert((pool_key, hosts.to_vec()))
 }
 
 pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url> {
@@ -4399,6 +4398,15 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
         return Vec::new();
     }
 
+    let pool_key = targets
+        .iter()
+        .map(|target| {
+            target
+                .host_str()
+                .unwrap_or(target.as_str())
+                .to_ascii_lowercase()
+        })
+        .collect::<Vec<_>>();
     let mut available = targets
         .iter()
         .filter(|target| !target_is_rate_limited(target.as_str()))
@@ -4417,9 +4425,9 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
             .collect::<Vec<_>>();
 
         if crate::compact_logs_enabled() {
-            if target_order_changed(&host_names) {
+            if should_log_target_order(&pool_key, &host_names) {
                 println!(
-                    "[INFO] 🧭 [Targets] Active download hosts | {}",
+                    "[INFO] [Targets] Active download hosts | {}",
                     host_names.join(" -> ")
                 );
             }
@@ -4435,7 +4443,7 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
                 })
                 .collect::<Vec<_>>()
                 .join(" -> ");
-            println!("[INFO] 🧭 [Targets] Adaptive host order | {host_order}");
+            println!("[INFO] [Targets] Adaptive host order | {host_order}");
         }
     }
 
@@ -4446,7 +4454,7 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
     if available.len() < minimum {
         crate::emit_log_if!(
             !crate::compact_logs_enabled();
-            "[WARN] ⚠️ [Targets] Rate limits leave too few alternate hosts | Available: {} | Required: {}",
+            "[WARN] [Targets] Rate limits leave too few alternate hosts | Available: {} | Required: {}",
             available.len(),
             minimum
         );
@@ -4857,7 +4865,7 @@ async fn validate_candidates_targets_inner(
         && should_log_target_health_summary(targets.len(), original_target_count)
     {
         println!(
-            "[INFO] 🔎 [Targets] Health/Circuit Breaker | {}/{} Usable",
+            "[INFO] [Targets] Health/Circuit Breaker | {}/{} Usable",
             targets.len(),
             original_target_count
         );
@@ -4865,7 +4873,7 @@ async fn validate_candidates_targets_inner(
     if targets.len() < policy.min_successful_targets {
         crate::emit_log_if!(
             !crate::compact_logs_enabled();
-            "[WARN] ⚠️ [Targets] Not enough non-throttled targets | Available: {} | Required: {} | Skipping this batch",
+            "[WARN] [Targets] Not enough non-throttled targets | Available: {} | Required: {} | Skipping this batch",
             targets.len(),
             policy.min_successful_targets
         );
@@ -4877,7 +4885,7 @@ async fn validate_candidates_targets_inner(
     rejected.append(&mut compatibility_rejected);
 
     crate::emit_log_if!(!crate::compact_logs_enabled();
-        "[INFO] 🔬 [Xray] Input | {} Configs | Accepted: {} | Rejected: {}",
+        "[INFO] [Xray] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
@@ -4885,7 +4893,7 @@ async fn validate_candidates_targets_inner(
 
     for (config, reason) in rejected.iter().take(8) {
         crate::emit_log_if!(!crate::compact_logs_enabled();
-            "[INFO] 🧹 [Xray] Rejected | {} | {reason}",
+            "[INFO] [Xray] Rejected | {} | {reason}",
             config_label(config)
         );
     }
@@ -4897,7 +4905,7 @@ async fn validate_candidates_targets_inner(
         }
         crate::emit_log_if!(
             !crate::compact_logs_enabled();
-            "[INFO] 📊 [Xray] Rejected by scheme | {:?}",
+            "[INFO] [Xray] Rejected by scheme | {:?}",
             counts
         );
     }
@@ -4924,7 +4932,7 @@ async fn validate_candidates_targets_inner(
         .await?;
 
         crate::emit_log_if!(!crate::compact_logs_enabled();
-            "[INFO] ✅ [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Destinations: {}",
+            "[INFO] [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Destinations: {}",
             index + 1,
             total_batches,
             batch.len(),
@@ -4938,7 +4946,7 @@ async fn validate_candidates_targets_inner(
     }
 
     crate::emit_log_if!(!crate::compact_logs_enabled();
-        "[INFO] ✅ [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Destinations: {}",
+        "[INFO] [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Destinations: {}",
         metadata.len(),
         candidates.len(),
         targets.len(),
@@ -5034,20 +5042,20 @@ async fn check_batch_targets(
                     .collect::<String>();
 
                 crate::emit_log_if!(!crate::compact_logs_enabled();
-                    "[INFO] 🧹 [Xray] Rejected | {} | Core could not start for this candidate",
+                    "[INFO] [Xray] Rejected | {} | Core could not start for this candidate",
                     config_label(&batch_entries[0].0)
                 );
                 if !tail.is_empty() {
-                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] ℹ️ [Xray] Core log | {tail}");
+                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] [Xray] Core log | {tail}");
                 } else {
-                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] ℹ️ [Xray] Core log | No diagnostic output captured");
+                    crate::emit_log_if!(!crate::compact_logs_enabled();"[INFO] [Xray] Core log | No diagnostic output captured");
                 }
             }
 
             let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] ⚠️ [Xray] Core failure budget exhausted | Stopping further batch splits"
+                    "[WARN] [Xray] Core failure budget exhausted | Stopping further batch splits"
                 );
                 break;
             }
@@ -5079,7 +5087,7 @@ async fn check_batch_targets(
                     pending_batches.push(batch_entries[mid..].to_vec());
                 } else {
                     crate::emit_log_if!(!crate::compact_logs_enabled();
-                        "[WARN] ⚠️ [Xray] Core exited during pooled validation | {}",
+                        "[WARN] [Xray] Core exited during pooled validation | {}",
                         config_label(&batch_entries[0].0)
                     );
                 }
@@ -5089,7 +5097,7 @@ async fn check_batch_targets(
                 let _ = fs::remove_dir_all(&work);
                 if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                     println!(
-                        "[WARN] ⚠️ [Xray] Core failure budget exhausted | Stopping further batch splits"
+                        "[WARN] [Xray] Core failure budget exhausted | Stopping further batch splits"
                     );
                     break;
                 }
@@ -5278,22 +5286,22 @@ async fn check_batch_targets(
             ) {
                 crate::emit_log_if!(
                     !crate::compact_logs_enabled();
-                    "[INFO] 🔎 [Stream] Target 1 | {primary_successes}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
+                    "[INFO] [Stream] Target 1 | {primary_successes}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
                 crate::emit_log_if!(
                     !crate::compact_logs_enabled();
-                    "[INFO] 🔎 [Stream] Target 2 | {secondary_successes_count}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
+                    "[INFO] [Stream] Target 2 | {secondary_successes_count}/{count} Responded | Segments: {segments} | Min body: {minimum} bytes | Max idle: {}ms",
                     max_idle_gap.as_millis()
                 );
             } else {
                 crate::emit_log_if!(
                     !crate::compact_logs_enabled();
-                    "[INFO] 🔎 [Transfer] Target 1 | {primary_successes}/{count} Responded | Min body: {minimum} bytes"
+                    "[INFO] [Transfer] Target 1 | {primary_successes}/{count} Responded | Min body: {minimum} bytes"
                 );
                 crate::emit_log_if!(
                     !crate::compact_logs_enabled();
-                    "[INFO] 🔎 [Transfer] Target 2 | {secondary_successes_count}/{count} Responded | Min body: {minimum} bytes"
+                    "[INFO] [Transfer] Target 2 | {secondary_successes_count}/{count} Responded | Min body: {minimum} bytes"
                 );
             }
         }
@@ -5361,7 +5369,7 @@ async fn validate_candidates_inner(
     let (parsed, rejected) = unique_parsed(candidates);
 
     crate::emit_log_if!(!crate::compact_logs_enabled();
-        "[INFO] 🔬 [Xray] Input | {} Configs | Accepted: {} | Rejected: {}",
+        "[INFO] [Xray] Input | {} Configs | Accepted: {} | Rejected: {}",
         candidates.len(),
         parsed.len(),
         rejected.len()
@@ -5369,7 +5377,7 @@ async fn validate_candidates_inner(
 
     for (config, reason) in rejected.iter().take(8) {
         crate::emit_log_if!(!crate::compact_logs_enabled();
-            "[INFO] 🧹 [Xray] Rejected | {} | {reason}",
+            "[INFO] [Xray] Rejected | {} | {reason}",
             config_label(config)
         );
     }
@@ -5381,7 +5389,7 @@ async fn validate_candidates_inner(
         }
         crate::emit_log_if!(
             !crate::compact_logs_enabled();
-            "[INFO] 📊 [Xray] Rejected by scheme | {:?}",
+            "[INFO] [Xray] Rejected by scheme | {:?}",
             counts
         );
     }
@@ -5414,7 +5422,7 @@ async fn validate_candidates_inner(
         .await?;
 
         crate::emit_log_if!(!crate::compact_logs_enabled();
-            "[INFO] ✅ [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: {}",
+            "[INFO] [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: {}",
             index + 1,
             total_batches,
             batch.len(),
@@ -5428,7 +5436,7 @@ async fn validate_candidates_inner(
     }
 
     crate::emit_log_if!(!crate::compact_logs_enabled();
-        "[INFO] ✅ [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Latency ≤ {}ms",
+        "[INFO] [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Latency ≤ {}ms",
         metadata.len(),
         candidates.len(),
         target_count,

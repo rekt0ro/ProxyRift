@@ -6,13 +6,15 @@ on:
       - opened
       - reopened
       - synchronize
-  check_suite:
+  workflow_run:
+    workflows:
+      - CI
     types:
       - completed
   workflow_dispatch:
 
 concurrency:
-  group: dependabot-action-auto-merge
+  group: dependabot-action-auto-merge-${{ github.event.pull_request.number || github.event.workflow_run.id || github.run_id }}
   cancel-in-progress: false
 
 permissions:
@@ -31,12 +33,15 @@ jobs:
         run: |
           set -euo pipefail
 
+          open_prs="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" | jq 'add')"
+          printf '%s\n' "${open_prs}" | jq -r '.[] | "Open PR #\(.number): author=\(.user.login), draft=\(.draft), head=\(.head.ref)"'
+
           mapfile -t prs < <(
-            gh pr list \
-              --repo "${GITHUB_REPOSITORY}" \
-              --state open \
-              --json number,author,isDraft,headRefName \
-              --jq '.[] | select((.author.login == "dependabot[bot]" or (.author.login == "github-actions[bot]" and .headRefName == "automation/update-core-pins")) and .isDraft == false) | .number'
+            printf '%s\n' "${open_prs}" | jq -r '
+              .[]
+              | select((.user.login == "dependabot[bot]" or (.user.login == "github-actions[bot]" and .head.ref == "automation/update-core-pins")) and .draft == false)
+              | .number
+            '
           )
 
           if [ "${#prs[@]}" -eq 0 ]; then
@@ -44,8 +49,16 @@ jobs:
             exit 0
           fi
 
+          printf 'Eligible tooling-update PRs: %s\n' "${prs[*]}"
+
           for pr in "${prs[@]}"; do
             echo "Inspecting tooling-update PR #${pr}"
+
+            state="$(gh pr view "${pr}" --repo "${GITHUB_REPOSITORY}" --json state --jq '.state')"
+            if [ "${state}" != "OPEN" ]; then
+              echo "PR #${pr} is no longer open; skipping."
+              continue
+            fi
 
             mapfile -t files < <(
               gh pr view "${pr}" \
@@ -93,8 +106,18 @@ jobs:
             fi
 
             echo "Rust CI passed for PR #${pr}; merging."
-            gh pr merge "${pr}" \
+            if gh pr merge "${pr}" \
               --repo "${GITHUB_REPOSITORY}" \
               --squash \
-              --delete-branch
+              --delete-branch; then
+              echo "Merged PR #${pr}."
+            else
+              state="$(gh pr view "${pr}" --repo "${GITHUB_REPOSITORY}" --json state --jq '.state' 2>/dev/null || true)"
+              if [ "${state}" = "MERGED" ]; then
+                echo "PR #${pr} was merged by another run."
+              else
+                echo "Failed to merge PR #${pr}."
+                exit 1
+              fi
+            fi
           done

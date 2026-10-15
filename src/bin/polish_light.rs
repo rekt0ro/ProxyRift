@@ -602,7 +602,7 @@ fn persist_light_result(
         transfer_tested,
         &transfer_passed,
     ) {
-        println!("[WARN] ⚠️ [Source quality] Failed to persist Light feedback: {error}");
+        println!("[WARN] [Source quality] Failed to persist Light feedback: {error}");
     }
 
     persist_history(history_path, history, final_attempts, final_metadata)
@@ -882,7 +882,7 @@ fn load_history(path: &str) -> Result<HashMap<String, HistoryEntry>, String> {
     let value = match serde_json::from_str::<Value>(&content) {
         Ok(value) => value,
         Err(error) => {
-            println!("[WARN] ⚠️ Ignoring invalid Light history: {error}");
+            println!("[WARN] Ignoring invalid Light history: {error}");
             return Ok(HashMap::new());
         }
     };
@@ -1475,7 +1475,7 @@ async fn validate_light_transfer_batch(
     let singbox_metadata = match singbox_result {
         Ok(metadata) => metadata,
         Err(error) => {
-            println!("[WARN] ⚠️ Sing-box sustained transfer failed for this batch; preserving Xray results: {error}");
+            println!("[WARN] Sing-box sustained transfer failed for this batch; preserving Xray results: {error}");
             HashMap::new()
         }
     };
@@ -1483,7 +1483,7 @@ async fn validate_light_transfer_batch(
     let mut xray_metadata = match xray_result {
         Ok(metadata) => metadata,
         Err(error) => {
-            println!("[WARN] ⚠️ Xray sustained transfer failed for this batch; preserving sing-box results: {error}");
+            println!("[WARN] Xray sustained transfer failed for this batch; preserving sing-box results: {error}");
             HashMap::new()
         }
     };
@@ -1511,7 +1511,7 @@ async fn validate_light_transfer_batch(
         {
             Ok(fallback_xray) => xray_metadata.extend(fallback_xray),
             Err(error) => println!(
-                "[WARN] ⚠️ Xray sustained fallback failed for {} candidates: {error}",
+                "[WARN] Xray sustained fallback failed for {} candidates: {error}",
                 fallback_retry.len()
             ),
         }
@@ -1948,7 +1948,7 @@ async fn fill_transfer_stability_gate(
 
         if completion_mode {
             proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stability_tested.len(), batch.len(), 1000, stable_selected.len() >= stability_target);
-                "[INFO] 🎯 [1 MiB] Completion mode | Stable: {} | Need: {} | Prioritizing {} highest-ranked untested candidates | Test caps: {}/{} endpoint/family | Tested: {}/{} | Pipeline: 10 MiB consuming concurrently",
+                "[INFO] [1 MiB] Completion mode | Stable: {} | Need: {} | Prioritizing {} highest-ranked untested candidates | Test caps: {}/{} endpoint/family | Tested: {}/{} | Pipeline: 10 MiB consuming concurrently",
                 stable_selected.len(),
                 stability_target.saturating_sub(stable_selected.len()),
                 batch.len(),
@@ -1959,7 +1959,7 @@ async fn fill_transfer_stability_gate(
             );
         } else {
             proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stability_tested.len(), batch.len(), 1000, stable_selected.len() >= stability_target);
-                "[INFO] 📥 [1 MiB] Stable pool: {}/{} | Testing {} candidates | Test caps: {}/{} endpoint/family | Tested: {}/{} | Pipeline: 10 MiB consuming concurrently",
+                "[INFO] [1 MiB] Stable pool: {}/{} | Testing {} candidates | Test caps: {}/{} endpoint/family | Tested: {}/{} | Pipeline: 10 MiB consuming concurrently",
                 stable_selected.len(),
                 stability_target,
                 batch.len(),
@@ -1988,7 +1988,7 @@ async fn fill_transfer_stability_gate(
         }
 
         proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stability_tested.len(), batch.len(), 1000, stability_verified.len() >= stability_target);
-            "[INFO] ✅ [1 MiB] {}/{} Passed the initial transfer probe | Batch: {}s | Stable pool: {} | Transfer pipeline: active",
+            "[INFO] [1 MiB] {}/{} Passed the initial transfer probe | Batch: {}s | Stable pool: {} | Transfer pipeline: active",
             batch_passed,
             batch.len(),
             batch_elapsed,
@@ -2152,7 +2152,7 @@ async fn run_transfer_gate_consumer(
         }
         if target_order.is_empty() {
             println!(
-                "[WARN] ⛔ [9 MiB sustained] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
+                "[WARN] [9 MiB sustained] All download hosts are cooling down or quarantined | Tested: {} | Passed: {} | Preserving only quality-verified candidates",
                 transfer_tested.len(),
                 transfer_verified.len()
             );
@@ -2225,23 +2225,38 @@ async fn run_transfer_gate_consumer(
             continue;
         }
 
-        for (_, target, batch, target_state_before, _) in &wave_batches {
+        if proxyrift::compact_logs_enabled() {
+            let wave_candidate_count = wave_batches
+                .iter()
+                .map(|(_, _, batch, _, _)| batch.len())
+                .sum::<usize>();
+            let wave_targets = wave_batches
+                .iter()
+                .map(|(_, target, _, _, _)| target.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
             proxyrift::emit_log_if!(
                 proxyrift::should_emit_compact_progress(
                     transfer_tested.len(),
-                    batch.len(),
+                    wave_candidate_count,
                     1000,
                     transfer_tested.len() >= dynamic_test_limit
                 );
-                "[INFO] 📥 [9 MiB sustained] {} Validation slots remaining | Testing {} candidates | Adaptive max tests: {} | Target: {} | Score: {:.3} | Quarantined: {} | Parallel target wave: {} hosts",
-                remaining,
-                batch.len(),
-                dynamic_test_limit,
-                target,
-                transfer_target_score(target_state_before),
-                target_state_before.quarantined,
+                "[INFO] [9 MiB sustained] Testing {wave_candidate_count} candidates across {} target batches | Remaining slots: {remaining} | Adaptive max tests: {dynamic_test_limit} | Targets: {wave_targets}",
                 wave_batches.len()
             );
+        } else {
+            for (_, target, batch, target_state_before, _) in &wave_batches {
+                println!(
+                    "[INFO] [9 MiB sustained] Testing {} candidates | Target: {} | Score: {:.3} | Quarantined: {} | Remaining slots: {} | Adaptive max tests: {}",
+                    batch.len(),
+                    target,
+                    transfer_target_score(target_state_before),
+                    target_state_before.quarantined,
+                    remaining,
+                    dynamic_test_limit
+                );
+            }
         }
 
         let results = futures::future::join_all(wave_batches.into_iter().map(
@@ -2314,7 +2329,7 @@ async fn run_transfer_gate_consumer(
                     .any(|(index, state)| index != target_index && !state.quarantined);
 
                 println!(
-                    "[WARN] ⚠️ [9 MiB sustained] Quarantining target for this run | Target: {} | Tested: {} | Passed: {} | Pass rate: {:.1}% | Rate limits: {}",
+                    "[WARN] [9 MiB sustained] Quarantining target for this run | Target: {} | Tested: {} | Passed: {} | Pass rate: {:.1}% | Rate limits: {}",
                     target,
                     target_states[target_index].tested,
                     target_states[target_index].passed,
@@ -2336,13 +2351,13 @@ async fn run_transfer_gate_consumer(
 
                     if requeued > 0 {
                         println!(
-                            "[INFO] ↪️ [9 MiB sustained] Requeued {} failed candidates after target quarantine | Target: {}",
+                            "[INFO] [9 MiB sustained] Requeued {} failed candidates after target quarantine | Target: {}",
                             requeued, target
                         );
                     }
                 } else {
                     println!(
-                        "[WARN] ⚠️ [9 MiB sustained] All transfer targets are quarantined | Keeping failed candidates closed to avoid retry loop"
+                        "[WARN] [9 MiB sustained] All transfer targets are quarantined | Keeping failed candidates closed to avoid retry loop"
                     );
                 }
             }
@@ -2361,7 +2376,7 @@ async fn run_transfer_gate_consumer(
 
                 if target_concurrency[target_index].workers < previous_workers {
                     println!(
-                        "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Reducing workers {} -> {}",
+                        "[WARN] Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Reducing workers {} -> {}",
                         rate_limits,
                         target,
                         previous_workers,
@@ -2370,7 +2385,7 @@ async fn run_transfer_gate_consumer(
                 } else {
                     proxyrift::emit_log_if!(
                         !proxyrift::compact_logs_enabled();
-                        "[WARN] ⚠️ Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Within tolerance, keeping workers at {}",
+                        "[WARN] Light transfer: {} rate-limit responses ({rate_limit_percent}%) at {} | Within tolerance, keeping workers at {}",
                         rate_limits,
                         target,
                         previous_workers
@@ -2379,7 +2394,7 @@ async fn run_transfer_gate_consumer(
             } else if target_concurrency[target_index].workers > previous_workers {
                 proxyrift::emit_log_if!(
                     !proxyrift::compact_logs_enabled();
-                    "[INFO] 📈 Light transfer: {} clean batches; increasing workers {} -> {}",
+                    "[INFO] Light transfer: {} clean batches; increasing workers {} -> {}",
                     previous_clean_batches + 1,
                     previous_workers,
                     target_concurrency[target_index].workers
@@ -2403,7 +2418,7 @@ async fn run_transfer_gate_consumer(
                     1000,
                     publishable_count >= selection_limit || (receiver_closed && pending.is_empty())
                 );
-                "[INFO] ✅ [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Publication-ready: {}/{} | Remaining: {}",
+                "[INFO] [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Publication-ready: {}/{} | Remaining: {}",
                 batch_passed,
                 batch.len(),
                 batch_elapsed,
@@ -2424,7 +2439,7 @@ async fn run_transfer_gate_consumer(
         if let Some(publishable_count) = reached_publication_count {
             proxyrift::emit_log_if!(
                 !proxyrift::compact_logs_enabled();
-                "[INFO] 🎯 [Light] Publication target reached ({publishable_count}/{selection_limit}); stopping further transfer validation"
+                "[INFO] [Light] Publication target reached ({publishable_count}/{selection_limit}); stopping further transfer validation"
             );
             publication_target_reached.store(true, Ordering::Relaxed);
             transfer_done.store(true, Ordering::Relaxed);
@@ -3399,7 +3414,7 @@ fn persist_light_training_data(
         "collecting data"
     };
     println!(
-        "[INFO] 🧠 [LightGBM] Data | New: {} | Retained (72h): {} | Runs: {} | Candidates: {} | Model: {model_status}",
+        "[INFO] [LightGBM] Data | New: {} | Retained (72h): {} | Runs: {} | Candidates: {} | Model: {model_status}",
         stats.new_rows,
         stats.rows,
         stats.unique_runs,
@@ -3420,7 +3435,7 @@ fn singbox_qualified_metadata(
     if xray_only > 0 {
         proxyrift::emit_log_if!(
             !proxyrift::compact_logs_enabled();
-            "[INFO] 🧹 [Light compatibility] Excluding {} configs verified only by Xray from sing-box publication",
+            "[INFO] [Light compatibility] Excluding {} configs verified only by Xray from sing-box publication",
             xray_only
         );
     }
@@ -3496,7 +3511,7 @@ async fn validate_light_precheck(
 
     if !fallback_retry.is_empty() {
         println!(
-            "[INFO] 🔄 [Light HTTP precheck] Retrying {} fallback candidates with Xray | Target: {}",
+            "[INFO] [Light HTTP precheck] Retrying {} fallback candidates with Xray | Target: {}",
             fallback_retry.len(),
             target
         );
@@ -3524,7 +3539,7 @@ async fn main() -> Result<(), String> {
 
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "Usage: polish_light --candidates FILE --output FILE [--prevalidated-http-metrics FILE] [--workers N]              [--batch-size N] [--timeout SECONDS] [--precheck-timeout SECONDS] [--selected-recheck-limit N]              [--primary-target URL] [--selection-limit N]              [--max-per-endpoint N] [--max-per-family N]              [--xray PATH] [--singbox PATH] [--stats PATH]"
+            "Usage: polish_light --candidates FILE --output FILE [--prevalidated-http-metrics FILE] [--workers N] [--batch-size N] [--timeout SECONDS] [--precheck-timeout SECONDS] [--selected-recheck-limit N] [--primary-target URL] [--selection-limit N] [--max-per-endpoint N] [--max-per-family N] [--xray PATH] [--singbox PATH] [--stats PATH]"
         );
         return Ok(());
     }
@@ -3627,7 +3642,7 @@ async fn main() -> Result<(), String> {
 
     if consumer_rejected > 0 {
         println!(
-            "[INFO] 🧹 [Light compatibility] Rejected {} candidates by conservative consumer contract",
+            "[INFO] [Light compatibility] Rejected {} candidates by conservative consumer contract",
             consumer_rejected
         );
     }
@@ -3723,7 +3738,7 @@ async fn main() -> Result<(), String> {
     let (discovery_candidates, scheduled_repeat_count) =
         interleave_repeat_candidates(&ranked_discovery_candidates, &repeat_candidate_fingerprints);
     println!(
-        "[INFO] 🔎 [Light] Start | Candidates: {} | New/expired: {} | Rechecks: {} | Cohorts: {} ({} configs; {} families) | Reusable Google checks: {} | Ranking: {} | Exploration: {}%",
+        "[INFO] [Light] Start | Candidates: {} | New/expired: {} | Rechecks: {} | Cohorts: {} ({} configs; {} families) | Reusable Google checks: {} | Ranking: {} | Exploration: {}%",
         discovery_candidates.len(),
         discovery_candidates.len().saturating_sub(scheduled_repeat_count),
         scheduled_repeat_count,
@@ -3832,7 +3847,7 @@ async fn main() -> Result<(), String> {
             if boosted_batch > discovery_batch_size {
                 proxyrift::emit_log_if!(
                     !proxyrift::compact_logs_enabled();
-                    "[INFO] 🚀 [Light discovery] Stalled funnel | No downstream growth for {} wave(s) | Expanding next batch: {} -> {}",
+                    "[INFO] [Light discovery] Stalled funnel | No downstream growth for {} wave(s) | Expanding next batch: {} -> {}",
                     stagnant_waves,
                     discovery_batch_size,
                     boosted_batch
@@ -3888,7 +3903,7 @@ async fn main() -> Result<(), String> {
 
         let reused_prechecks = target_metadata.len();
         println!(
-            "[INFO] 🔎 [Light] Wave {wave} | Candidates: {} | Google checks: {} new + {} reused | Xray-only skipped: {} | Cursor: {}/{} | Transfer-ready: {} | Publishable: {}",
+            "[INFO] [Light] Wave {wave} | Candidates: {} | Google checks: {} new + {} reused | Xray-only skipped: {} | Cursor: {}/{} | Transfer-ready: {} | Publishable: {}",
             chunk.len(),
             unprevalidated_chunk.len(),
             reused_prechecks,
@@ -4040,7 +4055,7 @@ async fn main() -> Result<(), String> {
         .len();
 
         println!(
-            "[INFO] 🧭 [Light] Wave {wave} complete | Google passed: +{} | Pool: {} | Reachability: {} | Selectable: {}",
+            "[INFO] [Light] Wave {wave} complete | Google passed: +{} | Pool: {} | Reachability: {} | Selectable: {}",
             chunk_verified_count,
             global_verified.len(),
             final_metadata.len(),
@@ -4050,7 +4065,7 @@ async fn main() -> Result<(), String> {
         if strict_selected.len() >= selection_limit {
             if !strict_pool_ready_logged {
                 println!(
-                    "[INFO] 🚀 [Light] Google-prechecked pool reached {} | Starting stability and transfer validation",
+                    "[INFO] [Light] Google-prechecked pool reached {} | Starting stability and transfer validation",
                     selection_limit
                 );
                 strict_pool_ready_logged = true;
@@ -4123,7 +4138,7 @@ async fn main() -> Result<(), String> {
             if last_funnel_snapshot != Some(funnel_snapshot) {
                 proxyrift::emit_log_if!(
                     !proxyrift::compact_logs_enabled();
-                    "[INFO] 📈 [Light adaptive funnel] Google HTTP gate: {} | 1 MiB: {}/{} | 9 MiB sustained: {}/{} | Sub-light-ready: {}/{}",
+                    "[INFO] [Light adaptive funnel] Google HTTP gate: {} | 1 MiB: {}/{} | 9 MiB sustained: {}/{} | Sub-light-ready: {}/{}",
                     final_metadata.len(),
                     stability_verified.len(),
                     stability_tested.len(),
@@ -4172,7 +4187,7 @@ async fn main() -> Result<(), String> {
             if next_batch > estimated_next_batch {
                 proxyrift::emit_log_if!(
                     !proxyrift::compact_logs_enabled();
-                    "[INFO] 🚀 [Light discovery] Low selectable yield | New reachability-selectable: {}/{} | Expanding next batch: {} -> {}",
+                    "[INFO] [Light discovery] Low selectable yield | New reachability-selectable: {}/{} | Expanding next batch: {} -> {}",
                     newly_selectable,
                     chunk.len(),
                     estimated_next_batch,
@@ -4181,7 +4196,7 @@ async fn main() -> Result<(), String> {
             }
             proxyrift::emit_log_if!(
                 !proxyrift::compact_logs_enabled();
-                "[INFO] 🔁 [Light adaptive funnel] Downstream yield measured | Next discovery batch: {} | Candidates remaining: {}",
+                "[INFO] [Light adaptive funnel] Downstream yield measured | Next discovery batch: {} | Candidates remaining: {}",
                 next_batch,
                 candidates_remaining
             );
@@ -4203,7 +4218,7 @@ async fn main() -> Result<(), String> {
 
                 if stagnant_waves >= DISCOVERY_STAGNATION_WAVES {
                     println!(
-                        "[INFO] 🛑 [Light discovery] Funnel stalled | No transfer/stream output growth for {} consecutive waves | Reachability-selectable: {} | Transfer selectable: {} | Stream passed: {} | Remaining candidates: {} | Stopping best-effort discovery",
+                        "[INFO] [Light discovery] Funnel stalled | No transfer/stream output growth for {} consecutive waves | Reachability-selectable: {} | Transfer selectable: {} | Stream passed: {} | Remaining candidates: {} | Stopping best-effort discovery",
                         stagnant_waves,
                         strict_selected.len(),
                         transfer_selected,
@@ -4228,7 +4243,7 @@ async fn main() -> Result<(), String> {
             if next_floor > discovery_batch_size {
                 proxyrift::emit_log_if!(
                     !proxyrift::compact_logs_enabled();
-                    "[INFO] 🚀 [Light discovery] Low selectable yield | New reachability-selectable: {}/{} | Expanding next batch: {} -> {}",
+                    "[INFO] [Light discovery] Low selectable yield | New reachability-selectable: {}/{} | Expanding next batch: {} -> {}",
                     newly_selectable,
                     chunk.len(),
                     discovery_batch_size,
@@ -4330,7 +4345,7 @@ async fn main() -> Result<(), String> {
         );
     } else if selected.len() < selection_limit {
         println!(
-            "[WARN] Light is below its target: {} of {} configs passed all required checks. Transfer qualified: {}; sustained stream passed: {} of {}. Endpoint and family limits excluded {} and {} configs.",
+            "[WARN] Light target not met: {} of {} configs selected. Transfer-qualified: {}; sustained-stream passes: {} of {} tested. Selection caps rejected {} by endpoint and {} by family.",
             selected.len(),
             selection_limit,
             transfer_selected,
@@ -4375,7 +4390,7 @@ async fn main() -> Result<(), String> {
     );
     if selected.len() < selection_limit {
         println!(
-            "[INFO] 📊 [Light feasibility] Target: {} | Reachability: {} | 1 MiB: {} | 10 MiB: {} | Sustained stream: {} | Selected: {} | Shortfall: {}",
+            "[INFO] [Light feasibility] Target: {} | Reachability: {} | 1 MiB: {} | 10 MiB: {} | Sustained stream: {} | Selected: {} | Shortfall: {}",
             selection_limit,
             strict_selectable,
             stability_selectable,
@@ -4423,7 +4438,7 @@ async fn main() -> Result<(), String> {
     )?;
     proxyrift::emit_log_if!(
         !proxyrift::compact_logs_enabled();
-        "[INFO] 📋 [Light] Per-config validation report written | Configs: {} | Path: {}",
+        "[INFO] [Light] Per-config validation report written | Configs: {} | Path: {}",
         selected.len(),
         validation_report_path
     );
@@ -4453,7 +4468,7 @@ async fn main() -> Result<(), String> {
         .collect::<Vec<_>>()
         .join(" | ");
     println!(
-        "[INFO] 📊 [Light] Distribution | Protocols: {} | Backends: {}",
+        "[INFO] [Light] Distribution | Protocols: {} | Backends: {}",
         if protocol_summary.is_empty() {
             "none"
         } else {
@@ -4500,7 +4515,7 @@ async fn main() -> Result<(), String> {
         run_timestamp,
     )?;
     println!(
-        "[INFO] ✅ [Light] Validation result | Selected: {}/{} | New: {} | Revalidated: {} | Fresh families: {} | Google: {} | Stability: {}/{} | Transfer: {}/{} | Stream: {}/{}",
+        "[INFO] [Light] Validation result | Selected: {}/{} | New: {} | Revalidated: {} | Fresh families: {} | Google: {} | Stability: {}/{} | Transfer: {}/{} | Stream: {}/{}",
         selected.len(),
         selection_limit,
         selected_new_count,
