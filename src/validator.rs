@@ -35,12 +35,6 @@ pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
     CACHEFLY_SPEEDTEST_100MB_TARGET,
 ];
 pub const LIGHT_TRANSFER_MINIMUM_TARGETS: usize = 1;
-pub const LIGHT_CONSUMER_TARGETS: &[&str] = &[
-    PRIMARY_TARGET,
-    "https://example.com/",
-    "https://www.cloudflare.com/robots.txt",
-];
-pub const COMPATIBILITY_TARGET: &str = PRIMARY_TARGET;
 pub const STRICT_THROUGHPUT_BYTES: usize = 10_485_760;
 pub const LIGHT_TRANSFER_STABILITY_BYTES: usize = 1_048_576;
 pub const SUSTAINED_STREAM_SEGMENTS: usize = 3;
@@ -3618,10 +3612,6 @@ pub(crate) fn rate_limit_wait(headers: &reqwest::header::HeaderMap) -> Duration 
         .min(RATE_LIMIT_MAX_WAIT)
 }
 
-pub fn rate_limit_events() -> u64 {
-    RATE_LIMIT_EVENTS.load(Ordering::Acquire)
-}
-
 pub(crate) fn timeout_duration(seconds: f64) -> Result<Duration, String> {
     if !seconds.is_finite() || seconds <= 0.0 {
         return Err("timeout must be a positive finite number".to_string());
@@ -4109,17 +4099,7 @@ pub(crate) async fn validate_clients_with_target_pool(
         .collect()
 }
 
-async fn functional_attempt(
-    client: &Client,
-    target: &Url,
-    compatibility_target: Option<&Url>,
-) -> Result<ProbeSample, ProbeError> {
-    if let Some(compatibility_target) =
-        compatibility_target.filter(|compatibility_target| *compatibility_target != target)
-    {
-        probe_request(client, compatibility_target.clone()).await?;
-    }
-
+async fn functional_attempt(client: &Client, target: &Url) -> Result<ProbeSample, ProbeError> {
     probe_request(client, target.clone()).await
 }
 
@@ -4127,7 +4107,6 @@ async fn check_batch(
     binary: &str,
     entries: &[(String, Value)],
     target: &Url,
-    compatibility_target: Option<&Url>,
     workers: usize,
     timeout_seconds: f64,
     xray_cache: &mut XrayEndpointCache,
@@ -4260,8 +4239,7 @@ async fn check_batch(
                 .map(|(config, port, client)| {
                     let target = target.clone();
                     async move {
-                        let result =
-                            functional_attempt(&client, &target, compatibility_target).await;
+                        let result = functional_attempt(&client, &target).await;
                         (config, port, result)
                     }
                 })
@@ -4802,28 +4780,6 @@ pub async fn validate_candidates(
         binary,
         candidates,
         target,
-        None,
-        workers,
-        batch_size,
-        timeout_seconds,
-    )
-    .await
-}
-
-pub async fn validate_candidates_with_compatibility(
-    binary: &str,
-    candidates: &[String],
-    target: &str,
-    compatibility_target: &str,
-    workers: usize,
-    batch_size: usize,
-    timeout_seconds: f64,
-) -> Result<HashMap<String, ProxyMetrics>, String> {
-    validate_candidates_inner(
-        binary,
-        candidates,
-        target,
-        Some(compatibility_target),
         workers,
         batch_size,
         timeout_seconds,
@@ -5361,7 +5317,6 @@ async fn validate_candidates_inner(
     binary: &str,
     candidates: &[String],
     target: &str,
-    compatibility_target: Option<&str>,
     workers: usize,
     batch_size: usize,
     timeout_seconds: f64,
@@ -5399,13 +5354,8 @@ async fn validate_candidates_inner(
     }
 
     let target = Url::parse(target).map_err(|error| error.to_string())?;
-    let compatibility_target = compatibility_target
-        .map(Url::parse)
-        .transpose()
-        .map_err(|error| error.to_string())?;
     let batch_size = batch_size.max(1);
     let total_batches = parsed.len().div_ceil(batch_size);
-    let target_count = usize::from(compatibility_target.is_some()) + 1;
     let mut metadata = HashMap::new();
     let mut xray_cache = XrayEndpointCache::new();
 
@@ -5414,7 +5364,6 @@ async fn validate_candidates_inner(
             binary,
             batch,
             &target,
-            compatibility_target.as_ref(),
             workers.max(1),
             timeout_seconds,
             &mut xray_cache,
@@ -5422,24 +5371,22 @@ async fn validate_candidates_inner(
         .await?;
 
         crate::emit_log_if!(!crate::compact_logs_enabled();
-            "[INFO] [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{} | Targets: {}",
+            "[INFO] [Xray] Batch {}/{} | {} Tested | {} Verified | Requirement: {}/{}",
             index + 1,
             total_batches,
             batch.len(),
             batch_metadata.len(),
             MIN_SUCCESSFUL_ATTEMPTS,
-            STABILITY_ATTEMPTS,
-            target_count
+            STABILITY_ATTEMPTS
         );
 
         metadata.extend(batch_metadata);
     }
 
     crate::emit_log_if!(!crate::compact_logs_enabled();
-        "[INFO] [Xray] Complete | {}/{} Verified | Targets: {} | Requirement: {}/{} | Latency ≤ {}ms",
+        "[INFO] [Xray] Complete | {}/{} Verified | Requirement: {}/{} | Latency ≤ {}ms",
         metadata.len(),
         candidates.len(),
-        target_count,
         MIN_SUCCESSFUL_ATTEMPTS,
         STABILITY_ATTEMPTS,
         MAX_LATENCY_MS
