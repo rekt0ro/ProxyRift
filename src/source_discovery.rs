@@ -347,21 +347,27 @@ impl Registry {
         Self { root }
     }
 
-    fn from_value(value: Value, now: u64) -> Self {
+    fn from_value(value: Value, now: u64) -> Result<Self, String> {
         let Value::Object(mut root) = value else {
-            return Self::new(now);
+            return Err("registry root must be a JSON object".to_string());
         };
 
-        if root.get("schema_version").and_then(Value::as_u64) != Some(REGISTRY_VERSION) {
-            return Self::new(now);
+        let schema_version = root
+            .get("schema_version")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "registry schema_version is missing or invalid".to_string())?;
+        if schema_version != REGISTRY_VERSION {
+            return Err(format!(
+                "unsupported registry schema_version {schema_version}; expected {REGISTRY_VERSION}"
+            ));
         }
 
         if !matches!(root.get("sources"), Some(Value::Object(_))) {
-            root.insert("sources".into(), Value::Object(Map::new()));
+            return Err("registry sources must be a JSON object".to_string());
         }
 
         root.insert("updated_at".into(), Value::from(now));
-        Self { root }
+        Ok(Self { root })
     }
 
     fn sources(&self) -> &Map<String, Value> {
@@ -981,7 +987,7 @@ pub async fn record_transport_results(
     let root = project_root()?;
     let registry_path = root.join("subscriptions").join("source-registry.json");
     let now = unix_now();
-    let mut registry = load_registry(&registry_path, now).await;
+    let mut registry = load_registry(&registry_path, now).await?;
 
     for (url, tested) in tested_by_source {
         let Some(object) = registry
@@ -1078,11 +1084,24 @@ pub fn record_light_results(
     }
 
     let now = unix_now();
-    let registry_value = std::fs::read_to_string(&registry_path)
-        .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .unwrap_or_else(|| Registry::new(now).json());
-    let mut registry = Registry::from_value(registry_value, now);
+    let mut registry = match std::fs::read_to_string(&registry_path) {
+        Ok(text) => {
+            let value = serde_json::from_str::<Value>(&text).map_err(|error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("invalid source registry {}: {error}", registry_path.display()),
+                )
+            })?;
+            Registry::from_value(value, now).map_err(|error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("invalid source registry {}: {error}", registry_path.display()),
+                )
+            })?
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Registry::new(now),
+        Err(error) => return Err(error.into()),
+    };
 
     let mut touched = HashSet::new();
     touched.extend(strict_tested_by_source.keys().cloned());
@@ -1173,7 +1192,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     let sources_path = root.join("sources.txt");
     let now = unix_now();
 
-    let mut registry = load_registry(&registry_path, now).await;
+    let mut registry = load_registry(&registry_path, now).await?;
     let token = env::var("GITHUB_TOKEN")
         .ok()
         .filter(|value| !value.trim().is_empty());
@@ -1286,7 +1305,7 @@ pub async fn record_collection_results(
     let registry_path = root.join("subscriptions").join("source-registry.json");
     let sources_path = root.join("sources.txt");
     let now = unix_now();
-    let mut registry = load_registry(&registry_path, now).await;
+    let mut registry = load_registry(&registry_path, now).await?;
 
     let permanently_failed = results
         .iter()
@@ -2716,13 +2735,28 @@ async fn read_limited_body(
     Ok(body)
 }
 
-async fn load_registry(path: &Path, now: u64) -> Registry {
+async fn load_registry(
+    path: &Path,
+    now: u64,
+) -> Result<Registry, Box<dyn std::error::Error + Send + Sync>> {
     match fs::read_to_string(path).await {
-        Ok(text) => match serde_json::from_str::<Value>(&text) {
-            Ok(value) => Registry::from_value(value, now),
-            Err(_) => Registry::new(now),
-        },
-        Err(_) => Registry::new(now),
+        Ok(text) => {
+            let value = serde_json::from_str::<Value>(&text).map_err(|error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("invalid source registry {}: {error}", path.display()),
+                )
+            })?;
+            Registry::from_value(value, now).map_err(|error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("invalid source registry {}: {error}", path.display()),
+                )
+                .into()
+            })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Registry::new(now)),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -2788,6 +2822,46 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn malformed_registry_is_rejected_without_overwriting_it() {
+        let path = std::env::temp_dir().join(format!(
+            "proxyrift-source-registry-invalid-{}-{}.json",
+            std::process::id(),
+            super::unix_now()
+        ));
+        let malformed = "{ invalid registry";
+        tokio::fs::write(&path, malformed)
+            .await
+            .expect("write malformed registry");
+
+        assert!(super::load_registry(&path, 123).await.is_err());
+        assert_eq!(
+            tokio::fs::read_to_string(&path)
+                .await
+                .expect("read preserved registry"),
+            malformed
+        );
+
+        tokio::fs::remove_file(&path)
+            .await
+            .expect("remove temporary registry");
+    }
+
+    #[test]
+    fn unsupported_registry_schema_is_rejected_without_resetting_state() {
+        let value = serde_json::json!({
+            "schema_version": 999,
+            "updated_at": 1,
+            "sources": {
+                "https://raw.githubusercontent.com/example/repo/main/subscriptions/all.txt": {
+                    "successes": 7
+                }
+            }
+        });
+
+        assert!(Registry::from_value(value, 123).is_err());
+    }
+
     #[test]
     fn raw_readme_body_extracts_source_urls_without_json_or_base64_wrapping() {
         let body = b"# Public subscription\nhttps://raw.githubusercontent.com/example/feed/main/subscriptions/vless.txt\n";
