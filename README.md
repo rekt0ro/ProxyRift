@@ -1,7 +1,3 @@
-# ProxyRift
-
-Public proxy configs, collected and tested automatically.
-
 ## Subscriptions
 
 ### Light
