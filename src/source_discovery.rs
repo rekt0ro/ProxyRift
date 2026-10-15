@@ -3298,7 +3298,10 @@ mod tests {
         let valid = serde_json::json!({
             "resources": { "core": { "remaining": 812, "limit": 1000, "reset": 12345 } }
         });
-        assert_eq!(super::parse_core_rate_limit(&valid), Some((812, 1000, 12345)));
+        assert_eq!(
+            super::parse_core_rate_limit(&valid),
+            Some((812, 1000, 12345))
+        );
         assert_eq!(super::parse_core_rate_limit(&serde_json::json!({})), None);
     }
 
