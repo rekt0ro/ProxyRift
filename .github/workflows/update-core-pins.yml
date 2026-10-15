@@ -102,7 +102,7 @@ jobs:
           import re
           from pathlib import Path
 
-          path = Path(".github/workflows/update.yml")
+          path = Path(".github/actions/prepare-update/action.yml")
           content = path.read_text(encoding="utf-8")
           values = {
               "XRAY_VERSION_PIN": os.environ["XRAY_VERSION_PIN"],
@@ -142,7 +142,7 @@ jobs:
           base: main
           branch: automation/update-core-pins
           delete-branch: true
-          add-paths: .github/workflows/update.yml
+          add-paths: .github/actions/prepare-update/action.yml
           commit-message: "chore: update Xray and sing-box pins"
           title: "chore: update Xray and sing-box versions"
           body: |
