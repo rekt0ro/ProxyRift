@@ -2,7 +2,7 @@
 
 Public proxy configs, collected and tested automatically.
 
-## 📡 Subscriptions
+## Subscriptions
 
 ### Light
 
@@ -60,7 +60,15 @@ Hysteria v1 and WireGuard are not included in Light. WireGuard entries may appea
 
 Clash/Mihomo exports may omit configs they cannot represent. All sing-box may also contain fewer entries than its plain-text list. Light sing-box output is published only when every Light entry can be converted.
 
-## 🔄 Updates
+## Security and Trust
+
+ProxyRift validates proxy compatibility, connectivity, and performance. It does not operate or independently audit the proxy servers it collects.
+
+Passing validation does not guarantee that a proxy is trustworthy, private, anonymous, or secure. Proxy operators may observe connection metadata and inspect traffic that is not protected by end-to-end encryption. Use public proxies at your own risk.
+
+For security vulnerabilities affecting ProxyRift itself, see our [Security Policy](SECURITY.md).
+
+## Updates
 
 Subscriptions are refreshed automatically through GitHub Actions.
 
