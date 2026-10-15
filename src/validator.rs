@@ -4379,9 +4379,10 @@ fn target_status_is_healthy(status: u16) -> bool {
     (200..300).contains(&status) && status != 429
 }
 
+type LoggedTargetOrders = HashSet<(Vec<String>, Vec<String>)>;
+
 fn should_log_target_order(pool: &[String], hosts: &[String]) -> bool {
-    static LOGGED_HOST_ORDERS: OnceLock<Mutex<HashSet<(Vec<String>, Vec<String>)>>> =
-        OnceLock::new();
+    static LOGGED_HOST_ORDERS: OnceLock<Mutex<LoggedTargetOrders>> = OnceLock::new();
     let mut pool_key = pool.to_vec();
     pool_key.sort_unstable();
     pool_key.dedup();
