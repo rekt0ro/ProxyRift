@@ -11,6 +11,7 @@ use url::Url;
 const REGISTRY_VERSION: u64 = 1;
 const SEARCH_PER_PAGE: usize = 100;
 const MAX_DISCOVERY_REPOS: usize = 500;
+const MAX_CUTOFF_AUDIT_REPOS: usize = 25;
 const MAX_TREE_SCANS: usize = 150;
 const MAX_TREE_FILES_PER_REPO: usize = 40;
 const MAX_ACTIVE_SOURCES: usize = 600;
@@ -976,6 +977,25 @@ fn source_quality_quarantined(record: &Value) -> bool {
         .is_none_or(|checked| unix_now().saturating_sub(checked) < QUALITY_RETRY_COOLDOWN_SECS)
 }
 
+fn next_quality_streak(
+    previous: u64,
+    tested: usize,
+    passed: usize,
+    minimum_samples: usize,
+    minimum_pass_rate: f64,
+) -> Option<u64> {
+    if tested < minimum_samples {
+        return None;
+    }
+
+    let pass_rate = passed.min(tested) as f64 / tested as f64;
+    Some(if pass_rate < minimum_pass_rate {
+        previous.saturating_add(1)
+    } else {
+        0
+    })
+}
+
 pub async fn record_transport_results(
     tested_by_source: &std::collections::HashMap<String, usize>,
     reachable_by_source: &std::collections::HashMap<String, usize>,
@@ -1013,15 +1033,9 @@ pub async fn record_transport_results(
             Value::from(reachable as u64),
         );
 
-        let low_quality = *tested >= 100 && (reachable as f64 / *tested as f64) < 0.08;
-        object.insert(
-            "transport_low_quality_streak".into(),
-            Value::from(if low_quality {
-                previous.saturating_add(1)
-            } else {
-                0
-            }),
-        );
+        if let Some(streak) = next_quality_streak(previous, *tested, reachable, 100, 0.08) {
+            object.insert("transport_low_quality_streak".into(), Value::from(streak));
+        }
     }
 
     write_registry(&registry_path, &registry).await?;
@@ -1154,31 +1168,29 @@ pub fn record_light_results(
             .get("strict_low_quality_streak")
             .and_then(Value::as_u64)
             .unwrap_or_default();
-        let strict_low =
-            strict_tested >= 20 && (strict_passed as f64 / strict_tested as f64) < 0.05;
-        object.insert(
-            "strict_low_quality_streak".into(),
-            Value::from(if strict_low {
-                strict_previous.saturating_add(1)
-            } else {
-                0
-            }),
-        );
+        if let Some(streak) = next_quality_streak(
+            strict_previous,
+            strict_tested as usize,
+            strict_passed as usize,
+            20,
+            0.05,
+        ) {
+            object.insert("strict_low_quality_streak".into(), Value::from(streak));
+        }
 
         let transfer_previous = object
             .get("transfer_low_quality_streak")
             .and_then(Value::as_u64)
             .unwrap_or_default();
-        let transfer_low =
-            transfer_tested >= 10 && (transfer_passed as f64 / transfer_tested as f64) < 0.05;
-        object.insert(
-            "transfer_low_quality_streak".into(),
-            Value::from(if transfer_low {
-                transfer_previous.saturating_add(1)
-            } else {
-                0
-            }),
-        );
+        if let Some(streak) = next_quality_streak(
+            transfer_previous,
+            transfer_tested as usize,
+            transfer_passed as usize,
+            10,
+            0.05,
+        ) {
+            object.insert("transfer_low_quality_streak".into(), Value::from(streak));
+        }
     }
 
     let data = serde_json::to_string_pretty(&registry.json())?;
@@ -1191,6 +1203,126 @@ pub fn record_light_results(
 
     Ok(())
 }
+fn discovery_rank_bucket(repo_rank: usize) -> usize {
+    match repo_rank {
+        0..=99 => 0,
+        100..=249 => 1,
+        250..=399 => 2,
+        _ => 3,
+    }
+}
+
+fn parse_core_rate_limit(payload: &Value) -> Option<(u64, u64, u64)> {
+    let core = payload.pointer("/resources/core")?;
+    Some((
+        core.get("remaining")?.as_u64()?,
+        core.get("limit")?.as_u64()?,
+        core.get("reset")?.as_u64()?,
+    ))
+}
+
+async fn log_github_core_rate_limit_headroom(client: &Client, token: Option<&str>) {
+    let response = match github_get(client, "https://api.github.com/rate_limit", token).await {
+        Ok(response) => response,
+        Err(error) => {
+            println!("[WARN] [Discovery] GitHub core API budget unavailable: {error}");
+            return;
+        }
+    };
+    if !response.status().is_success() {
+        println!(
+            "[WARN] [Discovery] GitHub core API budget unavailable: HTTP {}",
+            response.status()
+        );
+        return;
+    }
+
+    let body = match read_limited_body(response, 64 * 1024).await {
+        Ok(body) => body,
+        Err(error) => {
+            println!("[WARN] [Discovery] GitHub core API budget unavailable: {error}");
+            return;
+        }
+    };
+    let payload: Value = match serde_json::from_slice(&body) {
+        Ok(payload) => payload,
+        Err(error) => {
+            println!("[WARN] [Discovery] GitHub core API budget response invalid: {error}");
+            return;
+        }
+    };
+    match parse_core_rate_limit(&payload) {
+        Some((remaining, limit, reset)) => println!(
+            "[INFO] [Discovery] GitHub core API budget | Remaining: {}/{} | Reset epoch: {}",
+            remaining, limit, reset
+        ),
+        None => {
+            println!("[WARN] [Discovery] GitHub core API budget unavailable: missing core fields")
+        }
+    }
+}
+
+async fn audit_cutoff_readme_yield(
+    client: &Client,
+    repositories: &[(usize, Repository)],
+    token: Option<&str>,
+    already_discovered: &HashSet<String>,
+    known_urls: &HashSet<String>,
+) {
+    if repositories.is_empty() {
+        return;
+    }
+
+    let mut probes = stream::iter(repositories.iter().map(|(repo_rank, repository)| {
+        let client = client.clone();
+        let repository = repository.clone();
+        let token = token.map(str::to_owned);
+        let repo_rank = *repo_rank;
+        async move { discover_repo(&client, &repository, repo_rank, token.as_deref()).await }
+    }))
+    .buffer_unordered(8);
+
+    let mut successful_readmes = 0usize;
+    let mut expected_skips = 0usize;
+    let mut probe_failures = 0usize;
+    let mut candidates = Vec::new();
+
+    while let Some(result) = probes.next().await {
+        match result {
+            Ok(found) => {
+                successful_readmes += 1;
+                candidates.extend(found);
+            }
+            Err(error) if is_expected_probe_skip(&error.to_string()) => expected_skips += 1,
+            Err(_) => probe_failures += 1,
+        }
+    }
+
+    let candidates = deduplicate_candidates(candidates);
+    let new_to_current_pool = candidates
+        .iter()
+        .filter(|candidate| {
+            !already_discovered.contains(&candidate.url) && !known_urls.contains(&candidate.url)
+        })
+        .count();
+    let candidate_repositories = candidates
+        .iter()
+        .map(|candidate| candidate.repo_rank)
+        .collect::<HashSet<_>>()
+        .len();
+
+    println!(
+        "[INFO] [Discovery] Cutoff shadow audit (read-only) | Repositories sampled: {} | README succeeded: {} | Expected skips: {} | Probe failures: {} | Unique candidates: {} | New to pool/registry: {} | Candidate-producing repositories: {}",
+        repositories.len(),
+        successful_readmes,
+        expected_skips,
+        probe_failures,
+        candidates.len(),
+        new_to_current_pool,
+        candidate_repositories
+    );
+}
+
 pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::Error + Send + Sync>>
 {
     let root = project_root()?;
@@ -1199,6 +1331,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     let now = unix_now();
 
     let mut registry = load_registry(&registry_path, now).await?;
+    let registry_sources_before = registry.sources().len();
     let token = env::var("GITHUB_TOKEN")
         .ok()
         .filter(|value| !value.trim().is_empty());
@@ -1229,6 +1362,13 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     let mut seen_repositories = HashSet::new();
     repos.retain(|repo| seen_repositories.insert(repo.name.clone()));
     sort_discovered_repositories(&mut repos);
+    let cutoff_audit_repositories = repos
+        .iter()
+        .enumerate()
+        .skip(MAX_DISCOVERY_REPOS)
+        .take(MAX_CUTOFF_AUDIT_REPOS)
+        .map(|(rank, repository)| (rank, repository.clone()))
+        .collect::<Vec<_>>();
     repos.truncate(MAX_DISCOVERY_REPOS);
 
     let discovered = if repos.is_empty() {
@@ -1237,6 +1377,23 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
         discover_from_repos(&client, &repos, token.as_deref()).await?
     };
     let discovered = deduplicate_candidates(discovered);
+
+    if !cutoff_audit_repositories.is_empty() {
+        let discovered_urls = discovered
+            .iter()
+            .map(|candidate| candidate.url.clone())
+            .collect::<HashSet<_>>();
+        let known_urls = registry.sources().keys().cloned().collect::<HashSet<_>>();
+        audit_cutoff_readme_yield(
+            &client,
+            &cutoff_audit_repositories,
+            token.as_deref(),
+            &discovered_urls,
+            &known_urls,
+        )
+        .await;
+    }
+    log_github_core_rate_limit_headroom(&client, token.as_deref()).await;
 
     if discovered.is_empty() {
         if let Some(active) = persisted_active_sources(&registry) {
@@ -1295,6 +1452,14 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
         proven_active,
         ordered.len().saturating_sub(proven_active),
         retired
+    );
+    println!(
+        "[INFO] [Discovery] Source-pool decisions | Registry before: {} | Known refresh candidates: {} | Registry after pruning: {} | Active selection: {} of {} cap",
+        registry_sources_before,
+        known_candidates.len(),
+        registry.sources().len(),
+        ordered.len(),
+        MAX_ACTIVE_SOURCES
     );
 
     Ok((new_candidates.len(), ordered.len()))
@@ -1597,6 +1762,51 @@ async fn discover_from_repos(
     }
 
     let mut all = deduplicate_candidates(all);
+    let unique_before_cap = all.len();
+    let readme_candidates = all
+        .iter()
+        .filter(|candidate| candidate.priority >= README_CANDIDATE_PRIORITY)
+        .count();
+    let tree_candidates = unique_before_cap.saturating_sub(readme_candidates);
+    let origin_repositories = all
+        .iter()
+        .map(|candidate| candidate.repo_rank)
+        .collect::<HashSet<_>>()
+        .len();
+    let source_repositories = all
+        .iter()
+        .map(|candidate| candidate.repo.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    let mut rank_bucket_candidates = [0usize; 4];
+    let mut rank_bucket_repositories = [
+        HashSet::<usize>::new(),
+        HashSet::new(),
+        HashSet::new(),
+        HashSet::new(),
+    ];
+    for candidate in &all {
+        let bucket = discovery_rank_bucket(candidate.repo_rank);
+        rank_bucket_candidates[bucket] += 1;
+        rank_bucket_repositories[bucket].insert(candidate.repo_rank);
+    }
+    println!(
+        "[INFO] [Discovery] Candidate yield | Unique: {} | README: {} | Tree: {} | Origin repositories: {} | Source repositories: {} | Rank candidates (1-100/101-250/251-400/401-500): {}/{}/{}/{} | Rank repos: {}/{}/{}/{} | Retained after cap: {}",
+        unique_before_cap,
+        readme_candidates,
+        tree_candidates,
+        origin_repositories,
+        source_repositories,
+        rank_bucket_candidates[0],
+        rank_bucket_candidates[1],
+        rank_bucket_candidates[2],
+        rank_bucket_candidates[3],
+        rank_bucket_repositories[0].len(),
+        rank_bucket_repositories[1].len(),
+        rank_bucket_repositories[2].len(),
+        rank_bucket_repositories[3].len(),
+        unique_before_cap.min(MAX_DISCOVERED_CANDIDATES)
+    );
     all.truncate(MAX_DISCOVERED_CANDIDATES);
 
     Ok(all)
@@ -3049,6 +3259,49 @@ mod tests {
             ),
             "generic"
         );
+    }
+
+    #[test]
+    fn quality_streaks_preserve_history_when_samples_are_insufficient() {
+        assert_eq!(super::next_quality_streak(2, 99, 0, 100, 0.08), None);
+        assert_eq!(super::next_quality_streak(2, 19, 0, 20, 0.05), None);
+        assert_eq!(super::next_quality_streak(2, 9, 0, 10, 0.05), None);
+    }
+
+    #[test]
+    fn quality_streaks_change_only_after_a_sufficient_sample() {
+        assert_eq!(super::next_quality_streak(2, 100, 7, 100, 0.08), Some(3));
+        assert_eq!(super::next_quality_streak(2, 100, 8, 100, 0.08), Some(0));
+        assert_eq!(super::next_quality_streak(2, 20, 0, 20, 0.05), Some(3));
+        assert_eq!(super::next_quality_streak(2, 20, 1, 20, 0.05), Some(0));
+        assert_eq!(
+            super::next_quality_streak(u64::MAX, 100, 0, 100, 0.08),
+            Some(u64::MAX)
+        );
+    }
+
+    #[test]
+    fn discovery_rank_buckets_cover_the_cutoff_boundaries() {
+        assert_eq!(super::discovery_rank_bucket(0), 0);
+        assert_eq!(super::discovery_rank_bucket(99), 0);
+        assert_eq!(super::discovery_rank_bucket(100), 1);
+        assert_eq!(super::discovery_rank_bucket(249), 1);
+        assert_eq!(super::discovery_rank_bucket(250), 2);
+        assert_eq!(super::discovery_rank_bucket(399), 2);
+        assert_eq!(super::discovery_rank_bucket(400), 3);
+        assert_eq!(super::discovery_rank_bucket(499), 3);
+    }
+
+    #[test]
+    fn core_rate_limit_parser_requires_the_core_resource_fields() {
+        let valid = serde_json::json!({
+            "resources": { "core": { "remaining": 812, "limit": 1000, "reset": 12345 } }
+        });
+        assert_eq!(
+            super::parse_core_rate_limit(&valid),
+            Some((812, 1000, 12345))
+        );
+        assert_eq!(super::parse_core_rate_limit(&serde_json::json!({})), None);
     }
 
     #[test]
