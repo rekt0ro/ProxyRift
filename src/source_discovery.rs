@@ -3264,33 +3264,33 @@ mod tests {
 
     #[test]
     fn quality_streaks_preserve_history_when_samples_are_insufficient() {
-        assert_eq!(next_quality_streak(2, 99, 0, 100, 0.08), None);
-        assert_eq!(next_quality_streak(2, 19, 0, 20, 0.05), None);
-        assert_eq!(next_quality_streak(2, 9, 0, 10, 0.05), None);
+        assert_eq!(super::next_quality_streak(2, 99, 0, 100, 0.08), None);
+        assert_eq!(super::next_quality_streak(2, 19, 0, 20, 0.05), None);
+        assert_eq!(super::next_quality_streak(2, 9, 0, 10, 0.05), None);
     }
 
     #[test]
     fn quality_streaks_change_only_after_a_sufficient_sample() {
-        assert_eq!(next_quality_streak(2, 100, 7, 100, 0.08), Some(3));
-        assert_eq!(next_quality_streak(2, 100, 8, 100, 0.08), Some(0));
-        assert_eq!(next_quality_streak(2, 20, 0, 20, 0.05), Some(3));
-        assert_eq!(next_quality_streak(2, 20, 1, 20, 0.05), Some(0));
+        assert_eq!(super::next_quality_streak(2, 100, 7, 100, 0.08), Some(3));
+        assert_eq!(super::next_quality_streak(2, 100, 8, 100, 0.08), Some(0));
+        assert_eq!(super::next_quality_streak(2, 20, 0, 20, 0.05), Some(3));
+        assert_eq!(super::next_quality_streak(2, 20, 1, 20, 0.05), Some(0));
         assert_eq!(
-            next_quality_streak(u64::MAX, 100, 0, 100, 0.08),
+            super::next_quality_streak(u64::MAX, 100, 0, 100, 0.08),
             Some(u64::MAX)
         );
     }
 
     #[test]
     fn discovery_rank_buckets_cover_the_cutoff_boundaries() {
-        assert_eq!(discovery_rank_bucket(0), 0);
-        assert_eq!(discovery_rank_bucket(99), 0);
-        assert_eq!(discovery_rank_bucket(100), 1);
-        assert_eq!(discovery_rank_bucket(249), 1);
-        assert_eq!(discovery_rank_bucket(250), 2);
-        assert_eq!(discovery_rank_bucket(399), 2);
-        assert_eq!(discovery_rank_bucket(400), 3);
-        assert_eq!(discovery_rank_bucket(499), 3);
+        assert_eq!(super::discovery_rank_bucket(0), 0);
+        assert_eq!(super::discovery_rank_bucket(99), 0);
+        assert_eq!(super::discovery_rank_bucket(100), 1);
+        assert_eq!(super::discovery_rank_bucket(249), 1);
+        assert_eq!(super::discovery_rank_bucket(250), 2);
+        assert_eq!(super::discovery_rank_bucket(399), 2);
+        assert_eq!(super::discovery_rank_bucket(400), 3);
+        assert_eq!(super::discovery_rank_bucket(499), 3);
     }
 
     #[test]
@@ -3298,8 +3298,8 @@ mod tests {
         let valid = serde_json::json!({
             "resources": { "core": { "remaining": 812, "limit": 1000, "reset": 12345 } }
         });
-        assert_eq!(parse_core_rate_limit(&valid), Some((812, 1000, 12345)));
-        assert_eq!(parse_core_rate_limit(&serde_json::json!({})), None);
+        assert_eq!(super::parse_core_rate_limit(&valid), Some((812, 1000, 12345)));
+        assert_eq!(super::parse_core_rate_limit(&serde_json::json!({})), None);
     }
 
     #[test]
