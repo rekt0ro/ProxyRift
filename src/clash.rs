@@ -160,7 +160,10 @@ fn is_emoji_codepoint(codepoint: u32) -> bool {
 }
 
 fn yaml_quote(value: &str) -> String {
-    if !value.chars().any(|character| is_emoji_codepoint(character as u32)) {
+    if !value
+        .chars()
+        .any(|character| is_emoji_codepoint(character as u32))
+    {
         return format!("'{}'", value.replace('\'', "''"));
     }
 

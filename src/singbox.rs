@@ -3257,5 +3257,4 @@ mod tests {
             "\\ud83c\\udde8\\ud83c\\uddf3"
         );
     }
-
 }

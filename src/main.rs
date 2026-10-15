@@ -4284,6 +4284,8 @@ mod uri_emoji_tests {
         let config = format!("vless://example.com:443?path=/ws{flag}");
         let encoded = percent_encode_emoji_characters(&config);
         assert!(encoded.contains("%F0%9F%87%A8%F0%9F%87%B3"));
-        assert!(!encoded.chars().any(|character| super::is_emoji_codepoint(character as u32)));
+        assert!(!encoded
+            .chars()
+            .any(|character| super::is_emoji_codepoint(character as u32)));
     }
 }
