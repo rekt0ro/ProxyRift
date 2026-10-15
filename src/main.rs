@@ -4269,7 +4269,6 @@ async fn diagnose_configs(configs: &[String]) {
     }
 }
 
-
 #[cfg(test)]
 mod uri_emoji_tests {
     use super::percent_encode_emoji_characters;
