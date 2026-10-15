@@ -2848,6 +2848,34 @@ mod tests {
     }
 
     #[test]
+    fn valid_registry_schema_preserves_source_history() {
+        let value = serde_json::json!({
+            "schema_version": 1,
+            "updated_at": 1,
+            "sources": {
+                "example-source": {
+                    "successes": 7
+                }
+            }
+        });
+
+        let registry = Registry::from_value(value, 123).expect("valid registry schema");
+        assert_eq!(
+            registry
+                .sources()
+                .get("example-source")
+                .and_then(Value::as_object)
+                .and_then(|record| record.get("successes"))
+                .and_then(Value::as_u64),
+            Some(7)
+        );
+        assert_eq!(
+            registry.root.get("updated_at").and_then(Value::as_u64),
+            Some(123)
+        );
+    }
+
+    #[test]
     fn unsupported_registry_schema_is_rejected_without_resetting_state() {
         let value = serde_json::json!({
             "schema_version": 999,
