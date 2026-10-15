@@ -1089,13 +1089,19 @@ pub fn record_light_results(
             let value = serde_json::from_str::<Value>(&text).map_err(|error| {
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("invalid source registry {}: {error}", registry_path.display()),
+                    format!(
+                        "invalid source registry {}: {error}",
+                        registry_path.display()
+                    ),
                 )
             })?;
             Registry::from_value(value, now).map_err(|error| {
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("invalid source registry {}: {error}", registry_path.display()),
+                    format!(
+                        "invalid source registry {}: {error}",
+                        registry_path.display()
+                    ),
                 )
             })?
         }
