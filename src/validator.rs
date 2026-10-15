@@ -4405,7 +4405,7 @@ pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url>
         if crate::compact_logs_enabled() {
             if should_log_target_order(&pool_key, &host_names) {
                 println!(
-                    "[INFO] [Targets] Active download hosts | {}",
+                    "[INFO] [Targets] Active validation hosts | {}",
                     host_names.join(" -> ")
                 );
             }
