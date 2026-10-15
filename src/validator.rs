@@ -4099,10 +4099,7 @@ pub(crate) async fn validate_clients_with_target_pool(
         .collect()
 }
 
-async fn functional_attempt(
-    client: &Client,
-    target: &Url,
-) -> Result<ProbeSample, ProbeError> {
+async fn functional_attempt(client: &Client, target: &Url) -> Result<ProbeSample, ProbeError> {
     probe_request(client, target.clone()).await
 }
 
