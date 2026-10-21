@@ -729,15 +729,15 @@ fn normalize_transport(value: &str) -> String {
                 .unwrap_or(candidate)
                 .trim();
             match candidate {
-            "raw" | "tcp" => Some("raw".to_string()),
-            "ws" | "websocket" => Some("ws".to_string()),
-            "http" | "h2" => Some("http".to_string()),
-            "grpc" => Some("grpc".to_string()),
-            "httpupgrade" | "http-upgrade" => Some("httpupgrade".to_string()),
-            "kcp" | "mkcp" => Some("kcp".to_string()),
-            "quic" => Some("quic".to_string()),
-            "xhttp" | "splithttp" => Some("xhttp".to_string()),
-            _ => None,
+                "raw" | "tcp" => Some("raw".to_string()),
+                "ws" | "websocket" => Some("ws".to_string()),
+                "http" | "h2" => Some("http".to_string()),
+                "grpc" => Some("grpc".to_string()),
+                "httpupgrade" | "http-upgrade" => Some("httpupgrade".to_string()),
+                "kcp" | "mkcp" => Some("kcp".to_string()),
+                "quic" => Some("quic".to_string()),
+                "xhttp" | "splithttp" => Some("xhttp".to_string()),
+                _ => None,
             }
         })
         .unwrap_or(normalized)
