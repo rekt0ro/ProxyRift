@@ -72,6 +72,8 @@ const MIN_SPEED_TRAIN_ROWS: usize = 40;
 const MIN_SPEED_CANDIDATES: usize = 40;
 const MIN_SPEED_TIMESTAMPS: usize = 6;
 const MIN_SPEED_HOLDOUT_CANDIDATES: usize = 10;
+// A small lift can be noise and does not justify changing candidate order.
+const MIN_TOP_QUINTILE_SPEED_LIFT: f64 = 1.05;
 const SPEED_MODEL_SEED: i32 = 1709;
 const SPEED_HISTORY_HALF_LIFE_SECS: f64 = 24.0 * 60.0 * 60.0;
 
@@ -202,6 +204,13 @@ impl LightGbmScores {
                 .collect::<HashSet<_>>()
                 .len(),
         );
+        let candidate_count = candidates
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>()
+            .len();
+        report["candidate_count"] = Value::from(candidate_count);
+        report["scored_candidate_count"] = Value::from(scores.len());
 
         let result = Self {
             scores,
@@ -291,6 +300,28 @@ impl LightGbmScores {
                 if let Some(score) = score.as_f64().filter(|score| score.is_finite()) {
                     scores.insert(config.clone(), score.clamp(MIN_SCORE, MAX_SCORE));
                 }
+            }
+        }
+        if let Some(expected) = model_report
+            .get("candidate_count")
+            .and_then(Value::as_u64)
+        {
+            if expected as usize != scores.len() {
+                return Err(format!(
+                    "incomplete LightGBM candidate score coverage: expected {expected}, found {}",
+                    scores.len()
+                ));
+            }
+        }
+        if let Some(expected) = model_report
+            .get("scored_candidate_count")
+            .and_then(Value::as_u64)
+        {
+            if expected as usize != scores.len() {
+                return Err(format!(
+                    "inconsistent LightGBM scored-candidate count: report says {expected}, score map has {}",
+                    scores.len()
+                ));
             }
         }
         Ok(Self {
@@ -582,7 +613,9 @@ fn evaluate_speed_regressor(
         "accepted": false, "speed_samples": observations.len(),
         "unique_candidates": unique_candidates, "unique_timestamps": unique_timestamps,
         "train_rows": 0, "holdout_rows": 0, "baseline_log_mae": null,
-        "model_log_mae": null, "relative_mae_improvement": null, "top_20pct_speed_lift": null
+        "model_log_mae": null, "relative_mae_improvement": null, "top_20pct_speed_lift": null,
+        "minimum_relative_mae_improvement": 0.01,
+        "minimum_top_20pct_speed_lift": MIN_TOP_QUINTILE_SPEED_LIFT
     });
     if observations.len() < MIN_SPEED_ROWS
         || unique_candidates < MIN_SPEED_CANDIDATES
@@ -711,8 +744,10 @@ fn evaluate_speed_regressor(
         .map(|i| observations[*i].speed_kbps)
         .collect::<Vec<_>>();
     let top_lift = top_quintile_speed_lift(&predictions, &holdout_speeds);
-    let accepted =
-        model_mae.is_finite() && improvement >= 0.01 && top_lift.is_finite() && top_lift > 1.0;
+    let accepted = model_mae.is_finite()
+        && improvement >= 0.01
+        && top_lift.is_finite()
+        && top_lift >= MIN_TOP_QUINTILE_SPEED_LIFT;
     let report = serde_json::json!({
         "model": "LightGBM GBDT regression",
         "validation": "chronological_80_20_first_observation_of_unseen_candidates",
@@ -723,10 +758,10 @@ fn evaluate_speed_regressor(
         "unique_timestamps": unique_timestamps, "baseline_log_mae": baseline_mae,
         "model_log_mae": model_mae, "relative_mae_improvement": improvement,
         "top_20pct_speed_lift": top_lift, "minimum_relative_mae_improvement": 0.01,
-        "minimum_top_20pct_speed_lift": 1.0,
+        "minimum_top_20pct_speed_lift": MIN_TOP_QUINTILE_SPEED_LIFT,
         "reason": if accepted { "promoted_after_temporal_speed_validation" }
             else if improvement < 0.01 { "model_did_not_beat_temporal_speed_baseline" }
-            else { "top_20pct_speed_ranking_did_not_improve" }
+            else { "top_20pct_speed_lift_below_minimum" }
     });
     (accepted, report)
 }
@@ -1546,7 +1581,11 @@ mod tests {
             scores: std::collections::HashMap::from([("candidate".to_string(), 0.8)]),
             training_rows: 100,
             trained: true,
-            model_report: serde_json::json!({"ranking_strategy":"stream_speed_regression"}),
+            model_report: serde_json::json!({
+                "ranking_strategy":"stream_speed_regression",
+                "candidate_count":1,
+                "scored_candidate_count":1
+            }),
         };
         scores.save(&path).expect("save score file");
         let loaded = LightGbmScores::from_file(&path).expect("load score file");
@@ -1559,6 +1598,20 @@ mod tests {
             value["feature_count"].as_u64(),
             Some(SPEED_MODEL_FEATURE_COUNT as u64)
         );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn scores_file_rejects_incomplete_candidate_coverage() {
+        let path = temp_path();
+        fs::write(
+            &path,
+            r#"{"version":5,"trained":false,"training_rows":100,"feature_count":61,"scores":{"candidate":0.8},"model_report":{"ranking_strategy":"historical_stream_speed_prior_fallback","candidate_count":2,"scored_candidate_count":1}}"#,
+        )
+        .expect("write incomplete score file");
+        assert!(LightGbmScores::from_file(&path)
+            .expect_err("incomplete scores must be rejected")
+            .contains("incomplete LightGBM candidate score coverage"));
         let _ = fs::remove_file(path);
     }
 
