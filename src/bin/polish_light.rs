@@ -2003,6 +2003,9 @@ async fn fill_transfer_stability_gate(
     ))
 }
 
+// The transfer gate already performs the sustained-stream check. Keep the
+// Stream aliases for the training-data schema, but do not report them as a
+// second independent validation stage.
 fn mirror_sustained_stream_results(
     transfer_tested: &HashSet<String>,
     transfer_verified: &HashMap<String, ProxyMetrics>,
