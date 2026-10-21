@@ -29,6 +29,8 @@ cat > "$score_file" <<'JSON'
     "cutoff_timestamp": 1800000000,
     "speed_samples": 100,
     "unique_candidates": 100,
+    "candidate_count": 1,
+    "scored_candidate_count": 1,
     "unique_timestamps": 15,
     "train_rows": 80,
     "holdout_rows": 20,
@@ -37,7 +39,7 @@ cat > "$score_file" <<'JSON'
     "relative_mae_improvement": 0.1666667,
     "top_20pct_speed_lift": 1.25,
     "minimum_relative_mae_improvement": 0.01,
-    "minimum_top_20pct_speed_lift": 1.0
+    "minimum_top_20pct_speed_lift": 1.05
   }
 }
 JSON
@@ -48,15 +50,16 @@ JSON
 
 cat > "$summary_file" <<'MD'
 | Ranking mode | Speed model |
+| Candidate score coverage | 1 / 1 candidates scored (100.0%; complete) |
 | Recent speed data | 100 speed measurements in the last 72 hours; 12 new this run; 100 candidate identities across 15 timestamps |
 | Temporal validation split | 80 training rows / 20 holdout rows |
-| Evaluation | Evaluated — model MAE 0.100 vs baseline 0.120 (16.7% lower); top-20% holdout speed lift 1.25x. |
+| Evaluation | Evaluated — model MAE 0.100 vs baseline 0.120 (16.7% lower); top-20% holdout speed lift 1.25x (minimum 1.05x). |
 | Decision | Active |
 MD
 
 bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$summary_file" "$score_file" "$stats_file"
 bash "$repo_root/scripts/update/write_lightgbm_artifact.sh" "$score_file" "$artifact_file"
-jq -e '.available == true and .trained == true and .model_report.accepted == true and .scored_candidates == 1 and (has("scores") | not) and .model_report.top_20pct_speed_lift == 1.25' "$artifact_file" >/dev/null
+jq -e '.available == true and .trained == true and .model_report.accepted == true and .scored_candidates == 1 and (has("scores") | not) and .model_report.candidate_count == 1 and .model_report.scored_candidate_count == 1 and .model_report.minimum_top_20pct_speed_lift == 1.05 and .model_report.top_20pct_speed_lift == 1.25' "$artifact_file" >/dev/null
 if grep -Fq 'private-candidate' "$artifact_file" || grep -Eq 'vless://|example.invalid' "$artifact_file"; then
   printf '[ERROR] Artifact contains a raw candidate string.\n' >&2
   exit 1
@@ -79,6 +82,7 @@ jq '
 ' "$score_file" > "$tmp/history-fallback.json"
 cat > "$tmp/history-fallback-summary.md" <<'MD'
 | Ranking mode | Recent speed estimates |
+| Candidate score coverage | 1 / 1 candidates scored (100.0%; complete) |
 | Recent speed data | 20 speed measurements in the last 72 hours; 12 new this run; 12 candidate identities across 1 timestamps |
 | Temporal validation split | Not available — validation data requirements were not met |
 | Evaluation | Not evaluated — insufficient speed samples or temporal coverage (samples: 20; candidates: 12; timestamps: 1). |
@@ -103,9 +107,10 @@ jq '
 cp "$tmp/rejected-score.json" "$score_file"
 cat > "$tmp/rejected-summary.md" <<'MD'
 | Ranking mode | Speed model |
+| Candidate score coverage | 1 / 1 candidates scored (100.0%; complete) |
 | Recent speed data | 100 speed measurements in the last 72 hours; 12 new this run; 100 candidate identities across 15 timestamps |
 | Temporal validation split | 80 training rows / 20 holdout rows |
-| Evaluation | Evaluated — model MAE 0.125 vs baseline 0.120 (4.2% higher); top-20% holdout speed lift 1.08x. |
+| Evaluation | Evaluated — model MAE 0.125 vs baseline 0.120 (4.2% higher); top-20% holdout speed lift 1.08x (minimum 1.05x). |
 | Decision | Not enabled — MAE did not improve on the temporal baseline by at least 1% |
 MD
 bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/rejected-summary.md" "$score_file" "$stats_file"
