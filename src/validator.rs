@@ -685,15 +685,31 @@ fn vmess_tls_security(value: Option<&Value>) -> String {
 fn normalize_vless_flow(value: &str) -> Option<String> {
     let flow = value.trim().to_ascii_lowercase();
     if flow == "none" {
-        Some(String::new())
-    } else if matches!(
-        flow.as_str(),
+        return Some(String::new());
+    }
+
+    let mut candidate = flow.as_str();
+    while !matches!(
+        candidate,
         "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
     ) {
-        Some(flow)
-    } else {
-        None
+        let Some(prefix) = candidate.strip_suffix("-udp443") else {
+            return None;
+        };
+        candidate = prefix;
     }
+    Some(candidate.to_string())
+}
+
+fn normalize_security_label(value: &str) -> String {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .split(['#', '@', '?', '=', '.'])
+        .next()
+        .unwrap_or(value)
+        .trim()
+        .to_string()
 }
 
 fn json_u64(value: Option<&Value>) -> u64 {
@@ -728,6 +744,15 @@ fn normalize_transport(value: &str) -> String {
                 .next()
                 .unwrap_or(candidate)
                 .trim();
+            let candidate = if let Some((prefix, suffix)) = candidate.rsplit_once(':') {
+                if suffix.parse::<u16>().is_ok_and(|port| port > 0) {
+                    prefix.trim()
+                } else {
+                    candidate
+                }
+            } else {
+                candidate
+            };
             match candidate {
                 "raw" | "tcp" => Some("raw".to_string()),
                 "ws" | "websocket" => Some("ws".to_string()),
@@ -1325,7 +1350,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
             if !key.eq_ignore_ascii_case("security") {
                 return None;
             }
-            let normalized = value.trim().trim_end_matches('.').to_ascii_lowercase();
+            let normalized = normalize_security_label(&value);
             (!normalized.is_empty()).then_some(normalized)
         })
         .unwrap_or_else(|| "none".to_string());
@@ -2365,10 +2390,11 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("unsupported-transport");
             }
 
-            let security = first_query(&url, &["security"], Some("none"))
-                .trim()
-                .trim_end_matches('.')
-                .to_ascii_lowercase();
+            let security = normalize_security_label(&first_query(
+                &url,
+                &["security"],
+                Some("none"),
+            ));
             if !matches!(security.as_str(), "none" | "tls" | "t" | "tl" | "reality") {
                 return Some("unsupported-security");
             }
@@ -2649,12 +2675,7 @@ fn compatibility_transport_bucket(value: &str) -> &'static str {
 }
 
 fn compatibility_security_bucket(value: &str) -> &'static str {
-    match value
-        .trim()
-        .trim_end_matches('.')
-        .to_ascii_lowercase()
-        .as_str()
-    {
+    match normalize_security_label(value).as_str() {
         "none" => "none",
         "tls" | "t" | "tl" => "tls",
         "reality" => "reality",
@@ -2860,10 +2881,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 return false;
             }
 
-            let security = first_query(&url, &["security"], Some(""))
-                .trim()
-                .trim_end_matches('.')
-                .to_ascii_lowercase();
+            let security = normalize_security_label(&first_query(&url, &["security"], Some("")));
             let valid_security = if scheme == "trojan" {
                 matches!(security.as_str(), "" | "tls" | "t" | "tl" | "reality")
             } else {
