@@ -723,7 +723,7 @@ fn normalize_transport(value: &str) -> String {
         .split([',', ';', '|'])
         .map(str::trim)
         .find_map(|candidate| match candidate {
-            "raw" | "tcp" => Some("raw".to_string()),
+            "raw" | "tcp" | "none" => Some("raw".to_string()),
             "ws" | "websocket" => Some("ws".to_string()),
             "http" | "h2" => Some("http".to_string()),
             "grpc" => Some("grpc".to_string()),
@@ -6651,6 +6651,34 @@ mod tests {
         let serialized = diagnostic.to_string();
         assert!(!serialized.contains("private-value"));
         assert!(!serialized.contains("mode=invalid"));
+    }
+
+    #[test]
+    fn none_transport_alias_defaults_to_tcp_for_supported_consumers() {
+        let vless = "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=none";
+        assert_eq!(cheap_compatibility_rejection_reason(vless), None);
+        assert!(is_light_consumer_compatible(vless));
+        assert_eq!(
+            parse_config(vless).unwrap()["streamSettings"]["network"],
+            "raw"
+        );
+
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": "none",
+            "type": "none",
+            "tls": ""
+        });
+        let vmess = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+        assert_eq!(cheap_compatibility_rejection_reason(&vmess), None);
+        assert!(is_light_consumer_compatible(&vmess));
+        assert_eq!(
+            parse_config(&vmess).unwrap()["streamSettings"]["network"],
+            "raw"
+        );
     }
 
     #[test]
