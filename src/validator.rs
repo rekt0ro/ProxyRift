@@ -2390,11 +2390,8 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("unsupported-transport");
             }
 
-            let security = normalize_security_label(&first_query(
-                &url,
-                &["security"],
-                Some("none"),
-            ));
+            let security =
+                normalize_security_label(&first_query(&url, &["security"], Some("none")));
             if !matches!(security.as_str(), "none" | "tls" | "t" | "tl" | "reality") {
                 return Some("unsupported-security");
             }
@@ -6692,9 +6689,7 @@ mod tests {
     #[test]
     fn cheap_compatibility_accepts_security_provider_suffixes_and_trailing_markers() {
         for security in ["tls%40freenettir", "tls%3D", "tls...%2520"] {
-            let config = format!(
-                "trojan://password@example.com:443?security={security}&type=tcp"
-            );
+            let config = format!("trojan://password@example.com:443?security={security}&type=tcp");
             assert_eq!(
                 cheap_compatibility_rejection_reason(&config),
                 None,
@@ -6710,25 +6705,20 @@ mod tests {
     #[test]
     fn cheap_compatibility_accepts_repeated_supported_vless_flow_suffixes() {
         for (flow, expected) in [
-            (
-                "xtls-rprx-vision-udp443-udp443",
-                "xtls-rprx-vision-udp443",
-            ),
-            (
-                "xtls-rprx-vision-udp443-udp443-udp443",
-                "xtls-rprx-vision-udp443",
-            ),
+            ("xtls-rprx-vision-udp443-udp443", "xtls-rprx-vision-udp443"),
+            ("xtls-rprx-vision-udp443-udp443-udp443", "xtls-rprx-vision-udp443"),
         ] {
             let config = format!(
                 "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=tcp&flow={flow}"
             );
-            assert_eq!(cheap_compatibility_rejection_reason(&config), None, "{flow}");
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{flow}"
+            );
             assert!(is_light_consumer_compatible(&config), "{flow}");
             let parsed = parse_config(&config).expect("recognized duplicated flow should parse");
-            assert_eq!(
-                parsed["settings"]["vnext"][0]["users"][0]["flow"],
-                expected
-            );
+            assert_eq!(parsed["settings"]["vnext"][0]["users"][0]["flow"], expected);
         }
     }
 
