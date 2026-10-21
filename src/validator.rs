@@ -684,30 +684,32 @@ fn vmess_tls_security(value: Option<&Value>) -> String {
 
 fn normalize_vless_flow(value: &str) -> Option<String> {
     let flow = value.trim().to_ascii_lowercase();
-    if flow == "none" {
+    if flow.is_empty() || flow == "none" {
         return Some(String::new());
+    }
+    if flow == "xtls-rprx-vision" {
+        return Some(flow);
     }
 
     let mut candidate = flow.as_str();
-    while !matches!(
-        candidate,
-        "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
-    ) {
-        let Some(prefix) = candidate.strip_suffix("-udp443") else {
-            return None;
-        };
+    while let Some(prefix) = candidate.strip_suffix("-udp443") {
         candidate = prefix;
     }
-    Some(candidate.to_string())
+    if candidate == "xtls-rprx-vision" {
+        Some("xtls-rprx-vision-udp443".to_string())
+    } else {
+        None
+    }
 }
 
 fn normalize_security_label(value: &str) -> String {
-    value
-        .trim()
-        .to_ascii_lowercase()
-        .split(['#', '@', '?', '=', '.'])
+    let normalized = value.trim().to_ascii_lowercase();
+    normalized
+        .split(['#', '@', '?', '=', '%'])
         .next()
         .unwrap_or(value)
+        .trim()
+        .trim_end_matches('.')
         .trim()
         .to_string()
 }
@@ -6723,6 +6725,17 @@ mod tests {
             let parsed = parse_config(&config).expect("recognized duplicated flow should parse");
             assert_eq!(parsed["settings"]["vnext"][0]["users"][0]["flow"], expected);
         }
+    }
+
+    #[test]
+    fn cheap_compatibility_rejects_orphan_vless_flow_suffix() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=tcp&flow=-udp443";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(config),
+            Some("unsupported-flow")
+        );
+        assert!(!is_light_consumer_compatible(config));
+        assert!(parse_config(config).is_err());
     }
 
     #[test]
