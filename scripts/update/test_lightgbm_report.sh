@@ -117,8 +117,6 @@ bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/rejected-summa
 bash "$repo_root/scripts/update/write_lightgbm_artifact.sh" "$score_file" "$tmp/rejected-artifact.json"
 jq -e '.available == true and .model_report.accepted == false and .model_report.reason == "model_did_not_beat_temporal_speed_baseline" and .model_report.relative_mae_improvement < 0' "$tmp/rejected-artifact.json" >/dev/null
 
-# A model that predicts absolute speed well must still be rejected if its top-quintile
-# ranking lift misses the minimum required to change candidate order.
 jq '
   .trained = false
   | .model_report.ranking_strategy = "historical_stream_speed_prior_fallback"
