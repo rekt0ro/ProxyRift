@@ -702,6 +702,18 @@ fn normalize_vless_flow(value: &str) -> Option<String> {
     }
 }
 
+fn normalize_vmess_transport(value: &str) -> String {
+    let normalized = normalize_transport(value);
+    if matches!(
+        normalized.as_str(),
+        "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic"
+    ) {
+        normalized
+    } else {
+        "raw".to_string()
+    }
+}
+
 fn normalize_security_label(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase();
     normalized
@@ -746,6 +758,15 @@ fn normalize_transport(value: &str) -> String {
                 .next()
                 .unwrap_or(candidate)
                 .trim();
+            let candidate = if let Some((prefix, suffix)) = candidate.rsplit_once(':') {
+                if prefix == "tcp" && suffix.parse::<u16>().is_ok_and(|port| port > 0) {
+                    "tcp"
+                } else {
+                    candidate
+                }
+            } else {
+                candidate
+            };
             match candidate {
                 "raw" | "tcp" => Some("raw".to_string()),
                 "ws" | "websocket" => Some("ws".to_string()),
@@ -1671,8 +1692,9 @@ fn parse_vmess(config: &str) -> Result<Value, String> {
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "VMess UUID missing".to_string())?;
 
-    let network =
-        normalize_transport(&json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()));
+    let network = normalize_vmess_transport(
+        &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
+    );
 
     let vmess_tls = vmess_tls_security(value.get("tls"));
 
@@ -2533,7 +2555,7 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("unsupported-vmess-tls");
             }
 
-            let network = normalize_transport(
+            let network = normalize_vmess_transport(
                 &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
             );
             if !matches!(
@@ -2763,9 +2785,9 @@ pub fn cheap_compatibility_rejection_context(
                 .and_then(|decoded| serde_json::from_slice::<Value>(&decoded).ok());
             match parsed_value.as_ref() {
                 Some(value) => (
-                    compatibility_transport_bucket(
+                    compatibility_transport_bucket(&normalize_vmess_transport(
                         &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
-                    ),
+                    )),
                     compatibility_security_bucket(&vmess_tls_security(value.get("tls"))),
                 ),
                 None => ("unavailable", "unavailable"),
@@ -3019,7 +3041,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 return false;
             }
 
-            let network = normalize_transport(
+            let network = normalize_vmess_transport(
                 &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
             );
             if !matches!(network.as_str(), "raw" | "ws" | "grpc" | "kcp" | "quic") {
@@ -6739,6 +6761,7 @@ mod tests {
             ("tcp¬e=volt____network", "raw"),
             ("xhttpÂ¬e=@FreeOnlineVPN", "xhttp"),
             ("tcp?type=tcp", "raw"),
+            ("tcp:443", "raw"),
             ("xhttp@freenettir", "xhttp"),
             ("ws@freenettir", "ws"),
         ] {
@@ -7017,14 +7040,27 @@ mod tests {
     }
 
     #[test]
-    fn cheap_compatibility_rejects_vmess_none_transport() {
-        let config = "vmess://eyJ2IjoiMiIsInBzIjoiIiwiYWRkIjoiZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJhaWQiOiIwIiwibmV0Ijoibm9uZSJ9";
-        assert_eq!(
-            cheap_compatibility_rejection_reason(config),
-            Some("unsupported-vmess-transport")
-        );
-        assert!(!is_cheaply_supported_config(config));
-        assert!(!is_light_consumer_compatible(config));
+    fn cheap_compatibility_defaults_unsupported_vmess_networks_to_tcp() {
+        for network in ["none", "udp", "auto", "madeup"] {
+            let payload = serde_json::json!({
+                "v": "2",
+                "add": "example.com",
+                "port": "443",
+                "id": "00000000-0000-0000-0000-000000000001",
+                "net": network,
+                "type": "none",
+                "tls": ""
+            });
+            let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+            assert_eq!(cheap_compatibility_rejection_reason(&config), None, "{network}");
+            assert!(is_cheaply_supported_config(&config), "{network}");
+            assert!(is_light_consumer_compatible(&config), "{network}");
+            let parsed =
+                parse_config(&config).expect("unsupported VMess network should default to TCP");
+            assert_eq!(parsed["streamSettings"]["network"], "raw", "{network}");
+            assert!(is_locally_supported_config(&config), "{network}");
+        }
     }
 
     #[test]
