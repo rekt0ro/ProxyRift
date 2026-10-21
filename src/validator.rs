@@ -6706,7 +6706,10 @@ mod tests {
     fn cheap_compatibility_accepts_repeated_supported_vless_flow_suffixes() {
         for (flow, expected) in [
             ("xtls-rprx-vision-udp443-udp443", "xtls-rprx-vision-udp443"),
-            ("xtls-rprx-vision-udp443-udp443-udp443", "xtls-rprx-vision-udp443"),
+            (
+                "xtls-rprx-vision-udp443-udp443-udp443",
+                "xtls-rprx-vision-udp443",
+            ),
         ] {
             let config = format!(
                 "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=tcp&flow={flow}"
