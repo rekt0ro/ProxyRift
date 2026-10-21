@@ -125,6 +125,7 @@ new_samples="$(format_count "$(json_value "$stats_file" '.dataset.new_speed_samp
 candidate_count="$(json_value "$score_file" '.model_report.candidate_count')"
 scored_candidate_count="$(json_value "$score_file" '.model_report.scored_candidate_count')"
 minimum_lift="$(json_value "$score_file" '.model_report.minimum_top_20pct_speed_lift')"
+if [[ ! "$minimum_lift" =~ ^[0-9]+([.][0-9]+)?$ ]]; then minimum_lift="1.05"; fi
 accepted="$(jq -r '.model_report.accepted // false' "$score_file")"
 reason="$(jq -r '.model_report.reason // "not_evaluated"' "$score_file")"
 expected_mode="| Ranking mode | $mode |"
