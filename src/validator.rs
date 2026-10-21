@@ -742,19 +742,10 @@ fn normalize_transport(value: &str) -> String {
         .map(str::trim)
         .find_map(|candidate| {
             let candidate = candidate
-                .split(['#', '@', '?', '.'])
+                .split(['#', '@', '?', '.', '¬', 'Â'])
                 .next()
                 .unwrap_or(candidate)
                 .trim();
-            let candidate = if let Some((prefix, suffix)) = candidate.rsplit_once(':') {
-                if suffix.parse::<u16>().is_ok_and(|port| port > 0) {
-                    prefix.trim()
-                } else {
-                    candidate
-                }
-            } else {
-                candidate
-            };
             match candidate {
                 "raw" | "tcp" => Some("raw".to_string()),
                 "ws" | "websocket" => Some("ws".to_string()),
@@ -6744,8 +6735,9 @@ mod tests {
             ("websocket", "ws"),
             ("http-upgrade", "httpupgrade"),
             ("tcp%23provider@oneclickvpnkeys", "raw"),
-            ("tcp:443", "raw"),
             ("tcp@freenettir", "raw"),
+            ("tcp¬e=volt____network", "raw"),
+            ("xhttpÂ¬e=@FreeOnlineVPN", "xhttp"),
             ("ws...", "ws"),
             ("xhttp...", "xhttp"),
             ("tcp?type=tcp", "raw"),
