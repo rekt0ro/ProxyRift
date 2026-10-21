@@ -72,7 +72,6 @@ const MIN_SPEED_TRAIN_ROWS: usize = 40;
 const MIN_SPEED_CANDIDATES: usize = 40;
 const MIN_SPEED_TIMESTAMPS: usize = 6;
 const MIN_SPEED_HOLDOUT_CANDIDATES: usize = 10;
-// A small lift can be noise and does not justify changing candidate order.
 const MIN_TOP_QUINTILE_SPEED_LIFT: f64 = 1.05;
 const SPEED_MODEL_SEED: i32 = 1709;
 const SPEED_HISTORY_HALF_LIFE_SECS: f64 = 24.0 * 60.0 * 60.0;
@@ -310,7 +309,10 @@ impl LightGbmScores {
                 ));
             }
         }
-        if let Some(expected) = model_report.get("scored_candidate_count").and_then(Value::as_u64) {
+        if let Some(expected) = model_report
+            .get("scored_candidate_count")
+            .and_then(Value::as_u64)
+        {
             if expected as usize != scores.len() {
                 return Err(format!(
                     "inconsistent LightGBM scored-candidate count: report says {expected}, score map has {}",
