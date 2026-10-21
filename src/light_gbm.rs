@@ -1679,6 +1679,55 @@ mod tests {
     }
 
     #[test]
+    fn scores_file_rejects_missing_candidate_coverage_metadata() {
+        let path = temp_path();
+        fs::write(
+            &path,
+            r#"{"version":5,"trained":false,"training_rows":100,"feature_count":61,"scores":{"candidate":0.8},"model_report":{"ranking_strategy":"historical_stream_speed_prior_fallback"}}"#,
+        )
+        .expect("write score file without coverage metadata");
+        assert!(LightGbmScores::from_file(&path)
+            .expect_err("score coverage metadata is mandatory")
+            .contains("missing candidate score coverage metadata"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn neutral_fallback_writes_complete_candidate_scores() {
+        let path = temp_path();
+        let candidates = vec![
+            "candidate-a".to_string(),
+            "candidate-b".to_string(),
+            "candidate-a".to_string(),
+        ];
+        let neutral = LightGbmScores::neutral_for_candidates_at_path(
+            &candidates,
+            "candidate_scoring_failed",
+            &path,
+        )
+        .expect("neutral score file should be written");
+        assert_eq!(neutral.len(), 2);
+        assert_eq!(neutral.score("candidate-a"), DEFAULT_SCORE);
+        assert_eq!(neutral.score("candidate-b"), DEFAULT_SCORE);
+        assert_eq!(
+            neutral.model_report()["candidate_count"].as_u64(),
+            Some(2)
+        );
+        assert_eq!(
+            neutral.model_report()["scored_candidate_count"].as_u64(),
+            Some(2)
+        );
+        assert_eq!(
+            neutral.model_report()["ranking_strategy"].as_str(),
+            Some("neutral_default")
+        );
+        let loaded = LightGbmScores::from_file(&path).expect("neutral score file should load");
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded.score("candidate-a"), DEFAULT_SCORE);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn candidate_fingerprint_ignores_remarks() {
         assert_eq!(
             candidate_fingerprint("vless://uuid@example.com:443?security=tls#first"),
