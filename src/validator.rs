@@ -705,7 +705,7 @@ fn normalize_vless_flow(value: &str) -> Option<String> {
 fn normalize_security_label(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase();
     normalized
-        .split(['#', '@', '?', '=', '%'])
+        .split(['#', '@', '?', '='])
         .next()
         .unwrap_or(value)
         .trim()
@@ -742,7 +742,7 @@ fn normalize_transport(value: &str) -> String {
         .map(str::trim)
         .find_map(|candidate| {
             let candidate = candidate
-                .split(['#', '@', '?', '.', '¬', 'Â'])
+                .split(['#', '@', '?', '¬', 'Â'])
                 .next()
                 .unwrap_or(candidate)
                 .trim();
@@ -6681,7 +6681,7 @@ mod tests {
 
     #[test]
     fn cheap_compatibility_accepts_security_provider_suffixes_and_trailing_markers() {
-        for security in ["tls%40freenettir", "tls%3D", "tls...%2520"] {
+        for security in ["tls%40freenettir", "tls%3D", "tls..."] {
             let config = format!("trojan://password@example.com:443?security={security}&type=tcp");
             assert_eq!(
                 cheap_compatibility_rejection_reason(&config),
@@ -6738,8 +6738,6 @@ mod tests {
             ("tcp@freenettir", "raw"),
             ("tcp¬e=volt____network", "raw"),
             ("xhttpÂ¬e=@FreeOnlineVPN", "xhttp"),
-            ("ws...", "ws"),
-            ("xhttp...", "xhttp"),
             ("tcp?type=tcp", "raw"),
             ("xhttp@freenettir", "xhttp"),
             ("ws@freenettir", "ws"),
