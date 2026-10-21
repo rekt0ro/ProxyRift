@@ -3711,9 +3711,27 @@ async fn main() -> Result<(), String> {
         Err(error) => {
             let _ = std::fs::remove_file("/tmp/proxyrift/lightgbm-scores.json");
             println!(
-                "[WARN] [LightGBM] Merged Light pool scoring failed; using neutral ranking for this run: {error}"
+                "[WARN] [LightGBM] Merged Light pool scoring failed; writing neutral full-pool scores: {error}"
             );
-            LightGbmScores::default()
+            match LightGbmScores::neutral_for_candidates(&candidates, "candidate_scoring_failed") {
+                Ok(scores) => {
+                    println!(
+                        "[INFO] [LightGBM] Neutral score coverage | Scored: {}/{}",
+                        scores.len(),
+                        candidates
+                            .iter()
+                            .map(String::as_str)
+                            .collect::<HashSet<_>>()
+                            .len()
+                    );
+                    scores
+                }
+                Err(fallback_error) => {
+                    return Err(format!(
+                        "LightGBM scoring failed ({error}) and full-pool neutral fallback failed ({fallback_error})"
+                    ));
+                }
+            }
         }
     };
 
