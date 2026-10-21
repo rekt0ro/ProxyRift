@@ -6676,7 +6676,7 @@ mod tests {
         for (transport, expected) in [
             ("websocket", "ws"),
             ("http-upgrade", "httpupgrade"),
-            ("tcp#5🐲@oneclickvpnkeys", "raw"),
+            ("tcp%23provider@oneclickvpnkeys", "raw"),
             ("tcp@freenettir", "raw"),
             ("tcp?type=tcp", "raw"),
             ("xhttp@freenettir", "xhttp"),
