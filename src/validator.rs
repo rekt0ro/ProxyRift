@@ -722,7 +722,13 @@ fn normalize_transport(value: &str) -> String {
     normalized
         .split([',', ';', '|'])
         .map(str::trim)
-        .find_map(|candidate| match candidate {
+        .find_map(|candidate| {
+            let candidate = candidate
+                .split(['#', '@', '?'])
+                .next()
+                .unwrap_or(candidate)
+                .trim();
+            match candidate {
             "raw" | "tcp" => Some("raw".to_string()),
             "ws" | "websocket" => Some("ws".to_string()),
             "http" | "h2" => Some("http".to_string()),
@@ -732,6 +738,7 @@ fn normalize_transport(value: &str) -> String {
             "quic" => Some("quic".to_string()),
             "xhttp" | "splithttp" => Some("xhttp".to_string()),
             _ => None,
+            }
         })
         .unwrap_or(normalized)
 }
@@ -6666,7 +6673,15 @@ mod tests {
 
     #[test]
     fn cheap_compatibility_accepts_common_transport_aliases() {
-        for (transport, expected) in [("websocket", "ws"), ("http-upgrade", "httpupgrade")] {
+        for (transport, expected) in [
+            ("websocket", "ws"),
+            ("http-upgrade", "httpupgrade"),
+            ("tcp#5🐲@oneclickvpnkeys", "raw"),
+            ("tcp@freenettir", "raw"),
+            ("tcp?type=tcp", "raw"),
+            ("xhttp@freenettir", "xhttp"),
+            ("ws@freenettir", "ws"),
+        ] {
             let config = format!(
                 "vless://00000000-0000-0000-0000-000000000001@example.com:443?type={transport}"
             );
@@ -6918,6 +6933,27 @@ mod tests {
         assert!(is_cheaply_supported_config(&config));
         assert!(is_light_consumer_compatible(&config));
         assert!(is_locally_supported_config(&config));
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_vmess_tcp_transport_with_provider_suffix() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "aid": "0",
+            "net": "tcp#90@oneclickvpnkeys",
+            "type": "none",
+            "tls": ""
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert_eq!(cheap_compatibility_rejection_reason(&config), None);
+        assert!(is_cheaply_supported_config(&config));
+        assert!(is_light_consumer_compatible(&config));
+        let parsed = parse_config(&config).expect("VMess TCP with provider suffix should parse");
+        assert_eq!(parsed["streamSettings"]["network"], "raw");
     }
 
     #[test]
