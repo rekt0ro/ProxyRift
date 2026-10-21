@@ -39,6 +39,8 @@ jq -S '
       cutoff_timestamp: (.model_report.cutoff_timestamp // null),
       speed_samples: (.model_report.speed_samples // null),
       unique_candidates: (.model_report.unique_candidates // null),
+      candidate_count: (.model_report.candidate_count // null),
+      scored_candidate_count: (.model_report.scored_candidate_count // null),
       unique_timestamps: (.model_report.unique_timestamps // null),
       train_rows: (.model_report.train_rows // null),
       holdout_rows: (.model_report.holdout_rows // null),
