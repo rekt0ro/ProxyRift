@@ -302,10 +302,7 @@ impl LightGbmScores {
                 }
             }
         }
-        if let Some(expected) = model_report
-            .get("candidate_count")
-            .and_then(Value::as_u64)
-        {
+        if let Some(expected) = model_report.get("candidate_count").and_then(Value::as_u64) {
             if expected as usize != scores.len() {
                 return Err(format!(
                     "incomplete LightGBM candidate score coverage: expected {expected}, found {}",
@@ -313,10 +310,7 @@ impl LightGbmScores {
                 ));
             }
         }
-        if let Some(expected) = model_report
-            .get("scored_candidate_count")
-            .and_then(Value::as_u64)
-        {
+        if let Some(expected) = model_report.get("scored_candidate_count").and_then(Value::as_u64) {
             if expected as usize != scores.len() {
                 return Err(format!(
                     "inconsistent LightGBM scored-candidate count: report says {expected}, score map has {}",
