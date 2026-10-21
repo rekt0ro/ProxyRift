@@ -6938,9 +6938,14 @@ mod tests {
     }
 
     #[test]
-    fn cheap_compatibility_rejects_vmess_none_transport() {
+    fn cheap_compatibility_accepts_vmess_none_transport_as_tcp_default() {
         let config = "vmess://eyJ2IjoiMiIsInBzIjoiIiwiYWRkIjoiZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJhaWQiOiIwIiwibmV0Ijoibm9uZSJ9";
-        assert!(!is_cheaply_supported_config(config));
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        assert!(is_cheaply_supported_config(config));
+        assert!(is_light_consumer_compatible(config));
+        let parsed = parse_config(config).expect("VMess none network should use TCP");
+        assert_eq!(parsed["streamSettings"]["network"], "raw");
+        assert!(is_locally_supported_config(config));
     }
 
     #[test]
