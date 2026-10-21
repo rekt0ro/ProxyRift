@@ -2003,9 +2003,6 @@ async fn fill_transfer_stability_gate(
     ))
 }
 
-// The transfer gate already performs the sustained-stream check. Keep the
-// Stream aliases for the training-data schema, but do not report them as a
-// second independent validation stage.
 fn mirror_sustained_stream_results(
     transfer_tested: &HashSet<String>,
     transfer_verified: &HashMap<String, ProxyMetrics>,
@@ -3696,9 +3693,6 @@ async fn main() -> Result<(), String> {
         }
     }
 
-    // The merged pool also contains retained historical cohorts. Re-score that
-    // complete pool instead of silently assigning 0.5 to candidates absent from
-    // the earlier post-handshake score file.
     let light_gbm_scores = match LightGbmScores::train_and_score(&candidates) {
         Ok(scores) => {
             let unique_candidates = candidates
@@ -3715,7 +3709,6 @@ async fn main() -> Result<(), String> {
             scores
         }
         Err(error) => {
-            // Do not use the stale, smaller post-handshake score file.
             let _ = std::fs::remove_file("/tmp/proxyrift/lightgbm-scores.json");
             println!(
                 "[WARN] [LightGBM] Merged Light pool scoring failed; using neutral ranking for this run: {error}"
