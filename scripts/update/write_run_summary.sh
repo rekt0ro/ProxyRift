@@ -163,14 +163,17 @@ format_score_coverage() {
     printf 'Unavailable — candidate score coverage not recorded'
     return
   fi
-  local details
-  details="$(awk -v scored="$scored" -v total="$total" 'BEGIN {
-    pct = 100 * scored / total
-    missing = total - scored
-    if (missing == 0) printf "%.1f%%; complete", pct
-    else if (missing > 0) printf "%.1f%%; %d missing", pct, missing
-    else printf "%.1f%%; %d over-reported", pct, -missing
-  }')"
+  local pct missing details
+  pct="$(awk -v scored="$scored" -v total="$total" 'BEGIN { printf "%.1f%%", 100 * scored / total }')"
+  if (( scored == total )); then
+    details="$pct; complete"
+  elif (( scored < total )); then
+    missing=$(( total - scored ))
+    details="$pct; $(format_count "$missing") missing"
+  else
+    missing=$(( scored - total ))
+    details="$pct; $(format_count "$missing") over-reported"
+  fi
   printf '%s / %s candidates scored (%s)' "$(format_count "$scored")" "$(format_count "$total")" "$details"
 }
 
