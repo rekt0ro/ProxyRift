@@ -740,7 +740,7 @@ fn normalize_transport(value: &str) -> String {
         .map(str::trim)
         .find_map(|candidate| {
             let candidate = candidate
-                .split(['#', '@', '?'])
+                .split(['#', '@', '?', '.'])
                 .next()
                 .unwrap_or(candidate)
                 .trim();
@@ -6740,6 +6740,8 @@ mod tests {
             ("tcp%23provider@oneclickvpnkeys", "raw"),
             ("tcp:443", "raw"),
             ("tcp@freenettir", "raw"),
+            ("ws...", "ws"),
+            ("xhttp...", "xhttp"),
             ("tcp?type=tcp", "raw"),
             ("xhttp@freenettir", "xhttp"),
             ("ws@freenettir", "ws"),
