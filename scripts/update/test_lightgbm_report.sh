@@ -117,6 +117,31 @@ bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/rejected-summa
 bash "$repo_root/scripts/update/write_lightgbm_artifact.sh" "$score_file" "$tmp/rejected-artifact.json"
 jq -e '.available == true and .model_report.accepted == false and .model_report.reason == "model_did_not_beat_temporal_speed_baseline" and .model_report.relative_mae_improvement < 0' "$tmp/rejected-artifact.json" >/dev/null
 
+# A model that predicts absolute speed well must still be rejected if its top-quintile
+# ranking lift misses the minimum required to change candidate order.
+jq '
+  .trained = false
+  | .model_report.ranking_strategy = "historical_stream_speed_prior_fallback"
+  | .model_report.accepted = false
+  | .model_report.reason = "top_20pct_speed_lift_below_minimum"
+  | .model_report.model_log_mae = 0.08
+  | .model_report.baseline_log_mae = 0.12
+  | .model_report.relative_mae_improvement = 0.3333333
+  | .model_report.top_20pct_speed_lift = 1.02
+' "$score_file" > "$tmp/low-lift-score.json"
+cp "$tmp/low-lift-score.json" "$score_file"
+cat > "$tmp/low-lift-summary.md" <<'MD'
+| Ranking mode | Recent speed estimates |
+| Candidate score coverage | 1 / 1 candidates scored (100.0%; complete) |
+| Recent speed data | 100 speed measurements in the last 72 hours; 12 new this run; 100 candidate identities across 15 timestamps |
+| Temporal validation split | 80 training rows / 20 holdout rows |
+| Evaluation | Evaluated — model MAE 0.080 vs baseline 0.120 (33.3% lower); top-20% holdout speed lift 1.02x (minimum 1.05x). |
+| Decision | Not enabled — top-20% holdout speed lift did not reach the required 1.05x minimum |
+MD
+bash "$repo_root/scripts/update/verify_lightgbm_summary.sh" "$tmp/low-lift-summary.md" "$score_file" "$stats_file"
+bash "$repo_root/scripts/update/write_lightgbm_artifact.sh" "$score_file" "$tmp/low-lift-artifact.json"
+jq -e '.available == true and .model_report.accepted == false and .model_report.reason == "top_20pct_speed_lift_below_minimum" and .model_report.minimum_top_20pct_speed_lift == 1.05' "$tmp/low-lift-artifact.json" >/dev/null
+
 bash "$repo_root/scripts/update/write_lightgbm_artifact.sh" "$tmp/missing.json" "$tmp/unavailable.json"
 jq -e '.available == false and (has("scores") | not)' "$tmp/unavailable.json" >/dev/null
 printf '[OK] Stream-speed report verification and artifact sanitization tests passed.\n'
