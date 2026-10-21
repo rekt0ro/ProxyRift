@@ -6950,9 +6950,26 @@ mod tests {
     }
 
     #[test]
-    fn cheap_compatibility_accepts_vmess_tcp_transport() {
-        let config = "vmess://eyJ2IjoiMiIsInBzIjoiIiwiYWRkIjoiZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJhaWQiOiIwIiwibmV0IjoidGNwIn0";
-        assert!(is_cheaply_supported_config(config));
+    fn cheap_compatibility_accepts_standard_vmess_tcp_with_none_header() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "aid": "0",
+            "scy": "auto",
+            "net": "tcp",
+            "type": "none",
+            "tls": ""
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert_eq!(cheap_compatibility_rejection_reason(&config), None);
+        assert!(is_cheaply_supported_config(&config));
+        assert!(is_light_consumer_compatible(&config));
+        let parsed = parse_config(&config).expect("standard VMess TCP link should parse");
+        assert_eq!(parsed["streamSettings"]["network"], "raw");
+        assert!(is_locally_supported_config(&config));
     }
 
     #[test]
