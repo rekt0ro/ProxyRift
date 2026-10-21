@@ -184,6 +184,18 @@ impl LightGbmScores {
             );
         }
 
+        let candidate_count = candidates
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>()
+            .len();
+        if scores.len() != candidate_count {
+            return Err(format!(
+                "incomplete LightGBM candidate score coverage: expected {candidate_count}, scored {}",
+                scores.len()
+            ));
+        }
+
         report["ranking_strategy"] = Value::String(ranking_strategy.to_string());
         report["target"] = Value::String("log(stream_throughput_kbps)".to_string());
         report["target_unit"] = Value::String("kbps".to_string());
@@ -203,11 +215,6 @@ impl LightGbmScores {
                 .collect::<HashSet<_>>()
                 .len(),
         );
-        let candidate_count = candidates
-            .iter()
-            .map(String::as_str)
-            .collect::<HashSet<_>>()
-            .len();
         report["candidate_count"] = Value::from(candidate_count);
         report["scored_candidate_count"] = Value::from(scores.len());
 
@@ -236,6 +243,65 @@ impl LightGbmScores {
             model_status
         );
         Ok(result)
+    }
+
+    fn neutral_for_candidates_at_path(
+        candidates: &[String],
+        reason: &str,
+        path: &str,
+    ) -> Result<Self, String> {
+        let scores = candidates
+            .iter()
+            .cloned()
+            .map(|candidate| (candidate, DEFAULT_SCORE))
+            .collect::<HashMap<_, _>>();
+        let candidate_count = candidates
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>()
+            .len();
+        if scores.len() != candidate_count {
+            return Err(format!(
+                "incomplete neutral candidate score coverage: expected {candidate_count}, scored {}",
+                scores.len()
+            ));
+        }
+        let model_report = serde_json::json!({
+            "model": "LightGBM GBDT regression",
+            "validation": "chronological_80_20_first_observation_of_unseen_candidates",
+            "baseline": "training_median_log_stream_throughput",
+            "ranking_strategy": "neutral_default",
+            "target": "log(stream_throughput_kbps)",
+            "target_unit": "kbps",
+            "accepted": false,
+            "reason": reason,
+            "cutoff_timestamp": null,
+            "speed_samples": 0,
+            "unique_candidates": 0,
+            "unique_timestamps": 0,
+            "train_rows": 0,
+            "holdout_rows": 0,
+            "baseline_log_mae": null,
+            "model_log_mae": null,
+            "relative_mae_improvement": null,
+            "top_20pct_speed_lift": null,
+            "minimum_relative_mae_improvement": 0.01,
+            "minimum_top_20pct_speed_lift": MIN_TOP_QUINTILE_SPEED_LIFT,
+            "candidate_count": candidate_count,
+            "scored_candidate_count": scores.len()
+        });
+        let result = Self {
+            scores,
+            training_rows: 0,
+            trained: false,
+            model_report,
+        };
+        result.save(path)?;
+        Ok(result)
+    }
+
+    pub fn neutral_for_candidates(candidates: &[String], reason: &str) -> Result<Self, String> {
+        Self::neutral_for_candidates_at_path(candidates, reason, DEFAULT_SCORE_PATH)
     }
 
     fn save(&self, path: &str) -> Result<(), String> {
@@ -301,24 +367,25 @@ impl LightGbmScores {
                 }
             }
         }
-        if let Some(expected) = model_report.get("candidate_count").and_then(Value::as_u64) {
-            if expected as usize != scores.len() {
-                return Err(format!(
-                    "incomplete LightGBM candidate score coverage: expected {expected}, found {}",
-                    scores.len()
-                ));
-            }
+        let expected = model_report
+            .get("candidate_count")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "LightGBM score file is missing candidate score coverage metadata".to_string())?;
+        if expected as usize != scores.len() {
+            return Err(format!(
+                "incomplete LightGBM candidate score coverage: expected {expected}, found {}",
+                scores.len()
+            ));
         }
-        if let Some(expected) = model_report
+        let reported_scored = model_report
             .get("scored_candidate_count")
             .and_then(Value::as_u64)
-        {
-            if expected as usize != scores.len() {
-                return Err(format!(
-                    "inconsistent LightGBM scored-candidate count: report says {expected}, score map has {}",
-                    scores.len()
-                ));
-            }
+            .ok_or_else(|| "LightGBM score file is missing scored-candidate count metadata".to_string())?;
+        if reported_scored as usize != scores.len() {
+            return Err(format!(
+                "inconsistent LightGBM scored-candidate count: report says {reported_scored}, score map has {}",
+                scores.len()
+            ));
         }
         Ok(Self {
             scores,
