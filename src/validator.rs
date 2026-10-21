@@ -6690,11 +6690,55 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_accepts_security_provider_suffixes_and_trailing_markers() {
+        for security in ["tls%40freenettir", "tls%3D", "tls...%2520"] {
+            let config = format!(
+                "trojan://password@example.com:443?security={security}&type=tcp"
+            );
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{security}"
+            );
+            assert!(is_cheaply_supported_config(&config), "{security}");
+            assert!(is_light_consumer_compatible(&config), "{security}");
+            let parsed = parse_config(&config).expect("TLS with provider suffix should parse");
+            assert_eq!(parsed["streamSettings"]["security"], "tls", "{security}");
+        }
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_repeated_supported_vless_flow_suffixes() {
+        for (flow, expected) in [
+            (
+                "xtls-rprx-vision-udp443-udp443",
+                "xtls-rprx-vision-udp443",
+            ),
+            (
+                "xtls-rprx-vision-udp443-udp443-udp443",
+                "xtls-rprx-vision-udp443",
+            ),
+        ] {
+            let config = format!(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=tcp&flow={flow}"
+            );
+            assert_eq!(cheap_compatibility_rejection_reason(&config), None, "{flow}");
+            assert!(is_light_consumer_compatible(&config), "{flow}");
+            let parsed = parse_config(&config).expect("recognized duplicated flow should parse");
+            assert_eq!(
+                parsed["settings"]["vnext"][0]["users"][0]["flow"],
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn cheap_compatibility_accepts_common_transport_aliases() {
         for (transport, expected) in [
             ("websocket", "ws"),
             ("http-upgrade", "httpupgrade"),
             ("tcp%23provider@oneclickvpnkeys", "raw"),
+            ("tcp:443", "raw"),
             ("tcp@freenettir", "raw"),
             ("tcp?type=tcp", "raw"),
             ("xhttp@freenettir", "xhttp"),
