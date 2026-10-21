@@ -723,7 +723,7 @@ fn normalize_transport(value: &str) -> String {
         .split([',', ';', '|'])
         .map(str::trim)
         .find_map(|candidate| match candidate {
-            "raw" | "tcp" | "none" => Some("raw".to_string()),
+            "raw" | "tcp" => Some("raw".to_string()),
             "ws" | "websocket" => Some("ws".to_string()),
             "http" | "h2" => Some("http".to_string()),
             "grpc" => Some("grpc".to_string()),
@@ -6654,31 +6654,15 @@ mod tests {
     }
 
     #[test]
-    fn none_transport_alias_defaults_to_tcp_for_supported_consumers() {
-        let vless = "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=none";
-        assert_eq!(cheap_compatibility_rejection_reason(vless), None);
-        assert!(is_light_consumer_compatible(vless));
+    fn cheap_compatibility_rejects_vless_none_transport() {
+        let config =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=none";
         assert_eq!(
-            parse_config(vless).unwrap()["streamSettings"]["network"],
-            "raw"
+            cheap_compatibility_rejection_reason(config),
+            Some("unsupported-transport")
         );
-
-        let payload = serde_json::json!({
-            "v": "2",
-            "add": "example.com",
-            "port": "443",
-            "id": "00000000-0000-0000-0000-000000000001",
-            "net": "none",
-            "type": "none",
-            "tls": ""
-        });
-        let vmess = format!("vmess://{}", STANDARD.encode(payload.to_string()));
-        assert_eq!(cheap_compatibility_rejection_reason(&vmess), None);
-        assert!(is_light_consumer_compatible(&vmess));
-        assert_eq!(
-            parse_config(&vmess).unwrap()["streamSettings"]["network"],
-            "raw"
-        );
+        assert!(!is_cheaply_supported_config(config));
+        assert!(!is_light_consumer_compatible(config));
     }
 
     #[test]
@@ -6938,14 +6922,14 @@ mod tests {
     }
 
     #[test]
-    fn cheap_compatibility_accepts_vmess_none_transport_as_tcp_default() {
+    fn cheap_compatibility_rejects_vmess_none_transport() {
         let config = "vmess://eyJ2IjoiMiIsInBzIjoiIiwiYWRkIjoiZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJhaWQiOiIwIiwibmV0Ijoibm9uZSJ9";
-        assert_eq!(cheap_compatibility_rejection_reason(config), None);
-        assert!(is_cheaply_supported_config(config));
-        assert!(is_light_consumer_compatible(config));
-        let parsed = parse_config(config).expect("VMess none network should use TCP");
-        assert_eq!(parsed["streamSettings"]["network"], "raw");
-        assert!(is_locally_supported_config(config));
+        assert_eq!(
+            cheap_compatibility_rejection_reason(config),
+            Some("unsupported-vmess-transport")
+        );
+        assert!(!is_cheaply_supported_config(config));
+        assert!(!is_light_consumer_compatible(config));
     }
 
     #[test]
