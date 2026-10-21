@@ -370,7 +370,9 @@ impl LightGbmScores {
         let expected = model_report
             .get("candidate_count")
             .and_then(Value::as_u64)
-            .ok_or_else(|| "LightGBM score file is missing candidate score coverage metadata".to_string())?;
+            .ok_or_else(|| {
+                "LightGBM score file is missing candidate score coverage metadata".to_string()
+            })?;
         if expected as usize != scores.len() {
             return Err(format!(
                 "incomplete LightGBM candidate score coverage: expected {expected}, found {}",
@@ -380,7 +382,9 @@ impl LightGbmScores {
         let reported_scored = model_report
             .get("scored_candidate_count")
             .and_then(Value::as_u64)
-            .ok_or_else(|| "LightGBM score file is missing scored-candidate count metadata".to_string())?;
+            .ok_or_else(|| {
+                "LightGBM score file is missing scored-candidate count metadata".to_string()
+            })?;
         if reported_scored as usize != scores.len() {
             return Err(format!(
                 "inconsistent LightGBM scored-candidate count: report says {reported_scored}, score map has {}",
@@ -1709,10 +1713,7 @@ mod tests {
         assert_eq!(neutral.len(), 2);
         assert_eq!(neutral.score("candidate-a"), DEFAULT_SCORE);
         assert_eq!(neutral.score("candidate-b"), DEFAULT_SCORE);
-        assert_eq!(
-            neutral.model_report()["candidate_count"].as_u64(),
-            Some(2)
-        );
+        assert_eq!(neutral.model_report()["candidate_count"].as_u64(), Some(2));
         assert_eq!(
             neutral.model_report()["scored_candidate_count"].as_u64(),
             Some(2)
