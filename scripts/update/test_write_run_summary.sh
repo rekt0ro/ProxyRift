@@ -14,8 +14,9 @@ cat > "$work/proxyrift/light-stats.json" <<'JSON'
   "input_candidates": 20000, "security_rejected": 0, "strict_verified": 300,
   "strict_attempts": 317, "selection_target": 200, "strict_selectable": 200,
   "stability_selectable": 200, "transfer_selectable": 200, "stream_selectable": 200,
-  "selection_shortfall": 0, "transfer_tested": 232, "transfer_passed": 211,
-  "stream_continuity_tested": 211, "stream_continuity_passed": 209, "published": 200,
+  "selection_shortfall": 0, "transfer_stability_tested": 232, "transfer_stability_passed": 220,
+  "transfer_tested": 232, "transfer_passed": 211,
+  "stream_continuity_tested": 232, "stream_continuity_passed": 211, "published": 200,
   "historical_subscription_revisions": 8, "recent_family_keys": 400,
   "fresh_family_target_percent": 70, "score_independent_exploration_percent": 15,
   "published_from_fresh_families": 140, "published_from_recent_families": 60,
@@ -35,11 +36,12 @@ cat > "$work/proxyrift/lightgbm-scores.json" <<'JSON'
     "target": "log(stream_throughput_kbps)", "target_unit": "kbps",
     "accepted": true, "reason": "promoted_after_temporal_speed_validation",
     "cutoff_timestamp": 1800000000, "speed_samples": 1200,
-    "unique_candidates": 1100, "unique_timestamps": 15,
+    "unique_candidates": 1100, "candidate_count": 1, "scored_candidate_count": 1,
+    "unique_timestamps": 15,
     "train_rows": 960, "holdout_rows": 240,
     "model_log_mae": 0.1, "baseline_log_mae": 0.13,
     "relative_mae_improvement": 0.2307692, "top_20pct_speed_lift": 1.24,
-    "minimum_relative_mae_improvement": 0.01, "minimum_top_20pct_speed_lift": 1.0
+    "minimum_relative_mae_improvement": 0.01, "minimum_top_20pct_speed_lift": 1.05
   }
 }
 JSON
@@ -91,8 +93,13 @@ run_summary() {
 run_summary "$tmp/summary.md"
 grep -Fq '| Candidates received | 20,000 |' "$tmp/summary.md"
 grep -Fq '| Strict validation | 300 / 317 |' "$tmp/summary.md"
-grep -Fq '| 10 MiB transfer | 211 / 232 |' "$tmp/summary.md"
-grep -Fq '| Sustained stream | 209 / 211 |' "$tmp/summary.md"
+grep -Fq '| 1 MiB stability | 220 / 232 |' "$tmp/summary.md"
+grep -Fq '| 9 MiB sustained stream | 211 / 232 |' "$tmp/summary.md"
+grep -Fq '| Candidate score coverage | 1 / 1 candidates scored (100.0%; complete) |' "$tmp/summary.md"
+if grep -Fq '| Sustained stream |' "$tmp/summary.md"; then
+  printf '[ERROR] Summary reports the mirrored sustained-stream result as a second independent test.\n' >&2
+  exit 1
+fi
 grep -Fq '| New candidates (not in retained history) | 100 |' "$tmp/summary.md"
 grep -Fq '| Previously known; 24-hour revalidation expired | 60 |' "$tmp/summary.md"
 grep -Fq '| Recently reused (validated within 24 hours) | 40 of 200 (maximum 20%) |' "$tmp/summary.md"
@@ -101,8 +108,15 @@ grep -Fq '| Light published | 200 of 200 target |' "$tmp/summary.md"
 grep -Fq '| Ranking mode | Speed model |' "$tmp/summary.md"
 grep -Fq '| Recent speed data | 1,200 speed measurements in the last 72 hours; 120 new this run; 1,100 candidate identities across 15 timestamps |' "$tmp/summary.md"
 grep -Fq '| Temporal validation split | 960 training rows / 240 holdout rows |' "$tmp/summary.md"
-grep -Fq '| Evaluation | Evaluated — model MAE 0.100 vs baseline 0.130 (23.1% lower); top-20% holdout speed lift 1.24x. |' "$tmp/summary.md"
+grep -Fq '| Evaluation | Evaluated — model MAE 0.100 vs baseline 0.130 (23.1% lower); top-20% holdout speed lift 1.24x (minimum 1.05x). |' "$tmp/summary.md"
 grep -Fq '| Decision | Active |' "$tmp/summary.md"
+# Candidate coverage must be explicit rather than assuming every candidate got a score.
+jq '.model_report.candidate_count = 1200 | .model_report.scored_candidate_count = 1' "$work/proxyrift/lightgbm-scores.json" > "$tmp/partial-coverage-scores.json"
+cp "$tmp/partial-coverage-scores.json" "$work/proxyrift/lightgbm-scores.json"
+run_summary "$tmp/partial-coverage-summary.md"
+grep -Fq '| Candidate score coverage | 1 / 1,200 candidates scored (0.1%; 1,199 missing) |' "$tmp/partial-coverage-summary.md"
+jq '.model_report.candidate_count = 1 | .model_report.scored_candidate_count = 1' "$work/proxyrift/lightgbm-scores.json" > "$tmp/full-coverage-scores.json"
+cp "$tmp/full-coverage-scores.json" "$work/proxyrift/lightgbm-scores.json"
 grep -Fq '| All | 1 |' "$tmp/summary.md"
 grep -Fq '| Light | 1 |' "$tmp/summary.md"
 
@@ -149,12 +163,27 @@ jq '
 ' "$work/proxyrift/lightgbm-scores.json" > "$tmp/rejected-scores.json"
 cp "$tmp/rejected-scores.json" "$work/proxyrift/lightgbm-scores.json"
 run_summary "$tmp/rejected-summary.md"
-grep -Fq '| Evaluation | Evaluated — model MAE 0.125 vs baseline 0.120 (4.2% higher); top-20% holdout speed lift 1.08x. |' "$tmp/rejected-summary.md"
+grep -Fq '| Evaluation | Evaluated — model MAE 0.125 vs baseline 0.120 (4.2% higher); top-20% holdout speed lift 1.08x (minimum 1.05x). |' "$tmp/rejected-summary.md"
 grep -Fq '| Decision | Not enabled — MAE did not improve on the temporal baseline by at least 1% |' "$tmp/rejected-summary.md"
 if grep -Fq 'Not evaluated — insufficient speed samples' "$tmp/rejected-summary.md"; then
   printf '[ERROR] Rejected, measured model was incorrectly described as having insufficient data.\n' >&2
   exit 1
 fi
+
+jq '
+  .trained = false
+  | .model_report.ranking_strategy = "historical_stream_speed_prior_fallback"
+  | .model_report.accepted = false
+  | .model_report.reason = "top_20pct_speed_lift_below_minimum"
+  | .model_report.model_log_mae = 0.08
+  | .model_report.baseline_log_mae = 0.12
+  | .model_report.relative_mae_improvement = 0.3333333
+  | .model_report.top_20pct_speed_lift = 1.02
+' "$work/proxyrift/lightgbm-scores.json" > "$tmp/low-lift-scores.json"
+cp "$tmp/low-lift-scores.json" "$work/proxyrift/lightgbm-scores.json"
+run_summary "$tmp/low-lift-summary.md"
+grep -Fq '| Evaluation | Evaluated — model MAE 0.080 vs baseline 0.120 (33.3% lower); top-20% holdout speed lift 1.02x (minimum 1.05x). |' "$tmp/low-lift-summary.md"
+grep -Fq '| Decision | Not enabled — top-20% holdout speed lift did not reach the required 1.05x minimum |' "$tmp/low-lift-summary.md"
 
 if grep -Eq 'stream_speed_regression|training_prevalence_brier|Brier score|Strict model:|End-to-end model:|model_log_mae|selected_strategy' "$tmp/summary.md"; then
   printf '[ERROR] Summary still contains legacy pass-fail model output.\n' >&2
