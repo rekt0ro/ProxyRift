@@ -7053,7 +7053,11 @@ mod tests {
             });
             let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
 
-            assert_eq!(cheap_compatibility_rejection_reason(&config), None, "{network}");
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{network}"
+            );
             assert!(is_cheaply_supported_config(&config), "{network}");
             assert!(is_light_consumer_compatible(&config), "{network}");
             let parsed =
