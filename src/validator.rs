@@ -6655,8 +6655,7 @@ mod tests {
 
     #[test]
     fn cheap_compatibility_rejects_vless_none_transport() {
-        let config =
-            "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=none";
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=none";
         assert_eq!(
             cheap_compatibility_rejection_reason(config),
             Some("unsupported-transport")
