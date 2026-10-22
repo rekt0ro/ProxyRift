@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          labels=("dependencies")
+          labels=()
 
           if ! git diff --quiet -- .python-version; then
             labels+=("python")
@@ -93,6 +93,10 @@ jobs:
           fi
           if grep -Eq '^[+-][[:space:]]*MIHOMO_(VERSION|SHA256|ASSET)_PIN:' <<< "${pin_diff}"; then
             labels+=("mihomo")
+          fi
+
+          if ((${#labels[@]} > 0)); then
+            labels=("dependencies" "${labels[@]}")
           fi
 
           {
