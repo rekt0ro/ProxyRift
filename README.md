@@ -56,7 +56,7 @@ Hysteria v1 and WireGuard are not included in Light. WireGuard entries may appea
 
 Clash/Mihomo exports may omit configs the exporter cannot represent, including TUIC and SOCKS4/4a entries. All sing-box may also contain fewer entries than its plain-text list when configs cannot be mapped faithfully. Light sing-box output is published only when every Light entry can be converted successfully.
 
-## Security and Trust
+## Security
 
 ProxyRift validates proxy compatibility, connectivity, and performance. It does not operate or independently audit the proxy servers it collects.
 
