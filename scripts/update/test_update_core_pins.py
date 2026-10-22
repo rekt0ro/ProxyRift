@@ -48,12 +48,10 @@ class CorePinUpdaterTests(unittest.TestCase):
             ),
             "ruby": release("v4.5.6"),
         }
-        ruby_version, action, validation = build_updates(releases)
+        ruby_version, action = build_updates(releases)
         self.assertEqual(ruby_version, "4.5.6")
         self.assertEqual(action["SINGBOX_ASSET_PIN"], "sing-box-2.3.4-linux-amd64.tar.gz")
         self.assertEqual(action["MIHOMO_SHA256_PIN"], "3" * 64)
-        self.assertEqual(validation["MIHOMO_VERSION"], "3.4.5")
-        self.assertEqual(validation["MIHOMO_SHA256"], action["MIHOMO_SHA256_PIN"])
 
     def test_atomic_write_preserves_file_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
