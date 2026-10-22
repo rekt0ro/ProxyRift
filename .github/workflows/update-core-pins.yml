@@ -133,6 +133,8 @@ jobs:
           singbox_sha="$(printf '%s' "$singbox_digest" | cut -d: -f2)"
           mihomo_sha="$(printf '%s' "$mihomo_digest" | cut -d: -f2)"
 
+          RUBY_VERSION_PIN="$ruby_version" python3 scripts/update/pin_ruby_version.py .ruby-version
+
           XRAY_VERSION_PIN="$xray_version" \
           XRAY_SHA256_PIN="$xray_sha" \
           XRAY_ASSET_PIN="$xray_asset" \
@@ -160,11 +162,6 @@ jobs:
               "MIHOMO_SHA256_PIN": os.environ["MIHOMO_SHA256_PIN"],
               "MIHOMO_ASSET_PIN": os.environ["MIHOMO_ASSET_PIN"],
           }
-          ruby_version_path = Path(".ruby-version")
-          current_ruby_version = ruby_version_path.read_text(encoding="utf-8")
-          if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_ruby_version) is None:
-              raise SystemExit(".ruby-version must contain exactly one stable X.Y.Z version")
-          ruby_version_path.write_text(os.environ["RUBY_VERSION_PIN"] + "\n", encoding="utf-8")
           validation_path = Path(".github/workflows/validate.yml")
           validation_values = {
               "MIHOMO_VERSION": os.environ["MIHOMO_VERSION_PIN"],
