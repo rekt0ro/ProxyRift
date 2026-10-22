@@ -118,19 +118,19 @@ grep -Fq "maximum is 200" "$tmp/watchdog-max.log"
 # Restore the 50-entry source so the structural-validation regression reaches
 # the rendered Clash output check rather than stopping at the size guard.
 for ((i = 1; i <= 50; i++)); do
-  printf 'vless://light-%s@example.net:443\\n' "$i"
+  printf 'vless://light-%s@example.net:443\n' "$i"
 done > "$fixtures/light.txt"
 sed -i '/server: example.com/d' "$fixtures/light-clash.yaml"
 
-if WATCHDOG_FIXTURES="$fixtures" \\
-  PATH="$bin:$PATH" \\
-  GH_REPOSITORY="rekt0ro/ProxyRift" \\
-  EVENT_NAME="workflow_run" \\
-  EVENT_PATH="$tmp/event.json" \\
-  GITHUB_STEP_SUMMARY="$tmp/summary-invalid-clash.md" \\
-  GH_TOKEN="test-token" \\
-  GITHUB_SHA="fixture-sha" \\
-  WATCHDOG_CURL_LOG="$tmp/curl-invalid-clash.log" \\
+if WATCHDOG_FIXTURES="$fixtures" \
+  PATH="$bin:$PATH" \
+  GH_REPOSITORY="rekt0ro/ProxyRift" \
+  EVENT_NAME="workflow_run" \
+  EVENT_PATH="$tmp/event.json" \
+  GITHUB_STEP_SUMMARY="$tmp/summary-invalid-clash.md" \
+  GH_TOKEN="test-token" \
+  GITHUB_SHA="fixture-sha" \
+  WATCHDOG_CURL_LOG="$tmp/curl-invalid-clash.log" \
   bash "$repo_root/scripts/autopilot/watchdog.sh" >"$tmp/watchdog-invalid-clash.log" 2>&1; then
   echo "[ERROR] Watchdog accepted a Clash proxy with a missing server." >&2
   exit 1
