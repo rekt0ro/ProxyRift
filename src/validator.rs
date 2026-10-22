@@ -15,9 +15,7 @@ use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout};
 use url::{Host, Url};
 
-pub const PRIMARY_TARGET: &str = "https://www.google.com/generate_204";
-pub const CLOUDFLARE_HTTP_TARGET: &str = "http://cp.cloudflare.com/";
-pub const CONNECTIVITY_TARGETS: &[&str] = &[PRIMARY_TARGET, CLOUDFLARE_HTTP_TARGET];
+pub const PRIMARY_TARGET: &str = "http://cp.cloudflare.com/";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speedtest2.serverius.net/files/100mb.bin";
 pub const LINODE_SPEEDTEST_100MB_TARGET: &str =
     "https://speedtest.newark.linode.com/100MB-newark.bin";
@@ -3829,7 +3827,7 @@ fn client_for_port(
 }
 
 fn valid_probe_status(url: &Url, status: u16) -> bool {
-    (url.as_str() != PRIMARY_TARGET && url.as_str() != CLOUDFLARE_HTTP_TARGET) || status == 204
+    url.as_str() != PRIMARY_TARGET || status == 204
 }
 
 pub(crate) fn throughput_bytes_for_target(url: &str) -> Option<usize> {
@@ -5942,15 +5940,11 @@ mod tests {
     }
 
     #[test]
-    fn connectivity_probes_require_http_204() {
+    fn primary_probe_is_cloudflare_and_requires_http_204() {
+        assert_eq!(PRIMARY_TARGET, "http://cp.cloudflare.com/");
         let primary = Url::parse(PRIMARY_TARGET).expect("primary target should parse");
         assert!(valid_probe_status(&primary, 204));
         assert!(!valid_probe_status(&primary, 200));
-
-        let cloudflare = Url::parse(CLOUDFLARE_HTTP_TARGET).expect("Cloudflare target should parse");
-        assert!(valid_probe_status(&cloudflare, 204));
-        assert!(!valid_probe_status(&cloudflare, 200));
-        assert!(CONNECTIVITY_TARGETS.contains(&CLOUDFLARE_HTTP_TARGET));
 
         let other = Url::parse("https://example.com/").expect("example target should parse");
         assert!(valid_probe_status(&other, 200));
