@@ -1991,7 +1991,7 @@ async fn fill_transfer_stability_gate(
             "[INFO] [1 MiB] {}/{} Passed the initial transfer probe | Batch: {}ms | Stable pool: {} | Transfer pipeline: active",
             batch_passed,
             batch.len(),
-            batch_elapsed,
+            batch_elapsed_ms,
             stability_verified.len()
         );
     }
