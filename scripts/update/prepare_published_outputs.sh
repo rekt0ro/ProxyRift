@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/../.." && pwd)"
+
 minimum_light="${LIGHT_MIN_PUBLISH:-50}"
 minimum_all="${ALL_MIN_PUBLISH:-1000}"
 maximum_light="${LIGHT_SELECTION_LIMIT:-200}"
@@ -83,7 +86,7 @@ PY
     exit 1
   fi
 
-  if ! ruby scripts/update/validate_clash_output.rb "subscriptions/$name-clash.yaml"; then
+  if ! ruby "$repo_root/scripts/update/validate_clash_output.rb" "subscriptions/$name-clash.yaml"; then
     echo "[ERROR] Clash/Mihomo output failed structural validation: subscriptions/$name-clash.yaml" >&2
     exit 1
   fi
