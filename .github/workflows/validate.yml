@@ -74,6 +74,26 @@ jobs:
             puts "Validated #{paths.length} workflow/action YAML files."
           '
 
+      - name: Validate core-pin updater Python syntax
+        run: |
+          python3 - <<'PY'
+          import re
+          import textwrap
+          from pathlib import Path
+
+          path = Path(".github/workflows/update-core-pins.yml")
+          workflow = path.read_text(encoding="utf-8")
+          match = re.search(
+              r"(?ms)^[ \\t]*python3 - <<'PY'\\n(.*?)^[ \\t]*PY[ \\t]*$",
+              workflow,
+          )
+          if match is None:
+              raise SystemExit("Cannot find the core-pin updater Python block")
+          source = textwrap.dedent(match.group(1))
+          compile(source, str(path), "exec")
+          print("Core-pin updater Python syntax is valid.")
+          PY
+
       - name: Test publication quality gate
         run: bash scripts/autopilot/test_publication_gate.sh
 
