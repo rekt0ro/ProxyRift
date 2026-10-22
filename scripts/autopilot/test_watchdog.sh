@@ -31,8 +31,8 @@ for name in ("all", "light"):
         '{"outbounds":[{"type":"direct","tag":"direct"}]}\n', encoding="utf-8"
     )
     (root / f"{name}-clash.yaml").write_text(
-        'proxies:\n - name: "test proxy"\n type: socks5\n'
-        ' server: example.com\n port: 1080\n', encoding="utf-8"
+        'proxies:\n  - name: "test proxy"\n    type: socks5\n'
+        '    server: example.com\n    port: 1080\n', encoding="utf-8"
     )
 PY
 
@@ -114,6 +114,29 @@ if WATCHDOG_FIXTURES="$fixtures" \
   exit 1
 fi
 grep -Fq "maximum is 200" "$tmp/watchdog-max.log"
+
+# Restore the 50-entry source so the structural-validation regression reaches
+# the rendered Clash output check rather than stopping at the size guard.
+for ((i = 1; i <= 50; i++)); do
+  printf 'vless://light-%s@example.net:443\\n' "$i"
+done > "$fixtures/light.txt"
+sed -i '/server: example.com/d' "$fixtures/light-clash.yaml"
+
+if WATCHDOG_FIXTURES="$fixtures" \\
+  PATH="$bin:$PATH" \\
+  GH_REPOSITORY="rekt0ro/ProxyRift" \\
+  EVENT_NAME="workflow_run" \\
+  EVENT_PATH="$tmp/event.json" \\
+  GITHUB_STEP_SUMMARY="$tmp/summary-invalid-clash.md" \\
+  GH_TOKEN="test-token" \\
+  GITHUB_SHA="fixture-sha" \\
+  WATCHDOG_CURL_LOG="$tmp/curl-invalid-clash.log" \\
+  bash "$repo_root/scripts/autopilot/watchdog.sh" >"$tmp/watchdog-invalid-clash.log" 2>&1; then
+  echo "[ERROR] Watchdog accepted a Clash proxy with a missing server." >&2
+  exit 1
+fi
+grep -Fq "proxies[0].server must be a non-empty string" "$tmp/watchdog-invalid-clash.log"
+echo "[OK] Watchdog rejects structurally invalid published Clash proxies."
 
 retry_bin="$tmp/retry-bin"
 mkdir -p "$retry_bin"
