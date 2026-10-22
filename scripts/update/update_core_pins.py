@@ -165,12 +165,7 @@ def build_updates(releases):
         ),
         "MIHOMO_ASSET_PIN": mihomo_asset,
     }
-    validation_values = {
-        "MIHOMO_VERSION": mihomo_version,
-        "MIHOMO_SHA256": action_values["MIHOMO_SHA256_PIN"],
-        "MIHOMO_ASSET": mihomo_asset,
-    }
-    return ruby_version, action_values, validation_values
+    return ruby_version, action_values
 
 
 def main():
@@ -188,19 +183,13 @@ def main():
         name: fetch_release(repository, token)
         for name, repository in repositories.items()
     }
-    ruby_version, action_values, validation_values = build_updates(releases)
+    ruby_version, action_values = build_updates(releases)
 
     action_path = ROOT / ".github/actions/prepare-update/action.yml"
-    validation_path = ROOT / ".github/workflows/validate.yml"
     ruby_path = ROOT / ".ruby-version"
 
     action_content = replace_pins(
         action_path.read_text(encoding="utf-8"), action_values, action_path
-    )
-    validation_content = replace_pins(
-        validation_path.read_text(encoding="utf-8"),
-        validation_values,
-        validation_path,
     )
     current_ruby = ruby_path.read_text(encoding="utf-8")
     if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_ruby) is None:
@@ -219,7 +208,6 @@ def main():
         check=True,
     )
     write_atomically(action_path, action_content)
-    write_atomically(validation_path, validation_content)
 
     print(
         f"Resolved Xray {action_values['XRAY_VERSION_PIN']}, "
