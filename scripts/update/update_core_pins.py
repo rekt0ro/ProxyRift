@@ -279,7 +279,135 @@ def fetch_release_by_tag(repository, tag, token):
 
 def pinned_value(content, key, path):
     pattern = re.compile(
-        rf'(?m)^[ \t]*{re.escape(key)}:[ \t]*"([^"\r\n]*)"[ \t]*    for key, value in values.items():
+        rf'(?m)^[ \t]*{re.escape(key)}:[ \t]*"([^"\r\n]*)"[ \t]*$'
+    )
+    matches = pattern.findall(content)
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one {key} pin in {path}, found {len(matches)}")
+    return matches[0]
+
+
+def python_release_url(version):
+    compact_version = version.replace(".", "")
+    return f"https://www.python.org/downloads/release/python-{compact_version}/"
+
+
+def release_notes_url(component, version, release):
+    release_tag = release.get("tag_name") if isinstance(release, dict) else None
+    release_url = release.get("html_url") if isinstance(release, dict) else None
+    if (
+        isinstance(release_url, str)
+        and release_url.startswith("https://")
+        and release_tag in (f"v{version}", version)
+    ):
+        return release_url
+    if component == "Python":
+        return python_release_url(version)
+    repository = RELEASE_REPOSITORIES[component]
+    return f"https://github.com/{repository}/releases/tag/v{version}"
+
+
+def release_note_excerpt(body, limit=2400):
+    if not isinstance(body, str):
+        return ""
+    body = body.strip()
+    if len(body) <= limit:
+        return body
+    cutoff = body.rfind("\n", 0, limit)
+    if cutoff < limit // 2:
+        cutoff = limit
+    return body[:cutoff].rstrip() + "\n\n_Release notes excerpt shortened; see the official release link above for the complete notes._"
+
+
+def build_pr_description(previous_versions, current_versions, release_metadata):
+    components = ("Python", "Ruby", "Xray-core", "sing-box", "Mihomo")
+    changed = [
+        (name, previous_versions[name], current_versions[name])
+        for name in components
+        if previous_versions[name] != current_versions[name]
+    ]
+    if changed:
+        title_parts = [
+            f"{name} {old} → {new}"
+            for name, old, new in changed
+        ]
+        title = f"chore: update {', '.join(title_parts)}"
+        if len(title) > 110:
+            title = f"chore: update {len(changed)} core/runtime pins"
+    else:
+        title = "chore: update core and runtime versions"
+
+    mark = chr(96)
+    lines = [
+        "## Updates",
+        "",
+        "| Component | Previous | Updated | Changelog |",
+        "| --- | --- | --- | --- |",
+    ]
+    for name, old, new in changed:
+        release = release_metadata.get(name, {})
+        notes_url = release_notes_url(name, new, release)
+        if name == "Python":
+            old_link = python_release_url(old)
+            changelog = f"[Release notes]({notes_url}) · [Previous release]({old_link})"
+        else:
+            repository = RELEASE_REPOSITORIES[name]
+            compare_url = (
+                f"https://github.com/{repository}/compare/v{old}...v{new}"
+            )
+            changelog = (
+                f"[Release notes]({notes_url}) · "
+                f"[Full changelog]({compare_url})"
+            )
+        lines.append(
+            f"| {name} | {mark}{old}{mark} | {mark}{new}{mark} | {changelog} |"
+        )
+
+    if not changed:
+        lines.extend(["", "No pinned versions changed."])
+    else:
+        lines.extend(["", "## Release notes"])
+        for name, old, new in changed:
+            release = release_metadata.get(name, {})
+            notes_url = release_notes_url(name, new, release)
+            lines.extend(
+                [
+                    "",
+                    f"### {name} {new}",
+                    "",
+                    f"[Official release notes]({notes_url})",
+                ]
+            )
+            excerpt = release_note_excerpt(release.get("body"))
+            if excerpt:
+                lines.extend(["", excerpt])
+
+    lines.extend(
+        [
+            "",
+            "Versions and release notes are collected from official upstream sources. "
+            "Core release asset names and SHA-256 digests are validated before pins "
+            "are changed; CI validates the resulting updates.",
+        ]
+    )
+    return title, "\n".join(lines).rstrip() + "\n"
+
+
+def write_pr_metadata(title, body):
+    body_path = os.environ.get("CORE_PIN_PR_BODY_PATH")
+    if body_path:
+        target = Path(body_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as output:
+            output.write(f"pr_title={title}\n")
+
+
+def replace_pins(content, values, path):
+    for key, value in values.items():
         pattern = re.compile(
             rf'(?m)^([ \t]*{re.escape(key)}:[ \t]*)"[^"\r\n]*"[ \t]*$'
         )
