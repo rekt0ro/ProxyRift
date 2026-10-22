@@ -124,6 +124,7 @@ class CorePinUpdaterTests(unittest.TestCase):
         self.assertIn("Fixed a connection issue.", body)
         self.assertNotIn("| Python |", body)
         self.assertNotIn("Python 3.15.1", body)
+        self.assertNotIn("Versions and release notes are collected", body)
 
     def test_pr_description_links_python_release_notes_and_previous_version(self):
         previous = {

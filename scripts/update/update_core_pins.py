@@ -394,14 +394,6 @@ def build_pr_description(previous_versions, current_versions, release_metadata):
             if excerpt:
                 lines.extend(["", excerpt])
 
-    lines.extend(
-        [
-            "",
-            "Versions and release notes are collected from official upstream sources. "
-            "Core release asset names and SHA-256 digests are validated before pins "
-            "are changed; CI validates the resulting updates.",
-        ]
-    )
     return title, "\n".join(lines).rstrip() + "\n"
 
 
