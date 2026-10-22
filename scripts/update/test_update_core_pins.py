@@ -114,7 +114,7 @@ class CorePinUpdaterTests(unittest.TestCase):
 
         self.assertEqual(
             title,
-            "chore: update Ruby 4.0.7 → 4.0.8, Mihomo 1.19.32 → 1.19.33",
+            "Bump the core/runtime group with 2 updates",
         )
         mark = chr(96)
         self.assertIn(f"| Ruby | {mark}4.0.7{mark} | {mark}4.0.8{mark} |", body)
@@ -137,7 +137,7 @@ class CorePinUpdaterTests(unittest.TestCase):
 
         title, body = build_pr_description(previous, current, {})
 
-        self.assertEqual(title, "chore: update Python 3.14.9 → 3.15.1")
+        self.assertEqual(title, "Bump python from 3.14.9 to 3.15.1")
         self.assertIn(
             "https://www.python.org/downloads/release/python-3151/",
             body,
@@ -146,6 +146,34 @@ class CorePinUpdaterTests(unittest.TestCase):
             "https://www.python.org/downloads/release/python-3149/",
             body,
         )
+
+    def test_uses_dependabot_style_group_title_for_toolchain_updates(self):
+        previous = {
+            "Python": "3.14.9",
+            "Ruby": "4.0.7",
+            "Xray-core": "26.3.26",
+            "sing-box": "1.14.3",
+            "Mihomo": "1.19.32",
+        }
+        current = dict(previous, **{"Python": "3.15.1", "Ruby": "4.0.8"})
+
+        title, _ = build_pr_description(previous, current, {})
+
+        self.assertEqual(title, "Bump the toolchain group with 2 updates")
+
+    def test_uses_dependabot_style_group_title_for_core_updates(self):
+        previous = {
+            "Python": "3.14.9",
+            "Ruby": "4.0.7",
+            "Xray-core": "26.3.26",
+            "sing-box": "1.14.3",
+            "Mihomo": "1.19.32",
+        }
+        current = dict(previous, **{"Xray-core": "26.3.27", "Mihomo": "1.19.33"})
+
+        title, _ = build_pr_description(previous, current, {})
+
+        self.assertEqual(title, "Bump the core group with 2 updates")
 
     def test_release_note_excerpt_is_bounded(self):
         excerpt = update_core_pins.release_note_excerpt("A" * 4000, limit=200)
