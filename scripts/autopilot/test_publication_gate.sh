@@ -125,7 +125,7 @@ run_gate() {
 }
 
 run_gate_production_all_min() {
-  (cd "$work" && SINGBOX_BINARY="$bin/sing-box" LIGHT_MIN_PUBLISH=50 bash "$repo_root/scripts/update/prepare_published_outputs.sh")
+  (cd "$work" && SINGBOX_BINARY="$bin/sing-box" MIHOMO_BINARY="$bin/mihomo" LIGHT_MIN_PUBLISH=50 bash "$repo_root/scripts/update/prepare_published_outputs.sh")
 }
 
 make_outputs 50
