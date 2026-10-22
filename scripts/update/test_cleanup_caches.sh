@@ -18,7 +18,7 @@ if ! output="$(
   CLEANUP_GH_LOG="$tmp/gh.log" \
   GH_TOKEN="test-token" GH_REPO="rekt0ro/ProxyRift" \
   RUNNER_OS_NAME="Linux" RUNNER_ARCH_NAME="X64" \
-  RUST_TOOLCHAIN_KEY="" REGISTRY_KEY="" BUILD_KEY="" XRAY_KEY="" SINGBOX_KEY="" \
+  RUST_TOOLCHAIN_KEY="" REGISTRY_KEY="" BUILD_KEY="" XRAY_KEY="" SINGBOX_KEY="" MIHOMO_KEY="" \
   bash scripts/update/cleanup_caches.sh 2>&1
 )"; then
   printf '%s\n' "$output" >&2
@@ -27,9 +27,9 @@ if ! output="$(
 fi
 
 skipped="$(grep -Foc '[WARN] Skipping obsolete-cache cleanup' <<< "$output" || true)"
-if [[ "$skipped" -ne 5 ]]; then
+if [[ "$skipped" -ne 6 ]]; then
   printf '%s\n' "$output" >&2
-  echo "[ERROR] Expected all five cache prefixes to be safely skipped." >&2
+  echo "[ERROR] Expected all six cache prefixes to be safely skipped." >&2
   exit 1
 fi
 if [[ -e "$tmp/gh.log" ]]; then

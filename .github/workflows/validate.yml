@@ -12,6 +12,7 @@ on:
       - ".github/actions/**"
       - ".github/dependabot.yml"
       - ".gitignore"
+      - ".ruby-version"
       - "scripts/**"
   pull_request:
     paths:
@@ -22,6 +23,7 @@ on:
       - ".github/actions/**"
       - ".github/dependabot.yml"
       - ".gitignore"
+      - ".ruby-version"
       - "scripts/**"
   workflow_dispatch:
 
@@ -35,6 +37,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+
+      - name: Verify Ruby version pin
+        run: |
+          ruby --version
+          ruby -e 'abort "Ruby version does not match .ruby-version" unless RUBY_VERSION == File.read(".ruby-version").strip'
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -63,6 +73,36 @@ jobs:
 
       - name: Shell syntax check
         run: for script in scripts/*.sh scripts/update/*.sh scripts/autopilot/*.sh; do bash -n "$script" || exit 1; done
+
+      - name: Validate workflow and composite-action YAML
+        run: |
+          ruby -e '
+            require "yaml"
+            paths = Dir.glob(".github/workflows/*.yml") + Dir.glob(".github/actions/**/*.yml")
+            abort "No workflow or action YAML files found" if paths.empty?
+            paths.each { |path| YAML.parse_file(path) }
+            puts "Validated #{paths.length} workflow/action YAML files."
+          '
+
+      - name: Validate core-pin updater Python syntax
+        run: |
+          python3 - <<'PY'
+          import re
+          import textwrap
+          from pathlib import Path
+
+          path = Path(".github/workflows/update-core-pins.yml")
+          workflow = path.read_text(encoding="utf-8")
+          match = re.search(
+              r"(?ms)^[ \t]*python3 - <<'PY'\n(.*?)^[ \t]*PY[ \t]*$",
+              workflow,
+          )
+          if match is None:
+              raise SystemExit("Cannot find the core-pin updater Python block")
+          source = textwrap.dedent(match.group(1))
+          compile(source, str(path), "exec")
+          print("Core-pin updater Python syntax is valid.")
+          PY
 
       - name: Test publication quality gate
         run: bash scripts/autopilot/test_publication_gate.sh
@@ -93,11 +133,46 @@ jobs:
           JSON
           "$HOME/.local/bin/sing-box" check -c "$config"
 
+      - name: Validate published sing-box exports with sing-box
+        run: |
+          "$HOME/.local/bin/sing-box" check -c subscriptions/light-singbox.json
+          "$HOME/.local/bin/sing-box" check -c subscriptions/all-singbox.json
+
+      - name: Install pinned Mihomo core for Clash export validation
+        env:
+          MIHOMO_REPOSITORY: "MetaCubeX/mihomo"
+          MIHOMO_VERSION: "1.19.32"
+          MIHOMO_SHA256: "8451100836c9eda194331c2babfad490b2faf30cebc1a04b0e76fd8ac2d35d10"
+          MIHOMO_ASSET: "mihomo-linux-amd64-v1.19.32.gz"
+        run: bash scripts/update/install_mihomo.sh
+
+      - name: Smoke-test Mihomo validation on Clash proxy output
+        shell: bash
+        run: |
+          config="$(mktemp)"
+          trap 'rm -f "$config"' EXIT
+          cat > "$config" <<'YAML'
+          proxies:
+            - name: "ProxyRift validation smoke test"
+              type: socks5
+              server: 127.0.0.1
+              port: 1080
+          YAML
+          "$HOME/.local/bin/mihomo" -t -f "$config"
+
+      - name: Validate published Clash exports with Mihomo
+        run: |
+          "$HOME/.local/bin/mihomo" -t -f subscriptions/light-clash.yaml
+          "$HOME/.local/bin/mihomo" -t -f subscriptions/all-clash.yaml
+
       - name: Test watchdog output validation and cleanup
         run: bash scripts/autopilot/test_watchdog.sh
 
       - name: Test source-sensitive build cache keys
         run: bash scripts/update/test_compute_cache_keys.sh
+
+      - name: Test Ruby version pin updates
+        run: bash scripts/update/test_pin_ruby_version.sh
 
       - name: Test pinned core release validation
         run: bash scripts/update/test_resolve_validation_cores.sh

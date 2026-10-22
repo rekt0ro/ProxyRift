@@ -7,7 +7,14 @@ def reject(message)
   exit 1
 end
 
-path = ARGV.fetch(0) { reject("usage: validate_clash_output.rb <output.yaml>") }
+count_only = ARGV.first == "--count"
+ARGV.shift if count_only
+
+unless ARGV.length == 1
+  reject("usage: validate_clash_output.rb [--count] <output.yaml>")
+end
+
+path = ARGV.fetch(0)
 
 begin
   document = YAML.safe_load(File.read(path, encoding: "UTF-8"), aliases: false)
@@ -42,4 +49,8 @@ proxies.each_with_index do |proxy, index|
   end
 end
 
-puts "[OK] [Clash/Mihomo] Structurally valid | #{path} | Proxies: #{proxies.length}"
+if count_only
+  puts proxies.length
+else
+  puts "[OK] [Clash/Mihomo] Structurally valid | #{path} | Proxies: #{proxies.length}"
+end

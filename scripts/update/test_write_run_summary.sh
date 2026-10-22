@@ -83,7 +83,7 @@ run_summary() {
     GITHUB_RUN_ID="1" GITHUB_RUN_NUMBER="1" \
     JOB_STATUS="success" DISCOVERY_OUTCOME="success" COLLECT_OUTCOME="success" \
     LIGHT_OUTCOME="success" GENERATION_OUTCOME="success" PREPARE_OUTCOME="success" \
-    PUBLISH_OUTCOME="success" XRAY_VERSION="test" SINGBOX_VERSION="test" \
+    PUBLISH_OUTCOME="success" XRAY_VERSION="test" SINGBOX_VERSION="test" MIHOMO_VERSION="test" \
     GITHUB_STEP_SUMMARY="$output" \
     bash "$repo_root/scripts/update/write_run_summary.sh"
   )
@@ -110,6 +110,8 @@ grep -Fq '| Recent speed data | 1,200 speed measurements in the last 72 hours; 1
 grep -Fq '| Temporal validation split | 960 training rows / 240 holdout rows |' "$tmp/summary.md"
 grep -Fq '| Evaluation | Evaluated — model MAE 0.100 vs baseline 0.130 (23.1% lower); top-20% holdout speed lift 1.24x (minimum 1.05x). |' "$tmp/summary.md"
 grep -Fq '| Decision | Active |' "$tmp/summary.md"
+grep -Fq '| Xray | sing-box | Mihomo |' "$tmp/summary.md"
+grep -Fq '| test | test | test |' "$tmp/summary.md"
 jq '.model_report.candidate_count = 1200 | .model_report.scored_candidate_count = 1' "$work/proxyrift/lightgbm-scores.json" > "$tmp/partial-coverage-scores.json"
 cp "$tmp/partial-coverage-scores.json" "$work/proxyrift/lightgbm-scores.json"
 run_summary "$tmp/partial-coverage-summary.md"

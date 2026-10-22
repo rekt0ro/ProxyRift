@@ -42,6 +42,20 @@ jq --exit-status '
 SINGBOX
 chmod +x "$bin/sing-box"
 
+cat > "$bin/mihomo" <<'MIHOMO'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" != "-t" || "${2:-}" != "-f" || -z "${3:-}" || ! -s "${3:-}" ]]; then
+  echo "[mock] expected -t -f <config>" >&2
+  exit 2
+fi
+if [[ "${MOCK_MIHOMO_FAIL:-false}" == "true" ]]; then
+  echo "[mock] invalid Clash configuration" >&2
+  exit 1
+fi
+MIHOMO
+chmod +x "$bin/mihomo"
+
 make_outputs() {
   local light_count="$1"
   local all_count="${2:-1}"
@@ -107,16 +121,40 @@ PY
 }
 
 run_gate() {
-  (cd "$work" && SINGBOX_BINARY="$bin/sing-box" LIGHT_MIN_PUBLISH=50 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh")
+  (cd "$work" && SINGBOX_BINARY="$bin/sing-box" MIHOMO_BINARY="$bin/mihomo" LIGHT_MIN_PUBLISH=50 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh")
 }
 
 run_gate_production_all_min() {
-  (cd "$work" && SINGBOX_BINARY="$bin/sing-box" LIGHT_MIN_PUBLISH=50 bash "$repo_root/scripts/update/prepare_published_outputs.sh")
+  (cd "$work" && SINGBOX_BINARY="$bin/sing-box" MIHOMO_BINARY="$bin/mihomo" LIGHT_MIN_PUBLISH=50 bash "$repo_root/scripts/update/prepare_published_outputs.sh")
 }
 
 make_outputs 50
 run_gate >/dev/null
 echo "[OK] Valid generated outputs pass the publication gate."
+
+make_outputs 50
+python3 - "$work/subscriptions" <<'PY'
+import json
+import pathlib
+import sys
+
+directory = pathlib.Path(sys.argv[1])
+(directory / "light-clash.yaml").write_text(
+    'proxies: [{name: "inline proxy", type: vless, server: example.com, port: 443}]\n',
+    encoding="utf-8",
+)
+manifest_path = directory / ".output-counts.json"
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+manifest["light"]["clash"] = 1
+manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+PY
+if ! run_gate >"$tmp/clash-inline.log" 2>&1; then
+  echo "[ERROR] Publication gate rejected valid YAML because its formatting changed." >&2
+  cat "$tmp/clash-inline.log" >&2
+  exit 1
+fi
+grep -Fq "light source: 50 | Clash: 1 (omitted: 49)" "$tmp/clash-inline.log"
+echo "[OK] Clash accounting uses parsed YAML entries, not text layout."
 
 make_outputs 50
 sed -i '/port: 443/d' "$work/subscriptions/light-clash.yaml"
@@ -134,6 +172,14 @@ if MOCK_SINGBOX_FAIL=true run_gate >"$tmp/singbox-check.log" 2>&1; then
 fi
 grep --fixed-strings --quiet "sing-box rejected configuration" "$tmp/singbox-check.log"
 echo "[OK] sing-box core validation failures block publication."
+
+make_outputs 50
+if MOCK_MIHOMO_FAIL=true run_gate >"$tmp/mihomo-check.log" 2>&1; then
+  echo "[ERROR] Publication gate accepted a Clash config rejected by Mihomo." >&2
+  exit 1
+fi
+grep --fixed-strings --quiet "Mihomo rejected Clash configuration" "$tmp/mihomo-check.log"
+echo "[OK] Mihomo validation failures block publication."
 
 make_outputs 201
 if run_gate >"$tmp/light-max.log" 2>&1; then
@@ -225,7 +271,7 @@ grep --quiet "minimum is 50" "$tmp/count.log"
 echo "[OK] Light below the minimum is rejected."
 
 make_outputs 199
-if (cd "$work" && SINGBOX_BINARY="$bin/sing-box" LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >"$tmp/light-target.log" 2>&1; then
+if (cd "$work" && SINGBOX_BINARY="$bin/sing-box" MIHOMO_BINARY="$bin/mihomo" LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >"$tmp/light-target.log" 2>&1; then
   echo "[ERROR] Publication gate accepted Light below the 200-config production target." >&2
   exit 1
 fi
@@ -233,7 +279,7 @@ grep --quiet "minimum is 200" "$tmp/light-target.log"
 echo "[OK] Light below the 200-config target is rejected."
 
 make_outputs 200
-(cd "$work" && SINGBOX_BINARY="$bin/sing-box" LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >/dev/null
+(cd "$work" && SINGBOX_BINARY="$bin/sing-box" MIHOMO_BINARY="$bin/mihomo" LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >/dev/null
 echo "[OK] Exactly 200 Light entries pass the production publication gate."
 
 make_outputs 50 999

@@ -18,6 +18,8 @@ write_keys() {
     XRAY_SHA256="xray-hash" \
     SINGBOX_VERSION="4.5.6" \
     SINGBOX_SHA256="singbox-hash" \
+    MIHOMO_VERSION="1.19.32" \
+    MIHOMO_SHA256="mihomo-hash" \
     bash "$repo_root/scripts/update/compute_cache_keys.sh"
 }
 
@@ -32,5 +34,7 @@ second_registry="$(sed -n 's/^registry=//p' "$tmp/second")"
 [[ -n "$first_build" && -n "$second_build" ]]
 [[ "$first_build" != "$second_build" ]]
 [[ "$first_registry" == "$second_registry" ]]
+mihomo_key="$(sed -n 's/^mihomo=//p' "$tmp/first")"
+[[ "$mihomo_key" == "Linux-mihomo-1.19.32-mihomo-hash-verified" ]]
 
-printf '[OK] Rust build cache keys change with source changes.\n'
+printf '[OK] Rust and validation-core cache keys are computed correctly.\n'

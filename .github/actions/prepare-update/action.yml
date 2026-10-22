@@ -32,12 +32,18 @@ outputs:
   singbox_key:
     description: "sing-box binary cache key."
     value: ${{ steps.keys.outputs.singbox }}
+  mihomo_key:
+    description: "Mihomo binary cache key."
+    value: ${{ steps.keys.outputs.mihomo }}
   xray_version:
     description: "Resolved Xray version."
     value: ${{ steps.validation-cores.outputs.xray_version }}
   singbox_version:
     description: "Resolved sing-box version."
     value: ${{ steps.validation-cores.outputs.singbox_version }}
+  mihomo_version:
+    description: "Resolved Mihomo version."
+    value: ${{ steps.validation-cores.outputs.mihomo_version }}
 runs:
   using: composite
   steps:
@@ -69,6 +75,13 @@ runs:
         RUST_TOOLCHAIN_VERSION: ${{ steps.rust-toolchain.outputs.version }}
       shell: bash
       run: bash scripts/update/record_rust_version.sh
+    - name: "Set up Ruby"
+      uses: ruby/setup-ruby@v1
+    - name: "Verify Ruby version pin"
+      shell: bash
+      run: |
+        ruby --version
+        ruby -e 'abort "Ruby version does not match .ruby-version" unless RUBY_VERSION == File.read(".ruby-version").strip'
     - name: "Verify dependency lock"
       shell: bash
       run: test -s Cargo.lock
@@ -88,6 +101,9 @@ runs:
         SINGBOX_VERSION_PIN: "1.14.3"
         SINGBOX_SHA256_PIN: "e2bdf179c15a3652955dc44867e33ca0965c9c9b91b34267dcc5a5d639a5feee"
         SINGBOX_ASSET_PIN: "sing-box-1.14.3-linux-amd64.tar.gz"
+        MIHOMO_VERSION_PIN: "1.19.32"
+        MIHOMO_SHA256_PIN: "8451100836c9eda194331c2babfad490b2faf30cebc1a04b0e76fd8ac2d35d10"
+        MIHOMO_ASSET_PIN: "mihomo-linux-amd64-v1.19.32.gz"
       shell: bash
       run: bash scripts/update/resolve_validation_cores.sh
     - name: "Compute cache keys"
@@ -102,6 +118,8 @@ runs:
         XRAY_SHA256: ${{ steps.validation-cores.outputs.xray_sha256 }}
         SINGBOX_VERSION: ${{ steps.validation-cores.outputs.singbox_version }}
         SINGBOX_SHA256: ${{ steps.validation-cores.outputs.singbox_sha256 }}
+        MIHOMO_VERSION: ${{ steps.validation-cores.outputs.mihomo_version }}
+        MIHOMO_SHA256: ${{ steps.validation-cores.outputs.mihomo_sha256 }}
       shell: bash
       run: bash scripts/update/compute_cache_keys.sh
     - name: "Restore Rust registry cache"
@@ -163,6 +181,29 @@ runs:
       with:
         path: ~/.local/bin/sing-box
         key: ${{ steps.keys.outputs.singbox }}
+
+    - name: "Restore Mihomo binary cache"
+      id: mihomo-cache-restore
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.local/bin/mihomo
+        key: ${{ steps.keys.outputs.mihomo }}
+
+    - name: "Install Mihomo (pinned, checksum-verified)"
+      env:
+        MIHOMO_REPOSITORY: "MetaCubeX/mihomo"
+        MIHOMO_VERSION: ${{ steps.validation-cores.outputs.mihomo_version }}
+        MIHOMO_SHA256: ${{ steps.validation-cores.outputs.mihomo_sha256 }}
+        MIHOMO_ASSET: ${{ steps.validation-cores.outputs.mihomo_asset }}
+      shell: bash
+      run: bash scripts/update/install_mihomo.sh
+
+    - name: "Save Mihomo binary cache"
+      if: steps.mihomo-cache-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.local/bin/mihomo
+        key: ${{ steps.keys.outputs.mihomo }}
   
     - name: "Validate Rust formatting"
       shell: bash
