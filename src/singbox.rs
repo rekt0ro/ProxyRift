@@ -2788,7 +2788,8 @@ mod tests {
     }
 
     #[test]
-    fn primary_probe_requires_http_204() {
+    fn primary_probe_is_cloudflare_and_requires_http_204() {
+        assert_eq!(TARGET, "http://cp.cloudflare.com/");
         assert!(valid_probe_status(TARGET, 204));
         assert!(!valid_probe_status(TARGET, 200));
         assert!(valid_probe_status("https://example.com/", 200));
@@ -2796,11 +2797,8 @@ mod tests {
 
     #[test]
     fn default_probe_targets_require_expected_payloads() {
-        assert!(valid_probe_body("https://www.google.com/generate_204", b""));
-        assert!(!valid_probe_body(
-            "https://www.google.com/generate_204",
-            b"blocked by upstream"
-        ));
+        assert!(valid_probe_body(TARGET, b""));
+        assert!(!valid_probe_body(TARGET, b"blocked by upstream"));
         assert!(valid_probe_body(
             crate::validator::STRICT_THROUGHPUT_TARGET,
             &vec![0_u8; STRICT_THROUGHPUT_BYTES]

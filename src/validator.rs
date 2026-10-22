@@ -15,7 +15,7 @@ use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout};
 use url::{Host, Url};
 
-pub const PRIMARY_TARGET: &str = "https://www.google.com/generate_204";
+pub const PRIMARY_TARGET: &str = "http://cp.cloudflare.com/";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speedtest2.serverius.net/files/100mb.bin";
 pub const LINODE_SPEEDTEST_100MB_TARGET: &str =
     "https://speedtest.newark.linode.com/100MB-newark.bin";
@@ -5940,7 +5940,8 @@ mod tests {
     }
 
     #[test]
-    fn primary_probe_requires_http_204() {
+    fn primary_probe_is_cloudflare_and_requires_http_204() {
+        assert_eq!(PRIMARY_TARGET, "http://cp.cloudflare.com/");
         let primary = Url::parse(PRIMARY_TARGET).expect("primary target should parse");
         assert!(valid_probe_status(&primary, 204));
         assert!(!valid_probe_status(&primary, 200));

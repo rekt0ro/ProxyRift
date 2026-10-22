@@ -14,7 +14,7 @@ set +e
   --batch-size 1000 \
   --timeout 3 \
   --selected-recheck-limit 350 \
-  --primary-target https://www.google.com/generate_204 \
+  --primary-target http://cp.cloudflare.com/ \
   --singbox "$HOME/.local/bin/sing-box" \
   --selection-limit "$LIGHT_SELECTION_LIMIT" \
   --max-per-endpoint 1 \
