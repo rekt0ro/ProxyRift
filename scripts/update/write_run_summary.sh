@@ -105,7 +105,7 @@ format_multiplier() {
 }
 
 format_model_decision() {
-  local accepted="$1" reason="$2"
+  local accepted="$1" reason="$2" minimum_lift="$3"
   if [[ "$accepted" == "true" ]]; then
     printf 'Active'
     return
@@ -115,6 +115,7 @@ format_model_decision() {
     insufficient_distinct_timestamps) printf 'Not enabled — not enough separate test runs' ;;
     insufficient_unseen_candidate_holdout) printf 'Not enabled — not enough unseen configs to validate' ;;
     model_did_not_beat_temporal_speed_baseline) printf 'Not enabled — MAE did not improve on the temporal baseline by at least 1%%' ;;
+    top_20pct_speed_lift_below_minimum) printf 'Not enabled — top-20%% holdout speed lift did not reach the required %s minimum' "$(format_multiplier "$minimum_lift")" ;;
     top_20pct_speed_ranking_did_not_improve) printf 'Not enabled — top-20%% speed lift did not exceed the baseline' ;;
     final_model_fit_failed|holdout_model_fit_failed) printf 'Not enabled — model training failed' ;;
     *) local readable="${reason//_/ }"; printf 'Not evaluated — %s.' "${readable:-no evaluation report}" ;;
@@ -125,13 +126,15 @@ format_model_evaluation() {
   local reason="$1" model_mae="$2" baseline_mae="$3" improvement="$4"
   local speed_lift="$5" speed_samples="$6" unique_candidates="$7"
   local unique_timestamps="$8" train_rows="$9" holdout_rows="${10}"
+  local minimum_lift="${11}"
 
   if [[ "$model_mae" =~ ^-?[0-9]+([.][0-9]+)?$ \
     && "$baseline_mae" =~ ^-?[0-9]+([.][0-9]+)?$ \
     && "$improvement" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
-    printf 'Evaluated — model MAE %s vs baseline %s (%s); top-20%% holdout speed lift %s.' \
+    printf 'Evaluated — model MAE %s vs baseline %s (%s); top-20%% holdout speed lift %s (minimum %s).' \
       "$(format_decimal "$model_mae")" "$(format_decimal "$baseline_mae")" \
-      "$(format_mae_change "$improvement")" "$(format_multiplier "$speed_lift")"
+      "$(format_mae_change "$improvement")" "$(format_multiplier "$speed_lift")" \
+      "$(format_multiplier "$minimum_lift")"
     return
   fi
   case "$reason" in
@@ -145,11 +148,33 @@ format_model_evaluation() {
         "$(format_count "$train_rows")" "$(format_count "$holdout_rows")" ;;
     model_did_not_beat_temporal_speed_baseline)
       printf 'Metrics unavailable, but the artifact reports that the model did not beat the temporal baseline.' ;;
+    top_20pct_speed_lift_below_minimum)
+      printf 'Metrics unavailable, but the artifact reports that the top-20%% holdout speed lift did not reach the required minimum.' ;;
     top_20pct_speed_ranking_did_not_improve)
       printf 'Metrics unavailable, but the artifact reports that the top-20%% speed ranking did not improve.' ;;
     final_model_fit_failed|holdout_model_fit_failed) printf 'Not evaluated — model fitting failed.' ;;
     *) local readable="${reason//_/ }"; printf 'Not evaluated — %s.' "${readable:-no evaluation report}" ;;
   esac
+}
+
+format_score_coverage() {
+  local scored="$1" total="$2"
+  if [[ ! "$scored" =~ ^[0-9]+$ || ! "$total" =~ ^[0-9]+$ ]] || (( total == 0 )); then
+    printf 'Unavailable — candidate score coverage not recorded'
+    return
+  fi
+  local pct missing details
+  pct="$(awk -v scored="$scored" -v total="$total" 'BEGIN { printf "%.1f%%", 100 * scored / total }')"
+  if (( scored == total )); then
+    details="$pct; complete"
+  elif (( scored < total )); then
+    missing=$(( total - scored ))
+    details="$pct; $(format_count "$missing") missing"
+  else
+    missing=$(( scored - total ))
+    details="$pct; $(format_count "$missing") over-reported"
+  fi
+  printf '%s / %s candidates scored (%s)' "$(format_count "$scored")" "$(format_count "$total")" "$details"
 }
 
 format_compact_number() {
@@ -182,6 +207,8 @@ input_candidates="unknown"
 strict_verified="unknown"
 strict_attempts="unknown"
 selection_target="unknown"
+stability_tested="unknown"
+stability_passed="unknown"
 transfer_tested="unknown"
 transfer_passed="unknown"
 stream_tested="unknown"
@@ -209,6 +236,9 @@ lightgbm_unique_candidates="n/a"
 lightgbm_unique_timestamps="n/a"
 lightgbm_train_rows="n/a"
 lightgbm_holdout_rows="n/a"
+lightgbm_candidate_count="n/a"
+lightgbm_scored_candidate_count="n/a"
+lightgbm_minimum_top20_lift="1.05"
 
 if [ -s "$score_file" ]; then
   trained="$(read_json_value "$score_file" '.trained' 'false')"
@@ -230,6 +260,9 @@ if [ -s "$score_file" ]; then
   lightgbm_unique_timestamps="$(read_json_value "$score_file" '.model_report.unique_timestamps' 'n/a')"
   lightgbm_train_rows="$(read_json_value "$score_file" '.model_report.train_rows' 'n/a')"
   lightgbm_holdout_rows="$(read_json_value "$score_file" '.model_report.holdout_rows' 'n/a')"
+  lightgbm_candidate_count="$(read_json_value "$score_file" '.model_report.candidate_count' 'n/a')"
+  lightgbm_scored_candidate_count="$(read_json_value "$score_file" '.model_report.scored_candidate_count' 'n/a')"
+  lightgbm_minimum_top20_lift="$(read_json_value "$score_file" '.model_report.minimum_top_20pct_speed_lift' '1.05')"
 fi
 
 ml_rows="n/a"
@@ -245,6 +278,8 @@ if [ -s "$PROXYRIFT_TMP_DIR/light-stats.json" ]; then
   strict_verified="$(jq -r '.strict_verified // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   strict_attempts="$(jq -r '.strict_attempts // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   selection_target="$(jq -r '.selection_target // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  stability_tested="$(jq -r '.transfer_stability_tested // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
+  stability_passed="$(jq -r '.transfer_stability_passed // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   transfer_tested="$(jq -r '.transfer_tested // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   transfer_passed="$(jq -r '.transfer_passed // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
   stream_tested="$(jq -r '.stream_continuity_tested // "unknown"' "$PROXYRIFT_TMP_DIR/light-stats.json")"
@@ -462,8 +497,10 @@ mkdir -p "$(dirname "$summary_output_file")"
   echo "|---|---:|"
   echo "| Candidates received | $(format_count "$input_candidates") |"
   echo "| Strict validation | $(format_count "$strict_verified") / $(format_count "$strict_attempts") |"
-  echo "| 10 MiB transfer | $(format_count "$transfer_passed") / $(format_count "$transfer_tested") |"
-  echo "| Sustained stream | $(format_count "$stream_passed") / $(format_count "$stream_tested") |"
+  echo "| 1 MiB stability | $(format_count "$stability_passed") / $(format_count "$stability_tested") |"
+  echo "| 9 MiB sustained stream | $(format_count "$transfer_passed") / $(format_count "$transfer_tested") |"
+  echo
+  echo "_The 1 MiB stability check and 9 MiB sustained transfer total 10 MiB per candidate. The internal Stream counters mirror the sustained-transfer result and are not a separate test._"
   echo
   echo "## Light selection mix"
   echo
@@ -482,14 +519,15 @@ mkdir -p "$(dirname "$summary_output_file")"
   echo "| Measure | Result |"
   echo "|---|---|"
   echo "| Ranking mode | $(format_ranking_strategy "$lightgbm_ranking_strategy") |"
+  echo "| Candidate score coverage | $(format_score_coverage "$lightgbm_scored_candidate_count" "$lightgbm_candidate_count") |"
   echo "| Recent speed data | $(format_count "$lightgbm_speed_samples") speed measurements in the last 72 hours; $(format_count "$ml_new_rows") new this run; $(format_count "$lightgbm_unique_candidates") candidate identities across $(format_count "$lightgbm_unique_timestamps") timestamps |"
   if [[ "$lightgbm_train_rows" =~ ^[0-9]+$ && "$lightgbm_holdout_rows" =~ ^[0-9]+$ ]] && { (( lightgbm_train_rows > 0 || lightgbm_holdout_rows > 0 )); }; then
     echo "| Temporal validation split | $(format_count "$lightgbm_train_rows") training rows / $(format_count "$lightgbm_holdout_rows") holdout rows |"
   else
     echo "| Temporal validation split | Not available — validation data requirements were not met |"
   fi
-  echo "| Evaluation | $(format_model_evaluation "$lightgbm_model_reason" "$lightgbm_model_mae" "$lightgbm_baseline_mae" "$lightgbm_relative_improvement" "$lightgbm_top20_lift" "$lightgbm_speed_samples" "$lightgbm_unique_candidates" "$lightgbm_unique_timestamps" "$lightgbm_train_rows" "$lightgbm_holdout_rows") |"
-  echo "| Decision | $(format_model_decision "$lightgbm_model_accepted" "$lightgbm_model_reason") |"
+  echo "| Evaluation | $(format_model_evaluation "$lightgbm_model_reason" "$lightgbm_model_mae" "$lightgbm_baseline_mae" "$lightgbm_relative_improvement" "$lightgbm_top20_lift" "$lightgbm_speed_samples" "$lightgbm_unique_candidates" "$lightgbm_unique_timestamps" "$lightgbm_train_rows" "$lightgbm_holdout_rows" "$lightgbm_minimum_top20_lift") |"
+  echo "| Decision | $(format_model_decision "$lightgbm_model_accepted" "$lightgbm_model_reason" "$lightgbm_minimum_top20_lift") |"
   echo
   echo "<details>"
   echo "<summary>Validation tool versions</summary>"

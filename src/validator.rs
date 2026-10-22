@@ -684,16 +684,181 @@ fn vmess_tls_security(value: Option<&Value>) -> String {
 
 fn normalize_vless_flow(value: &str) -> Option<String> {
     let flow = value.trim().to_ascii_lowercase();
-    if flow == "none" {
-        Some(String::new())
-    } else if matches!(
-        flow.as_str(),
-        "" | "xtls-rprx-vision" | "xtls-rprx-vision-udp443"
-    ) {
-        Some(flow)
+    if flow.is_empty() || flow == "none" {
+        return Some(String::new());
+    }
+    if flow == "xtls-rprx-vision" {
+        return Some(flow);
+    }
+
+    let mut candidate = flow.as_str();
+    while let Some(prefix) = candidate.strip_suffix("-udp443") {
+        candidate = prefix;
+    }
+    if candidate == "xtls-rprx-vision" {
+        Some("xtls-rprx-vision-udp443".to_string())
     } else {
         None
     }
+}
+
+fn normalize_vmess_transport(value: &str) -> String {
+    let normalized = normalize_transport(value);
+    if matches!(
+        normalized.as_str(),
+        "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic"
+    ) {
+        normalized
+    } else {
+        "raw".to_string()
+    }
+}
+
+fn normalize_security_label(value: &str) -> String {
+    let normalized = value.trim().to_ascii_lowercase();
+    normalized
+        .split("\\u0026")
+        .next()
+        .unwrap_or(normalized.as_str())
+        .split(['#', '@', '?', '=', '&', '¬', 'Â'])
+        .next()
+        .unwrap_or(value)
+        .trim()
+        .trim_end_matches(['.', '…'])
+        .trim()
+        .to_string()
+}
+
+fn repair_escaped_query_suffixes(config: &str) -> Option<String> {
+    let mut url = Url::parse(clean(config)).ok()?;
+    let pairs = url
+        .query_pairs()
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<Vec<_>>();
+    let allowed_keys = [
+        "alpn",
+        "allowinsecure",
+        "allow_insecure",
+        "auth",
+        "auth_str",
+        "cwndmultiplier",
+        "downlinkcapacity",
+        "downmbps",
+        "down_mbps",
+        "earlydataheadername",
+        "early_data_header_name",
+        "ech",
+        "ed",
+        "encryption",
+        "fp",
+        "fingerprint",
+        "flow",
+        "header_type",
+        "headertype",
+        "host",
+        "insecure",
+        "keepalive",
+        "maxearlydata",
+        "max_early_data",
+        "mode",
+        "mtu",
+        "network",
+        "obfs",
+        "obfsparam",
+        "packetencoding",
+        "path",
+        "pbk",
+        "pcs",
+        "peer",
+        "protocol",
+        "public-key",
+        "public_key",
+        "publickey",
+        "readbuffersize",
+        "security",
+        "seed",
+        "servername",
+        "service_name",
+        "servicename",
+        "short-id",
+        "short_id",
+        "shortid",
+        "sid",
+        "sni",
+        "spiderx",
+        "spx",
+        "tti",
+        "type",
+        "uplinkcapacity",
+        "upmbps",
+        "up_mbps",
+        "vcn",
+        "writebuffersize",
+    ];
+    let mut repaired_pairs = Vec::with_capacity(pairs.len());
+    let mut changed = false;
+
+    for (key, value) in pairs {
+        let key_lower = key.to_ascii_lowercase();
+        let normalized_value = value.replace("\\u0026", "&");
+        let Some((prefix, suffix)) = normalized_value.split_once('&') else {
+            repaired_pairs.push((key, value));
+            continue;
+        };
+        let recognized_prefix = if prefix.trim().is_empty() {
+            false
+        } else {
+            match key_lower.as_str() {
+                "type" | "network" => matches!(
+                    normalize_transport(prefix).as_str(),
+                    "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic"
+                ),
+                "security" => matches!(
+                    normalize_security_label(prefix).as_str(),
+                    "none" | "tls" | "t" | "tl" | "reality"
+                ),
+                _ => false,
+            }
+        };
+        if !recognized_prefix {
+            repaired_pairs.push((key, value));
+            continue;
+        }
+
+        let mut suffix_pairs = Vec::new();
+        let mut valid_suffix = true;
+        for segment in std::iter::once(suffix).chain(normalized_value.split('&').skip(2)) {
+            let Some((suffix_key, suffix_value)) = segment.split_once('=') else {
+                valid_suffix = false;
+                break;
+            };
+            let suffix_key_lower = suffix_key.to_ascii_lowercase();
+            if !allowed_keys.contains(&suffix_key_lower.as_str()) {
+                valid_suffix = false;
+                break;
+            }
+            suffix_pairs.push((suffix_key.to_string(), suffix_value.to_string()));
+        }
+        if !valid_suffix || suffix_pairs.is_empty() {
+            repaired_pairs.push((key, value));
+            continue;
+        }
+
+        repaired_pairs.push((key, prefix.to_string()));
+        repaired_pairs.extend(suffix_pairs);
+        changed = true;
+    }
+
+    if !changed {
+        return None;
+    }
+
+    url.query_pairs_mut().clear().extend_pairs(
+        repaired_pairs
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str())),
+    );
+    Some(url.to_string())
 }
 
 fn json_u64(value: Option<&Value>) -> u64 {
@@ -722,16 +887,36 @@ fn normalize_transport(value: &str) -> String {
     normalized
         .split([',', ';', '|'])
         .map(str::trim)
-        .find_map(|candidate| match candidate {
-            "raw" | "tcp" => Some("raw".to_string()),
-            "ws" | "websocket" => Some("ws".to_string()),
-            "http" | "h2" => Some("http".to_string()),
-            "grpc" => Some("grpc".to_string()),
-            "httpupgrade" | "http-upgrade" => Some("httpupgrade".to_string()),
-            "kcp" | "mkcp" => Some("kcp".to_string()),
-            "quic" => Some("quic".to_string()),
-            "xhttp" | "splithttp" => Some("xhttp".to_string()),
-            _ => None,
+        .find_map(|candidate| {
+            let candidate = candidate
+                .split("\\u0026")
+                .next()
+                .unwrap_or(candidate)
+                .split(['#', '@', '?', '&', '¬', 'Â'])
+                .next()
+                .unwrap_or(candidate)
+                .trim()
+                .trim_end_matches(['.', '…']);
+            let candidate = if let Some((prefix, suffix)) = candidate.rsplit_once(':') {
+                if prefix == "tcp" && suffix.parse::<u16>().is_ok_and(|port| port > 0) {
+                    "tcp"
+                } else {
+                    candidate
+                }
+            } else {
+                candidate
+            };
+            match candidate {
+                "raw" | "tcp" => Some("raw".to_string()),
+                "ws" | "websocket" => Some("ws".to_string()),
+                "http" | "h2" => Some("http".to_string()),
+                "grpc" => Some("grpc".to_string()),
+                "httpupgrade" | "http-upgrade" => Some("httpupgrade".to_string()),
+                "kcp" | "mkcp" => Some("kcp".to_string()),
+                "quic" => Some("quic".to_string()),
+                "xhttp" | "splithttp" => Some("xhttp".to_string()),
+                _ => None,
+            }
         })
         .unwrap_or(normalized)
 }
@@ -1318,7 +1503,7 @@ fn stream_settings(url: &Url, host: &str) -> Result<Value, String> {
             if !key.eq_ignore_ascii_case("security") {
                 return None;
             }
-            let normalized = value.trim().trim_end_matches('.').to_ascii_lowercase();
+            let normalized = normalize_security_label(&value);
             (!normalized.is_empty()).then_some(normalized)
         })
         .unwrap_or_else(|| "none".to_string());
@@ -1646,8 +1831,9 @@ fn parse_vmess(config: &str) -> Result<Value, String> {
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "VMess UUID missing".to_string())?;
 
-    let network =
-        normalize_transport(&json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()));
+    let network = normalize_vmess_transport(
+        &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
+    );
 
     let vmess_tls = vmess_tls_security(value.get("tls"));
 
@@ -2318,7 +2504,8 @@ fn parse_basic(config: &str) -> Result<Value, String> {
 }
 
 pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str> {
-    let config = clean(config);
+    let repaired = repair_escaped_query_suffixes(config);
+    let config = clean(repaired.as_deref().unwrap_or(config));
     let scheme = scheme_of(config);
 
     match scheme.as_str() {
@@ -2358,10 +2545,8 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("unsupported-transport");
             }
 
-            let security = first_query(&url, &["security"], Some("none"))
-                .trim()
-                .trim_end_matches('.')
-                .to_ascii_lowercase();
+            let security =
+                normalize_security_label(&first_query(&url, &["security"], Some("none")));
             if !matches!(security.as_str(), "none" | "tls" | "t" | "tl" | "reality") {
                 return Some("unsupported-security");
             }
@@ -2510,7 +2695,7 @@ pub fn cheap_compatibility_rejection_reason(config: &str) -> Option<&'static str
                 return Some("unsupported-vmess-tls");
             }
 
-            let network = normalize_transport(
+            let network = normalize_vmess_transport(
                 &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
             );
             if !matches!(
@@ -2642,12 +2827,7 @@ fn compatibility_transport_bucket(value: &str) -> &'static str {
 }
 
 fn compatibility_security_bucket(value: &str) -> &'static str {
-    match value
-        .trim()
-        .trim_end_matches('.')
-        .to_ascii_lowercase()
-        .as_str()
-    {
+    match normalize_security_label(value).as_str() {
         "none" => "none",
         "tls" | "t" | "tl" => "tls",
         "reality" => "reality",
@@ -2745,9 +2925,9 @@ pub fn cheap_compatibility_rejection_context(
                 .and_then(|decoded| serde_json::from_slice::<Value>(&decoded).ok());
             match parsed_value.as_ref() {
                 Some(value) => (
-                    compatibility_transport_bucket(
+                    compatibility_transport_bucket(&normalize_vmess_transport(
                         &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
-                    ),
+                    )),
                     compatibility_security_bucket(&vmess_tls_security(value.get("tls"))),
                 ),
                 None => ("unavailable", "unavailable"),
@@ -2821,7 +3001,8 @@ pub fn is_cheaply_supported_config(config: &str) -> bool {
 }
 
 pub fn is_light_consumer_compatible(config: &str) -> bool {
-    let cleaned = clean(config);
+    let repaired = repair_escaped_query_suffixes(config);
+    let cleaned = clean(repaired.as_deref().unwrap_or(config));
     let scheme = scheme_of(cleaned);
 
     match scheme.as_str() {
@@ -2853,10 +3034,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 return false;
             }
 
-            let security = first_query(&url, &["security"], Some(""))
-                .trim()
-                .trim_end_matches('.')
-                .to_ascii_lowercase();
+            let security = normalize_security_label(&first_query(&url, &["security"], Some("")));
             let valid_security = if scheme == "trojan" {
                 matches!(security.as_str(), "" | "tls" | "t" | "tl" | "reality")
             } else {
@@ -3004,7 +3182,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 return false;
             }
 
-            let network = normalize_transport(
+            let network = normalize_vmess_transport(
                 &json_text(value.get("net")).unwrap_or_else(|| "tcp".to_string()),
             );
             if !matches!(network.as_str(), "raw" | "ws" | "grpc" | "kcp" | "quic") {
@@ -3137,6 +3315,8 @@ fn boolish_value(value: Option<&Value>) -> bool {
 }
 
 pub fn is_locally_supported_config(config: &str) -> bool {
+    let repaired = repair_escaped_query_suffixes(config);
+    let config = repaired.as_deref().unwrap_or(config);
     let scheme = scheme_of(clean(config));
 
     if scheme == "tuic" {
@@ -3323,6 +3503,8 @@ fn valid_duration(value: &str) -> bool {
 }
 
 pub(crate) fn parse_config(config: &str) -> Result<Value, String> {
+    let repaired = repair_escaped_query_suffixes(config);
+    let config = repaired.as_deref().unwrap_or(config);
     let scheme = scheme_of(clean(config));
 
     match scheme.as_str() {
@@ -6654,8 +6836,106 @@ mod tests {
     }
 
     #[test]
+    fn cheap_compatibility_rejects_vless_none_transport() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=none";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(config),
+            Some("unsupported-transport")
+        );
+        assert!(!is_cheaply_supported_config(config));
+        assert!(!is_light_consumer_compatible(config));
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_security_provider_suffixes_and_trailing_markers() {
+        for security in [
+            "tls%40freenettir",
+            "tls%3D",
+            "tls...",
+            "tls%26alpn=h2",
+            "tls%5Cu0026alpn=h2",
+            "tl%E2%80%A6",
+        ] {
+            let config = format!("trojan://password@example.com:443?security={security}&type=tcp");
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{security}"
+            );
+            assert!(is_cheaply_supported_config(&config), "{security}");
+            assert!(is_light_consumer_compatible(&config), "{security}");
+            let parsed = parse_config(&config).expect("TLS with provider suffix should parse");
+            assert_eq!(parsed["streamSettings"]["security"], "tls", "{security}");
+        }
+    }
+
+    #[test]
+    fn cheap_compatibility_repairs_escaped_query_suffixes() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls%5Cu0026alpn=h2%26type=grpc%5Cu0026serviceName=svc";
+        assert_eq!(cheap_compatibility_rejection_reason(config), None);
+        assert!(is_light_consumer_compatible(config));
+        let parsed = parse_config(config).expect("escaped query separators should be repaired");
+        assert_eq!(parsed["streamSettings"]["security"], "tls");
+        assert_eq!(parsed["streamSettings"]["network"], "grpc");
+        assert_eq!(
+            parsed["streamSettings"]["grpcSettings"]["serviceName"],
+            "svc"
+        );
+    }
+
+    #[test]
+    fn cheap_compatibility_accepts_repeated_supported_vless_flow_suffixes() {
+        for (flow, expected) in [
+            ("xtls-rprx-vision-udp443-udp443", "xtls-rprx-vision-udp443"),
+            (
+                "xtls-rprx-vision-udp443-udp443-udp443",
+                "xtls-rprx-vision-udp443",
+            ),
+        ] {
+            let config = format!(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=tcp&flow={flow}"
+            );
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{flow}"
+            );
+            assert!(is_light_consumer_compatible(&config), "{flow}");
+            let parsed = parse_config(&config).expect("recognized duplicated flow should parse");
+            assert_eq!(parsed["settings"]["vnext"][0]["users"][0]["flow"], expected);
+        }
+    }
+
+    #[test]
+    fn cheap_compatibility_rejects_orphan_vless_flow_suffix() {
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&type=tcp&flow=-udp443";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(config),
+            Some("unsupported-flow")
+        );
+        assert!(!is_light_consumer_compatible(config));
+        assert!(parse_config(config).is_err());
+    }
+
+    #[test]
     fn cheap_compatibility_accepts_common_transport_aliases() {
-        for (transport, expected) in [("websocket", "ws"), ("http-upgrade", "httpupgrade")] {
+        for (transport, expected) in [
+            ("websocket", "ws"),
+            ("http-upgrade", "httpupgrade"),
+            ("grpc%26serviceName=vless", "grpc"),
+            ("ws%5Cu0026path=%2Fws", "ws"),
+            ("xhttp%5Cu0026mode=auto", "xhttp"),
+            ("ws...", "ws"),
+            ("tcp%E2%80%A6", "raw"),
+            ("tcp%23provider@oneclickvpnkeys", "raw"),
+            ("tcp@freenettir", "raw"),
+            ("tcp¬e=volt____network", "raw"),
+            ("xhttpÂ¬e=@FreeOnlineVPN", "xhttp"),
+            ("tcp?type=tcp", "raw"),
+            ("tcp:443", "raw"),
+            ("xhttp@freenettir", "xhttp"),
+            ("ws@freenettir", "ws"),
+        ] {
             let config = format!(
                 "vless://00000000-0000-0000-0000-000000000001@example.com:443?type={transport}"
             );
@@ -6667,6 +6947,12 @@ mod tests {
             let parsed = parse_config(&config).expect("recognized transport alias should parse");
             assert_eq!(parsed["streamSettings"]["network"], expected);
         }
+
+        let malformed = "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=...";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(malformed),
+            Some("unsupported-transport")
+        );
     }
 
     #[test]
@@ -6910,9 +7196,52 @@ mod tests {
     }
 
     #[test]
-    fn cheap_compatibility_rejects_vmess_none_transport() {
-        let config = "vmess://eyJ2IjoiMiIsInBzIjoiIiwiYWRkIjoiZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJhaWQiOiIwIiwibmV0Ijoibm9uZSJ9";
-        assert!(!is_cheaply_supported_config(config));
+    fn cheap_compatibility_accepts_vmess_tcp_transport_with_provider_suffix() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "aid": "0",
+            "net": "tcp#90@oneclickvpnkeys",
+            "type": "none",
+            "tls": ""
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert_eq!(cheap_compatibility_rejection_reason(&config), None);
+        assert!(is_cheaply_supported_config(&config));
+        assert!(is_light_consumer_compatible(&config));
+        let parsed = parse_config(&config).expect("VMess TCP with provider suffix should parse");
+        assert_eq!(parsed["streamSettings"]["network"], "raw");
+    }
+
+    #[test]
+    fn cheap_compatibility_defaults_unsupported_vmess_networks_to_tcp() {
+        for network in ["none", "udp", "auto", "madeup"] {
+            let payload = serde_json::json!({
+                "v": "2",
+                "add": "example.com",
+                "port": "443",
+                "id": "00000000-0000-0000-0000-000000000001",
+                "net": network,
+                "type": "none",
+                "tls": ""
+            });
+            let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+            assert_eq!(
+                cheap_compatibility_rejection_reason(&config),
+                None,
+                "{network}"
+            );
+            assert!(is_cheaply_supported_config(&config), "{network}");
+            assert!(is_light_consumer_compatible(&config), "{network}");
+            let parsed =
+                parse_config(&config).expect("unsupported VMess network should default to TCP");
+            assert_eq!(parsed["streamSettings"]["network"], "raw", "{network}");
+            assert!(is_locally_supported_config(&config), "{network}");
+        }
     }
 
     #[test]
@@ -6933,9 +7262,26 @@ mod tests {
     }
 
     #[test]
-    fn cheap_compatibility_accepts_vmess_tcp_transport() {
-        let config = "vmess://eyJ2IjoiMiIsInBzIjoiIiwiYWRkIjoiZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJhaWQiOiIwIiwibmV0IjoidGNwIn0";
-        assert!(is_cheaply_supported_config(config));
+    fn cheap_compatibility_accepts_standard_vmess_tcp_with_none_header() {
+        let payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "aid": "0",
+            "scy": "auto",
+            "net": "tcp",
+            "type": "none",
+            "tls": ""
+        });
+        let config = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+
+        assert_eq!(cheap_compatibility_rejection_reason(&config), None);
+        assert!(is_cheaply_supported_config(&config));
+        assert!(is_light_consumer_compatible(&config));
+        let parsed = parse_config(&config).expect("standard VMess TCP link should parse");
+        assert_eq!(parsed["streamSettings"]["network"], "raw");
+        assert!(is_locally_supported_config(&config));
     }
 
     #[test]

@@ -3693,8 +3693,47 @@ async fn main() -> Result<(), String> {
         }
     }
 
-    let light_gbm_scores =
-        LightGbmScores::from_file("/tmp/proxyrift/lightgbm-scores.json").unwrap_or_default();
+    let light_gbm_scores = match LightGbmScores::train_and_score(&candidates) {
+        Ok(scores) => {
+            let unique_candidates = candidates
+                .iter()
+                .map(String::as_str)
+                .collect::<HashSet<_>>()
+                .len();
+            println!(
+                "[INFO] [LightGBM] Merged Light pool score coverage | Scored: {}/{} | Trained: {}",
+                scores.len(),
+                unique_candidates,
+                scores.trained()
+            );
+            scores
+        }
+        Err(error) => {
+            let _ = std::fs::remove_file("/tmp/proxyrift/lightgbm-scores.json");
+            println!(
+                "[WARN] [LightGBM] Merged Light pool scoring failed; writing neutral full-pool scores: {error}"
+            );
+            match LightGbmScores::neutral_for_candidates(&candidates, "candidate_scoring_failed") {
+                Ok(scores) => {
+                    println!(
+                        "[INFO] [LightGBM] Neutral score coverage | Scored: {}/{}",
+                        scores.len(),
+                        candidates
+                            .iter()
+                            .map(String::as_str)
+                            .collect::<HashSet<_>>()
+                            .len()
+                    );
+                    scores
+                }
+                Err(fallback_error) => {
+                    return Err(format!(
+                        "LightGBM scoring failed ({error}) and full-pool neutral fallback failed ({fallback_error})"
+                    ));
+                }
+            }
+        }
+    };
 
     let ranking_strategy = light_gbm_scores
         .model_report()
@@ -4338,14 +4377,14 @@ async fn main() -> Result<(), String> {
 
     if selected.is_empty() {
         println!(
-            "[WARN] No configs passed all required checks; the previous subscription will be kept. Transfer qualified: {}. Sustained stream passed: {} of {}.",
+            "[WARN] No configs passed all required checks; the previous subscription will be kept. Publishable after freshness policy: {}. 9 MiB sustained passed: {} of {} tested.",
             transfer_selected,
             stream_selected,
             stream_tested.len()
         );
     } else if selected.len() < selection_limit {
         println!(
-            "[WARN] Light target not met: {} of {} configs selected. Transfer-qualified: {}; sustained-stream passes: {} of {} tested. Selection caps rejected {} by endpoint and {} by family.",
+            "[WARN] Light target not met: {} of {} configs selected. Publishable after freshness policy: {}; 9 MiB sustained passed: {} of {} tested. Selection caps rejected {} by endpoint and {} by family.",
             selected.len(),
             selection_limit,
             transfer_selected,
@@ -4390,12 +4429,11 @@ async fn main() -> Result<(), String> {
     );
     if selected.len() < selection_limit {
         println!(
-            "[INFO] [Light feasibility] Target: {} | Reachability: {} | 1 MiB: {} | 10 MiB: {} | Sustained stream: {} | Selected: {} | Shortfall: {}",
+            "[INFO] [Light feasibility] Target: {} | Reachability: {} | 1 MiB stability: {} | 9 MiB sustained: {} | Selected after freshness policy: {} | Shortfall: {}",
             selection_limit,
             strict_selectable,
             stability_selectable,
             transfer_selectable,
-            stream_selectable,
             selected.len(),
             selection_limit.saturating_sub(selected.len())
         );
@@ -4515,7 +4553,7 @@ async fn main() -> Result<(), String> {
         run_timestamp,
     )?;
     println!(
-        "[INFO] [Light] Validation result | Selected: {}/{} | New: {} | Revalidated: {} | Fresh families: {} | Google: {} | Stability: {}/{} | Transfer: {}/{} | Stream: {}/{}",
+        "[INFO] [Light] Validation result | Selected: {}/{} | New: {} | Revalidated: {} | Fresh families: {} | Google: {} | 1 MiB stability: {}/{} | 9 MiB sustained: {}/{}",
         selected.len(),
         selection_limit,
         selected_new_count,
@@ -4525,9 +4563,7 @@ async fn main() -> Result<(), String> {
         stability_verified.len(),
         stability_tested.len(),
         transfer_verified.len(),
-        transfer_tested.len(),
-        stream_verified.len(),
-        stream_tested.len()
+        transfer_tested.len()
     );
     Ok(())
 }

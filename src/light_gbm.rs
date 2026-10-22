@@ -72,6 +72,7 @@ const MIN_SPEED_TRAIN_ROWS: usize = 40;
 const MIN_SPEED_CANDIDATES: usize = 40;
 const MIN_SPEED_TIMESTAMPS: usize = 6;
 const MIN_SPEED_HOLDOUT_CANDIDATES: usize = 10;
+const MIN_TOP_QUINTILE_SPEED_LIFT: f64 = 1.05;
 const SPEED_MODEL_SEED: i32 = 1709;
 const SPEED_HISTORY_HALF_LIFE_SECS: f64 = 24.0 * 60.0 * 60.0;
 
@@ -183,6 +184,18 @@ impl LightGbmScores {
             );
         }
 
+        let candidate_count = candidates
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>()
+            .len();
+        if scores.len() != candidate_count {
+            return Err(format!(
+                "incomplete LightGBM candidate score coverage: expected {candidate_count}, scored {}",
+                scores.len()
+            ));
+        }
+
         report["ranking_strategy"] = Value::String(ranking_strategy.to_string());
         report["target"] = Value::String("log(stream_throughput_kbps)".to_string());
         report["target_unit"] = Value::String("kbps".to_string());
@@ -202,6 +215,8 @@ impl LightGbmScores {
                 .collect::<HashSet<_>>()
                 .len(),
         );
+        report["candidate_count"] = Value::from(candidate_count);
+        report["scored_candidate_count"] = Value::from(scores.len());
 
         let result = Self {
             scores,
@@ -228,6 +243,65 @@ impl LightGbmScores {
             model_status
         );
         Ok(result)
+    }
+
+    fn neutral_for_candidates_at_path(
+        candidates: &[String],
+        reason: &str,
+        path: &str,
+    ) -> Result<Self, String> {
+        let scores = candidates
+            .iter()
+            .cloned()
+            .map(|candidate| (candidate, DEFAULT_SCORE))
+            .collect::<HashMap<_, _>>();
+        let candidate_count = candidates
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>()
+            .len();
+        if scores.len() != candidate_count {
+            return Err(format!(
+                "incomplete neutral candidate score coverage: expected {candidate_count}, scored {}",
+                scores.len()
+            ));
+        }
+        let model_report = serde_json::json!({
+            "model": "LightGBM GBDT regression",
+            "validation": "chronological_80_20_first_observation_of_unseen_candidates",
+            "baseline": "training_median_log_stream_throughput",
+            "ranking_strategy": "neutral_default",
+            "target": "log(stream_throughput_kbps)",
+            "target_unit": "kbps",
+            "accepted": false,
+            "reason": reason,
+            "cutoff_timestamp": null,
+            "speed_samples": 0,
+            "unique_candidates": 0,
+            "unique_timestamps": 0,
+            "train_rows": 0,
+            "holdout_rows": 0,
+            "baseline_log_mae": null,
+            "model_log_mae": null,
+            "relative_mae_improvement": null,
+            "top_20pct_speed_lift": null,
+            "minimum_relative_mae_improvement": 0.01,
+            "minimum_top_20pct_speed_lift": MIN_TOP_QUINTILE_SPEED_LIFT,
+            "candidate_count": candidate_count,
+            "scored_candidate_count": scores.len()
+        });
+        let result = Self {
+            scores,
+            training_rows: 0,
+            trained: false,
+            model_report,
+        };
+        result.save(path)?;
+        Ok(result)
+    }
+
+    pub fn neutral_for_candidates(candidates: &[String], reason: &str) -> Result<Self, String> {
+        Self::neutral_for_candidates_at_path(candidates, reason, DEFAULT_SCORE_PATH)
     }
 
     fn save(&self, path: &str) -> Result<(), String> {
@@ -292,6 +366,30 @@ impl LightGbmScores {
                     scores.insert(config.clone(), score.clamp(MIN_SCORE, MAX_SCORE));
                 }
             }
+        }
+        let expected = model_report
+            .get("candidate_count")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                "LightGBM score file is missing candidate score coverage metadata".to_string()
+            })?;
+        if expected as usize != scores.len() {
+            return Err(format!(
+                "incomplete LightGBM candidate score coverage: expected {expected}, found {}",
+                scores.len()
+            ));
+        }
+        let reported_scored = model_report
+            .get("scored_candidate_count")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                "LightGBM score file is missing scored-candidate count metadata".to_string()
+            })?;
+        if reported_scored as usize != scores.len() {
+            return Err(format!(
+                "inconsistent LightGBM scored-candidate count: report says {reported_scored}, score map has {}",
+                scores.len()
+            ));
         }
         Ok(Self {
             scores,
@@ -582,7 +680,9 @@ fn evaluate_speed_regressor(
         "accepted": false, "speed_samples": observations.len(),
         "unique_candidates": unique_candidates, "unique_timestamps": unique_timestamps,
         "train_rows": 0, "holdout_rows": 0, "baseline_log_mae": null,
-        "model_log_mae": null, "relative_mae_improvement": null, "top_20pct_speed_lift": null
+        "model_log_mae": null, "relative_mae_improvement": null, "top_20pct_speed_lift": null,
+        "minimum_relative_mae_improvement": 0.01,
+        "minimum_top_20pct_speed_lift": MIN_TOP_QUINTILE_SPEED_LIFT
     });
     if observations.len() < MIN_SPEED_ROWS
         || unique_candidates < MIN_SPEED_CANDIDATES
@@ -711,8 +811,10 @@ fn evaluate_speed_regressor(
         .map(|i| observations[*i].speed_kbps)
         .collect::<Vec<_>>();
     let top_lift = top_quintile_speed_lift(&predictions, &holdout_speeds);
-    let accepted =
-        model_mae.is_finite() && improvement >= 0.01 && top_lift.is_finite() && top_lift > 1.0;
+    let accepted = model_mae.is_finite()
+        && improvement >= 0.01
+        && top_lift.is_finite()
+        && top_lift >= MIN_TOP_QUINTILE_SPEED_LIFT;
     let report = serde_json::json!({
         "model": "LightGBM GBDT regression",
         "validation": "chronological_80_20_first_observation_of_unseen_candidates",
@@ -723,10 +825,10 @@ fn evaluate_speed_regressor(
         "unique_timestamps": unique_timestamps, "baseline_log_mae": baseline_mae,
         "model_log_mae": model_mae, "relative_mae_improvement": improvement,
         "top_20pct_speed_lift": top_lift, "minimum_relative_mae_improvement": 0.01,
-        "minimum_top_20pct_speed_lift": 1.0,
+        "minimum_top_20pct_speed_lift": MIN_TOP_QUINTILE_SPEED_LIFT,
         "reason": if accepted { "promoted_after_temporal_speed_validation" }
             else if improvement < 0.01 { "model_did_not_beat_temporal_speed_baseline" }
-            else { "top_20pct_speed_ranking_did_not_improve" }
+            else { "top_20pct_speed_lift_below_minimum" }
     });
     (accepted, report)
 }
@@ -1463,7 +1565,7 @@ mod tests {
     use super::{
         candidate_fingerprint, feature_signature, speed_features_for_observation,
         speed_history_by_key, speed_ranking_score, top_quintile_speed_lift, LightGbmScores,
-        SpeedObservation, SPEED_MODEL_FEATURE_COUNT, STRUCTURAL_FEATURE_COUNT,
+        SpeedObservation, DEFAULT_SCORE, SPEED_MODEL_FEATURE_COUNT, STRUCTURAL_FEATURE_COUNT,
     };
     use serde_json::Value;
     use std::fs;
@@ -1546,7 +1648,11 @@ mod tests {
             scores: std::collections::HashMap::from([("candidate".to_string(), 0.8)]),
             training_rows: 100,
             trained: true,
-            model_report: serde_json::json!({"ranking_strategy":"stream_speed_regression"}),
+            model_report: serde_json::json!({
+                "ranking_strategy":"stream_speed_regression",
+                "candidate_count":1,
+                "scored_candidate_count":1
+            }),
         };
         scores.save(&path).expect("save score file");
         let loaded = LightGbmScores::from_file(&path).expect("load score file");
@@ -1559,6 +1665,66 @@ mod tests {
             value["feature_count"].as_u64(),
             Some(SPEED_MODEL_FEATURE_COUNT as u64)
         );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn scores_file_rejects_incomplete_candidate_coverage() {
+        let path = temp_path();
+        fs::write(
+            &path,
+            r#"{"version":5,"trained":false,"training_rows":100,"feature_count":61,"scores":{"candidate":0.8},"model_report":{"ranking_strategy":"historical_stream_speed_prior_fallback","candidate_count":2,"scored_candidate_count":1}}"#,
+        )
+        .expect("write incomplete score file");
+        assert!(LightGbmScores::from_file(&path)
+            .expect_err("incomplete scores must be rejected")
+            .contains("incomplete LightGBM candidate score coverage"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn scores_file_rejects_missing_candidate_coverage_metadata() {
+        let path = temp_path();
+        fs::write(
+            &path,
+            r#"{"version":5,"trained":false,"training_rows":100,"feature_count":61,"scores":{"candidate":0.8},"model_report":{"ranking_strategy":"historical_stream_speed_prior_fallback"}}"#,
+        )
+        .expect("write score file without coverage metadata");
+        assert!(LightGbmScores::from_file(&path)
+            .expect_err("score coverage metadata is mandatory")
+            .contains("missing candidate score coverage metadata"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn neutral_fallback_writes_complete_candidate_scores() {
+        let path = temp_path();
+        let candidates = vec![
+            "candidate-a".to_string(),
+            "candidate-b".to_string(),
+            "candidate-a".to_string(),
+        ];
+        let neutral = LightGbmScores::neutral_for_candidates_at_path(
+            &candidates,
+            "candidate_scoring_failed",
+            &path,
+        )
+        .expect("neutral score file should be written");
+        assert_eq!(neutral.len(), 2);
+        assert_eq!(neutral.score("candidate-a"), DEFAULT_SCORE);
+        assert_eq!(neutral.score("candidate-b"), DEFAULT_SCORE);
+        assert_eq!(neutral.model_report()["candidate_count"].as_u64(), Some(2));
+        assert_eq!(
+            neutral.model_report()["scored_candidate_count"].as_u64(),
+            Some(2)
+        );
+        assert_eq!(
+            neutral.model_report()["ranking_strategy"].as_str(),
+            Some("neutral_default")
+        );
+        let loaded = LightGbmScores::from_file(&path).expect("neutral score file should load");
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded.score("candidate-a"), DEFAULT_SCORE);
         let _ = fs::remove_file(path);
     }
 
