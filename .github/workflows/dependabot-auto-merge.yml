@@ -46,7 +46,19 @@ jobs:
           mapfile -t prs < <(
             printf '%s\n' "${open_prs}" | jq -r '
               .[]
-              | select((.user.login == "dependabot[bot]" or (.user.login == "github-actions[bot]" and .head.ref == "automation/update-core-pins")) and .draft == false)
+              | select((
+                  (
+                    .user.login == "dependabot[bot]"
+                    and (
+                      (.head.ref | startswith("dependabot/github_actions/"))
+                      or (.head.ref | startswith("dependabot/cargo/"))
+                    )
+                  )
+                  or (
+                    .user.login == "github-actions[bot]"
+                    and .head.ref == "automation/update-core-pins"
+                  )
+                ) and .draft == false)
               | .number
             '
           )
@@ -84,28 +96,47 @@ jobs:
 
             valid=true
             for path in "${files[@]}"; do
-              case "${path}" in
-                .github/workflows/*.yml|.github/workflows/*.yaml|Cargo.toml|Cargo.lock|requirements*.txt)
-                  ;;
-                .ruby-version|.python-version)
-                  if [[ "${pr_author}" != "github-actions[bot]" || "${head_ref}" != "automation/update-core-pins" ]]; then
+              if [[ "${pr_author}" == "dependabot[bot]" ]]; then
+                case "${head_ref}" in
+                  dependabot/github_actions/*)
+                    case "${path}" in
+                      .github/workflows/*.yml|.github/workflows/*.yaml|.github/actions/*/action.yml|.github/actions/*/action.yaml|.github/actions/*.yml|.github/actions/*.yaml)
+                        ;;
+                      *)
+                        valid=false
+                        echo "PR #${pr} has a file outside the GitHub Actions dependency allowlist: ${path}"
+                        ;;
+                    esac
+                    ;;
+                  dependabot/cargo/*)
+                    case "${path}" in
+                      Cargo.toml|Cargo.lock)
+                        ;;
+                      *)
+                        valid=false
+                        echo "PR #${pr} has a file outside the Cargo dependency allowlist: ${path}"
+                        ;;
+                    esac
+                    ;;
+                  *)
                     valid=false
-                    echo "PR #${pr} changes a runtime version pin outside the trusted update branch: ${path}"
-                  fi
-                  ;;
-                .github/actions/prepare-update/action.yml)
-                  if [[ "${pr_author}" != "github-actions[bot]" || "${head_ref}" != "automation/update-core-pins" ]]; then
+                    echo "PR #${pr} has an unrecognized Dependabot update branch: ${head_ref}"
+                    ;;
+                esac
+              elif [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]; then
+                case "${path}" in
+                  .github/actions/prepare-update/action.yml|.python-version|.ruby-version)
+                    ;;
+                  *)
                     valid=false
-                    echo "PR #${pr} changes a managed core-pin action outside the trusted update branch: ${path}"
-                  fi
-                  ;;
-                *)
-                  valid=false
-                  echo "PR #${pr} changes an unmanaged file: ${path}"
-                  ;;
-              esac
+                    echo "PR #${pr} changes a file outside the core-pin updater allowlist: ${path}"
+                    ;;
+                esac
+              else
+                valid=false
+                echo "PR #${pr} is not an approved update bot/branch pair"
+              fi
             done
-
             if [ "${valid}" != "true" ]; then
               continue
             fi
