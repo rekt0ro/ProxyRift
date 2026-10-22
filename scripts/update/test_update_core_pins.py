@@ -6,7 +6,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from update_core_pins import asset_sha256, build_updates, replace_pins, stable_version, write_atomically
+from update_core_pins import (
+    asset_sha256,
+    build_updates,
+    latest_python_version,
+    replace_pins,
+    stable_version,
+    write_atomically,
+)
 
 
 def release(tag, assets=()):
@@ -17,6 +24,20 @@ def release(tag, assets=()):
 
 
 class CorePinUpdaterTests(unittest.TestCase):
+    def test_resolves_latest_python_stable_release_and_skips_pre_releases(self):
+        page = """
+        <html><body>
+          <a href="/downloads/release/python-3151/">Python 3.15.1</a>
+          <a href="/downloads/release/python-3149/">Python 3.14.9</a>
+          <a href="/downloads/release/python-3160a1/">Python 3.16.0a1</a>
+        </body></html>
+        """
+        self.assertEqual(latest_python_version(page), "3.15.1")
+
+    def test_rejects_python_page_without_stable_release(self):
+        with self.assertRaises(ValueError):
+            latest_python_version('<a href="/downloads/release/python-3160a1/">Python 3.16.0a1</a>')
+
     def test_accepts_stable_version_tags(self):
         self.assertEqual(stable_version({"tag_name": "v1.2.3"}, "sample"), "1.2.3")
 
@@ -48,10 +69,13 @@ class CorePinUpdaterTests(unittest.TestCase):
             ),
             "ruby": release("v4.5.6"),
         }
-        ruby_version, action = build_updates(releases)
+        python_version, ruby_version, action = build_updates(releases, "3.15.1")
+        self.assertEqual(python_version, "3.15.1")
         self.assertEqual(ruby_version, "4.5.6")
         self.assertEqual(action["SINGBOX_ASSET_PIN"], "sing-box-2.3.4-linux-amd64.tar.gz")
         self.assertEqual(action["MIHOMO_SHA256_PIN"], "3" * 64)
+        with self.assertRaises(ValueError):
+            build_updates(releases, "3.15.1rc1")
 
     def test_atomic_write_preserves_file_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
