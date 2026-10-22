@@ -85,28 +85,13 @@ jobs:
           '
 
       - name: Validate core-pin updater Python syntax
-        run: |
-          python3 - <<'PY'
-          import re
-          import textwrap
-          from pathlib import Path
+        run: python3 -m py_compile scripts/update/update_core_pins.py scripts/update/pin_ruby_version.py scripts/update/test_update_core_pins.py
 
-          path = Path(".github/workflows/update-core-pins.yml")
-          workflow = path.read_text(encoding="utf-8")
-          match = re.search(
-              r"(?ms)^[ \t]*python3 - <<'PY'\n(.*?)^[ \t]*PY[ \t]*$",
-              workflow,
-          )
-          if match is None:
-              raise SystemExit("Cannot find the core-pin updater Python block")
-          source = textwrap.dedent(match.group(1))
-          compile(source, str(path), "exec")
-          print("Core-pin updater Python syntax is valid.")
-          PY
+      - name: Test core-pin updater
+        run: python3 scripts/update/test_update_core_pins.py
 
-      - name: Validate core-pin workflow ending
-        run: bash scripts/update/test_core_pin_workflow.sh
-
+      - name: Validate core-pin workflow shell syntax
+        run: ruby scripts/update/test_core_pin_workflow.rb
       - name: Test publication quality gate
         run: bash scripts/autopilot/test_publication_gate.sh
 
