@@ -48,6 +48,12 @@ abort "Core-pin PR labels must be synchronized to the exact calculated labels" u
     label_sync["run"].include?("--remove-label") &&
     label_sync["run"].include?("gh pr view")
 
+dispatch_step = steps.find { |entry| entry["name"] == "Dispatch validation CI for the generated PR" }
+abort "Core-pin workflow must keep prior run IDs on one line for GITHUB_OUTPUT" unless
+  dispatch_step && dispatch_step["run"].is_a?(String) &&
+    dispatch_step["run"].include?("--json databaseId | jq -c '[.[].databaseId]'") &&
+    dispatch_step["run"].include?('echo "prior-run-ids=$prior_run_ids" >> "$GITHUB_OUTPUT"')
+
 abort "Core-pin updater must include the Python runtime pin" unless
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == ".python-version" }
 abort "Updater workflow must set up its pinned Python runtime" unless
