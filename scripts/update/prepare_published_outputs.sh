@@ -86,10 +86,11 @@ PY
     exit 1
   fi
 
-  if ! ruby "$repo_root/scripts/update/validate_clash_output.rb" "subscriptions/$name-clash.yaml"; then
+  if ! clash_count="$(ruby "$repo_root/scripts/update/validate_clash_output.rb" --count "subscriptions/$name-clash.yaml")"; then
     echo "[ERROR] Clash/Mihomo output failed structural validation: subscriptions/$name-clash.yaml" >&2
     exit 1
   fi
+  printf '[OK] [Clash/Mihomo] Structurally valid | subscriptions/%s-clash.yaml | Proxies: %s\n' "$name" "$clash_count"
 
   source_count="$all_count"
   if [[ "$name" == "light" ]]; then
@@ -113,7 +114,6 @@ PY
   manifest_source="$(jq --exit-status --arg name "$name" '.[$name].source' "$counts_file")"
   manifest_clash="$(jq --exit-status --arg name "$name" '.[$name].clash' "$counts_file")"
   manifest_singbox="$(jq --exit-status --arg name "$name" '.[$name].singbox' "$counts_file")"
-  clash_count="$(awk '/^[[:space:]]+- name:[[:space:]]*/ { count++ } END { print count + 0 }' "subscriptions/$name-clash.yaml")"
   singbox_count="$(jq --exit-status '.outbounds | length' "subscriptions/$name-singbox.json")"
 
   if (( manifest_source != source_count )); then
