@@ -31,6 +31,26 @@ abort "Python pin must be restricted to the trusted core-pin updater PR" unless
     body.include?('"${pr_author}" != "github-actions[bot]"') &&
     body.include?('"${head_ref}" != "automation/update-core-pins"')
 
+
+dependabot_branch_rules =
+  body.include?('(.head.ref | startswith("dependabot/github_actions/"))') &&
+    body.include?('(.head.ref | startswith("dependabot/cargo/"))') &&
+    body.include?('"automation/update-core-pins"')
+abort "Auto-merge may only select configured Dependabot ecosystems or the core-pin update branch" unless
+  dependabot_branch_rules
+
+abort "GitHub Actions updates must be limited to workflow/composite-action files" unless
+  body.include?('dependabot/github_actions/*)') &&
+    body.include?('.github/workflows/*.yml|.github/workflows/*.yaml') &&
+    body.include?('.github/actions/*/action.yml')
+
+abort "Cargo updates must only modify Cargo manifests/lockfiles" unless
+  body.include?('dependabot/cargo/*)') &&
+    body.include?('Cargo.toml|Cargo.lock)')
+
+abort "Core-pin updater must only modify its three managed pin files" unless
+  body.include?('.github/actions/prepare-update/action.yml|.python-version|.ruby-version')
+abort "Unconfigured requirements-file updates must not be auto-merged" if body.include?('requirements*.txt')
 gate_path = "scripts/update/verify_dependabot_auto_merge_checks.sh"
 gate = File.read(gate_path, encoding: "UTF-8")
 %w[Analyze\ (rust) Analyze\ (ruby) Analyze\ (python)].each do |check_name|
