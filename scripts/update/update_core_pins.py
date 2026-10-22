@@ -377,15 +377,41 @@ def main():
     python_path = ROOT / ".python-version"
     ruby_path = ROOT / ".ruby-version"
 
-    action_content = replace_pins(
-        action_path.read_text(encoding="utf-8"), action_values, action_path
-    )
+    action_source = action_path.read_text(encoding="utf-8")
+    action_content = replace_pins(action_source, action_values, action_path)
     current_python = python_path.read_text(encoding="utf-8")
     if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_python) is None:
         raise ValueError(f"{python_path} must contain exactly one stable X.Y.Z version")
     current_ruby = ruby_path.read_text(encoding="utf-8")
     if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_ruby) is None:
         raise ValueError(f"{ruby_path} must contain exactly one stable X.Y.Z version")
+
+    previous_versions = {
+        "Python": current_python.strip(),
+        "Ruby": current_ruby.strip(),
+        "Xray-core": pinned_value(action_source, "XRAY_VERSION_PIN", action_path),
+        "sing-box": pinned_value(action_source, "SINGBOX_VERSION_PIN", action_path),
+        "Mihomo": pinned_value(action_source, "MIHOMO_VERSION_PIN", action_path),
+    }
+    current_versions = {
+        "Python": python_version,
+        "Ruby": ruby_version,
+        "Xray-core": action_values["XRAY_VERSION_PIN"],
+        "sing-box": action_values["SINGBOX_VERSION_PIN"],
+        "Mihomo": action_values["MIHOMO_VERSION_PIN"],
+    }
+    release_metadata = {
+        "Xray-core": releases["xray"],
+        "sing-box": releases["singbox"],
+        "Mihomo": releases["mihomo"],
+    }
+    if previous_versions["Ruby"] != ruby_version:
+        release_metadata["Ruby"] = fetch_release_by_tag(
+            "ruby/ruby", f"v{ruby_version}", token
+        )
+    pr_title, pr_body = build_pr_description(
+        previous_versions, current_versions, release_metadata
+    )
 
     pin_environment = os.environ.copy()
     pin_environment["RUBY_VERSION_PIN"] = ruby_version
@@ -401,6 +427,7 @@ def main():
     )
     write_atomically(action_path, action_content)
     write_atomically(python_path, f"{python_version}\n")
+    write_pr_metadata(pr_title, pr_body)
 
     print(
         f"Resolved Python {python_version}, Ruby {ruby_version}, "
