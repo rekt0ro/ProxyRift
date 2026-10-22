@@ -155,7 +155,25 @@ jobs:
           ):
               content = path.read_text(encoding="utf-8")
               for key, value in values.items():
-                  pattern = rf'(?m)^([ \t]*{re.escape(key)}:[ \t]*)"[^"]*"
+                  pattern = rf'(?m)^([ \t]*{re.escape(key)}:[ \t]*)"[^"]*"$'
+                  content, count = re.subn(
+                      pattern,
+                      lambda match: f'\${match.group(1)}"{value}"',
+                      content,
+                  )
+                  if count != 1:
+                      raise SystemExit(
+                          f"Expected exactly one {key} in {path}, found {count}"
+                      )
+              path.write_text(content, encoding="utf-8")
+
+          print(
+              f"Resolved Xray {action_values['XRAY_VERSION_PIN']}, "
+              f"sing-box {action_values['SINGBOX_VERSION_PIN']}, and "
+              f"Mihomo {action_values['MIHOMO_VERSION_PIN']}; release asset "
+              "SHA-256 digests were verified as present in GitHub metadata."
+          )
+          PY
           git diff --check
           bash scripts/update/test_resolve_validation_cores.sh
 
