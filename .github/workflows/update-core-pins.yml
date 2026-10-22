@@ -134,6 +134,50 @@ jobs:
 
             The generated PR is validated by the repository's CI before the auto-merge workflow evaluates it.
 
+      - name: Synchronize core-pin PR labels
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+          SELECTED_LABELS: ${{ steps.labels.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          selected_labels=()
+          while IFS= read -r label; do
+            [[ -n "$label" ]] && selected_labels+=("$label")
+          done <<< "$SELECTED_LABELS"
+
+          current_labels=()
+          mapfile -t current_labels < <(
+            gh pr view "$PR_NUMBER" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json labels \
+              --jq '.labels[].name'
+          )
+
+          contains_label() {
+            local wanted="$1"
+            shift
+            local label
+            for label in "$@"; do
+              [[ "$label" == "$wanted" ]] && return 0
+            done
+            return 1
+          }
+
+          managed_labels=(dependencies toolchain python ruby xray sing-box mihomo)
+          for label in "${managed_labels[@]}"; do
+            if contains_label "$label" "${selected_labels[@]}"; then
+              if ! contains_label "$label" "${current_labels[@]}"; then
+                gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "$label"
+              fi
+            elif contains_label "$label" "${current_labels[@]}"; then
+              gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "$label"
+            fi
+          done
+
       - name: Dispatch validation CI for the generated PR
         id: dispatch-ci
         if: steps.cpr.outputs.pull-request-number != ''
