@@ -33,6 +33,10 @@ metadata_tokens = [
   "jq -r '.user.login // empty' <<< \"${pr_data}\"",
   "jq -r '.head.ref // empty' <<< \"${pr_data}\""
 ]
+abort "Auto-merge PR metadata must use a real newline in the JSON formatter" unless
+  body.match?(/pr_data=.*printf '%s\\n' "\$\{open_prs\}"/)
+abort "Auto-merge PR metadata must not append a literal backslash-n to JSON" if
+  body.match?(/pr_data=.*printf '%s\\\\n' "\$\{open_prs\}"/)
 abort "Auto-merge must validate the author and branch from the same GitHub API PR record" unless
   metadata_tokens.all? { |token| body.include?(token) } &&
     !body.include?("--json author --jq") &&
