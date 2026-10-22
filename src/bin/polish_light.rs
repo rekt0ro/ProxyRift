@@ -6,16 +6,16 @@ use proxyrift::light_training::{
 };
 use proxyrift::singbox::{
     validate_candidates_with_ordered_target_pool_once_with_minimum_body as validate_singbox_target_pool_once_with_minimum_body,
-    validate_candidates_with_target_once as validate_singbox_target_once,
+    validate_candidates_with_targets_once as validate_singbox_targets_once,
     validate_candidates_with_target_pool_once_with_sustained_stream as validate_singbox_target_pool_once_with_sustained_stream,
 };
 use proxyrift::validator::{
     endpoint, is_light_consumer_compatible, read_lines, target_is_rate_limited,
     target_rate_limit_events, validate_candidates_with_ordered_target_pool_once_with_minimum_body,
-    validate_candidates_with_target_once,
+    validate_candidates_with_targets_once,
     validate_candidates_with_target_pool_once_with_sustained_stream, write_lines, ProxyMetrics,
     LIGHT_TRANSFER_MINIMUM_TARGETS, LIGHT_TRANSFER_STABILITY_BYTES,
-    LIGHT_TRANSFER_STABILITY_TARGETS, PRIMARY_TARGET,
+    LIGHT_TRANSFER_STABILITY_TARGETS, CLOUDFLARE_HTTP_TARGET, PRIMARY_TARGET,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -3464,6 +3464,11 @@ async fn validate_light_precheck(
     let mut singbox_validation_candidates = singbox_candidates;
     singbox_validation_candidates.extend(fallback_candidates.iter().cloned());
 
+    let targets = if target == CLOUDFLARE_HTTP_TARGET {
+        [PRIMARY_TARGET, target]
+    } else {
+        [target, CLOUDFLARE_HTTP_TARGET]
+    };
     let request_timeout = std::time::Duration::try_from_secs_f64(settings.timeout_seconds)
         .map_err(|_| "invalid precheck timeout: value overflows Duration".to_string())?;
 
@@ -3471,10 +3476,10 @@ async fn validate_light_precheck(
         if singbox_validation_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            validate_singbox_target_once(
+            validate_singbox_targets_once(
                 singbox,
                 &singbox_validation_candidates,
-                target,
+                &targets,
                 settings.workers.clamp(1, 40),
                 request_timeout,
                 settings.timeout_seconds * 1000.0,
@@ -3487,10 +3492,10 @@ async fn validate_light_precheck(
         if xray_candidates.is_empty() {
             Ok(HashMap::new())
         } else {
-            validate_candidates_with_target_once(
+            validate_candidates_with_targets_once(
                 xray,
                 &xray_candidates,
-                target,
+                &targets,
                 settings.workers.max(1),
                 settings.batch_size,
                 settings.timeout_seconds,
@@ -3511,14 +3516,14 @@ async fn validate_light_precheck(
 
     if !fallback_retry.is_empty() {
         println!(
-            "[INFO] [Light HTTP precheck] Retrying {} fallback candidates with Xray | Target: {}",
+            "[INFO] [Light HTTP precheck] Retrying {} fallback candidates with Xray | Targets: {}",
             fallback_retry.len(),
-            target
+            targets.join(", ")
         );
-        let fallback_xray = validate_candidates_with_target_once(
+        let fallback_xray = validate_candidates_with_targets_once(
             xray,
             &fallback_retry,
-            target,
+            &targets,
             settings.workers.max(1),
             settings.batch_size,
             settings.timeout_seconds,
