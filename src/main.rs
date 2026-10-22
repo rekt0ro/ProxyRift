@@ -49,7 +49,6 @@ const MAX_SOURCE_REDIRECTS: usize = 2;
 const MAX_COLLECTED_CONFIGS: usize = 30_000;
 const MAX_ALL_CONFIGS: usize = 2000;
 const MAX_ALL_PER_ENDPOINT: usize = 5;
-const HTTP_HANDSHAKE_TARGET: &str = proxyrift::validator::PRIMARY_TARGET;
 const HTTP_HANDSHAKE_TARGETS: &[&str] = proxyrift::validator::CONNECTIVITY_TARGETS;
 const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 5;
 const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = 5000.0;
