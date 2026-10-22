@@ -9,6 +9,7 @@ on:
   workflow_run:
     workflows:
       - CI
+      - CodeQL
     types:
       - completed
   workflow_dispatch:
@@ -26,6 +27,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout trusted merge-gate scripts
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
       - name: Merge ready Dependabot tooling updates
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -39,7 +46,19 @@ jobs:
           mapfile -t prs < <(
             printf '%s\n' "${open_prs}" | jq -r '
               .[]
-              | select((.user.login == "dependabot[bot]" or (.user.login == "github-actions[bot]" and .head.ref == "automation/update-core-pins")) and .draft == false)
+              | select((
+                  (
+                    .user.login == "dependabot[bot]"
+                    and (
+                      (.head.ref | startswith("dependabot/github_actions/"))
+                      or (.head.ref | startswith("dependabot/cargo/"))
+                    )
+                  )
+                  or (
+                    .user.login == "github-actions[bot]"
+                    and .head.ref == "automation/update-core-pins"
+                  )
+                ) and .draft == false)
               | .number
             '
           )
@@ -77,50 +96,66 @@ jobs:
 
             valid=true
             for path in "${files[@]}"; do
-              case "${path}" in
-                .github/workflows/*.yml|.github/workflows/*.yaml|Cargo.toml|Cargo.lock|requirements*.txt)
-                  ;;
-                .ruby-version)
-                  if [[ "${pr_author}" != "github-actions[bot]" || "${head_ref}" != "automation/update-core-pins" ]]; then
+              if [[ "${pr_author}" == "dependabot[bot]" ]]; then
+                case "${head_ref}" in
+                  dependabot/github_actions/*)
+                    case "${path}" in
+                      .github/workflows/*.yml|.github/workflows/*.yaml|.github/actions/*/action.yml|.github/actions/*/action.yaml|.github/actions/*.yml|.github/actions/*.yaml)
+                        ;;
+                      *)
+                        valid=false
+                        echo "PR #${pr} has a file outside the GitHub Actions dependency allowlist: ${path}"
+                        ;;
+                    esac
+                    ;;
+                  dependabot/cargo/*)
+                    case "${path}" in
+                      Cargo.toml|Cargo.lock)
+                        ;;
+                      *)
+                        valid=false
+                        echo "PR #${pr} has a file outside the Cargo dependency allowlist: ${path}"
+                        ;;
+                    esac
+                    ;;
+                  *)
                     valid=false
-                    echo "PR #${pr} changes the Ruby version pin outside the trusted update branch"
-                  fi
-                  ;;
-                .github/actions/prepare-update/action.yml)
-                  if [[ "${pr_author}" != "github-actions[bot]" || "${head_ref}" != "automation/update-core-pins" ]]; then
+                    echo "PR #${pr} has an unrecognized Dependabot update branch: ${head_ref}"
+                    ;;
+                esac
+              elif [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]; then
+                case "${path}" in
+                  .github/actions/prepare-update/action.yml|.python-version|.ruby-version)
+                    ;;
+                  *)
                     valid=false
-                    echo "PR #${pr} changes a managed core-pin action outside the trusted update branch: ${path}"
-                  fi
-                  ;;
-                *)
-                  valid=false
-                  echo "PR #${pr} changes an unmanaged file: ${path}"
-                  ;;
-              esac
+                    echo "PR #${pr} changes a file outside the core-pin updater allowlist: ${path}"
+                    ;;
+                esac
+              else
+                valid=false
+                echo "PR #${pr} is not an approved update bot/branch pair"
+              fi
             done
-
             if [ "${valid}" != "true" ]; then
               continue
             fi
 
             checks="$(gh pr checks "${pr}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --json workflow,bucket 2>/dev/null || true)"
+              --json name,workflow,bucket 2>/dev/null || true)"
 
             if [ -z "${checks}" ]; then
               echo "No check results for PR #${pr} yet; skipping."
               continue
             fi
 
-            if ! printf '%s' "${checks}" | jq -e '
-              [ .[] | select(.workflow == "CI") ] as $ci
-              | ($ci | length > 0) and all($ci[]; .bucket == "pass")
-            ' >/dev/null; then
-              echo "Rust CI has not passed for PR #${pr}; skipping."
+            if ! bash scripts/update/verify_dependabot_auto_merge_checks.sh <<< "${checks}"; then
+              echo "Required CI/Rust/Ruby/Python checks have not all passed for PR #${pr}; skipping."
               continue
             fi
 
-            echo "Rust CI passed for PR #${pr}; merging."
+            echo "Required CI/Rust/Ruby/Python checks passed for PR #${pr}; merging."
             if gh pr merge "${pr}" \
               --repo "${GITHUB_REPOSITORY}" \
               --squash \

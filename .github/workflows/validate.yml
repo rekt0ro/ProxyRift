@@ -14,6 +14,7 @@ on:
       - ".gitignore"
       - ".gitattributes"
       - ".ruby-version"
+      - ".python-version"
       - "scripts/**"
   pull_request:
     paths:
@@ -26,6 +27,7 @@ on:
       - ".gitignore"
       - ".gitattributes"
       - ".ruby-version"
+      - ".python-version"
       - "scripts/**"
   workflow_dispatch:
 
@@ -39,6 +41,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+
+      - name: Verify Python version pin
+        run: |
+          python --version
+          python -c 'import pathlib, sys; expected = pathlib.Path(".python-version").read_text().strip(); actual = ".".join(map(str, sys.version_info[:3])); assert actual == expected, f"Python {actual} does not match .python-version ({expected})"'
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -74,7 +86,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
 
       - name: Shell syntax check
-        run: for script in scripts/*.sh scripts/update/*.sh scripts/autopilot/*.sh; do bash -n "$script" || exit 1; done
+        run: for script in scripts/*.sh scripts/update/*.sh; do bash -n "$script" || exit 1; done
 
       - name: Validate workflow and composite-action YAML
         run: |
@@ -94,15 +106,22 @@ jobs:
 
       - name: Validate core-pin workflow shell syntax
         run: ruby scripts/update/test_core_pin_workflow.rb
+
+      - name: Test Dependabot auto-merge check policy
+        run: bash scripts/update/test_dependabot_auto_merge_checks.sh
+
+      - name: Validate Dependabot auto-merge workflow
+        run: ruby scripts/update/test_dependabot_auto_merge_workflow.rb
       - name: Test publication quality gate
-        run: bash scripts/autopilot/test_publication_gate.sh
+        run: bash scripts/update/test_publication_gate.sh
+
+      - name: Load pinned core versions for export validation
+        shell: bash
+        run: ruby scripts/update/load_validation_core_pins.rb >> "$GITHUB_ENV"
 
       - name: Install pinned sing-box core for export validation
         env:
           SINGBOX_REPOSITORY: "SagerNet/sing-box"
-          SINGBOX_VERSION: "1.14.3"
-          SINGBOX_SHA256: "e2bdf179c15a3652955dc44867e33ca0965c9c9b91b34267dcc5a5d639a5feee"
-          SINGBOX_ASSET: "sing-box-1.14.3-linux-amd64.tar.gz"
         run: bash scripts/update/install_singbox.sh
 
       - name: Smoke-test sing-box check on an exported subscription
@@ -131,9 +150,6 @@ jobs:
       - name: Install pinned Mihomo core for Clash export validation
         env:
           MIHOMO_REPOSITORY: "MetaCubeX/mihomo"
-          MIHOMO_VERSION: "1.19.32"
-          MIHOMO_SHA256: "8451100836c9eda194331c2babfad490b2faf30cebc1a04b0e76fd8ac2d35d10"
-          MIHOMO_ASSET: "mihomo-linux-amd64-v1.19.32.gz"
         run: bash scripts/update/install_mihomo.sh
 
       - name: Smoke-test Mihomo validation on Clash proxy output
@@ -154,9 +170,6 @@ jobs:
         run: |
           "$HOME/.local/bin/mihomo" -t -f subscriptions/light-clash.yaml
           "$HOME/.local/bin/mihomo" -t -f subscriptions/all-clash.yaml
-
-      - name: Test watchdog output validation and cleanup
-        run: bash scripts/autopilot/test_watchdog.sh
 
       - name: Test source-sensitive build cache keys
         run: bash scripts/update/test_compute_cache_keys.sh
