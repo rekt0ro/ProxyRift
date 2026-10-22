@@ -58,8 +58,20 @@ jobs:
             -H "User-Agent: ProxyRift" \
             https://api.github.com/repos/SagerNet/sing-box/releases/latest)"
 
+          mihomo_release="$(curl -fsSL \
+            --retry 5 \
+            --retry-delay 2 \
+            --retry-max-time 45 \
+            --retry-connrefused \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: ProxyRift" \
+            https://api.github.com/repos/MetaCubeX/mihomo/releases/latest)"
+
           xray_tag="$(jq -er '.tag_name // empty' <<< "$xray_release")"
           singbox_tag="$(jq -er '.tag_name // empty' <<< "$singbox_release")"
+          mihomo_tag="$(jq -er '.tag_name // empty' <<< "$mihomo_release")"
 
           if [[ ! "$xray_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid Xray stable release tag: $xray_tag" >&2
@@ -69,11 +81,18 @@ jobs:
             echo "Invalid sing-box stable release tag: $singbox_tag" >&2
             exit 1
           fi
+          if [[ ! "$mihomo_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid Mihomo stable release tag: $mihomo_tag" >&2
+            exit 1
+          fi
 
           xray_version="$(printf '%s' "$xray_tag" | cut -c 2-)"
           singbox_version="$(printf '%s' "$singbox_tag" | cut -c 2-)"
+          mihomo_version="$(printf '%s' "$mihomo_tag" | cut -c 2-)"
           xray_asset="Xray-linux-64.zip"
           singbox_asset="sing-box-$singbox_version-linux-amd64.tar.gz"
+          mihomo_asset="mihomo-linux-amd64-v$ mihomo_version.gz"
+          mihomo_asset="${mihomo_asset// /}"
 
           xray_digest="$(jq -er --arg name "$xray_asset" '
             .assets[]
@@ -87,9 +106,16 @@ jobs:
             | .digest
             | select(type == "string" and test("^sha256:[0-9a-fA-F]{64}$"))
           ' <<< "$singbox_release")"
+          mihomo_digest="$(jq -er --arg name "$mihomo_asset" '
+            .assets[]
+            | select(.name == $name)
+            | .digest
+            | select(type == "string" and test("^sha256:[0-9a-fA-F]{64}$"))
+          ' <<< "$mihomo_release")"
 
           xray_sha="$(printf '%s' "$xray_digest" | cut -d: -f2)"
           singbox_sha="$(printf '%s' "$singbox_digest" | cut -d: -f2)"
+          mihomo_sha="$(printf '%s' "$mihomo_digest" | cut -d: -f2)"
 
           XRAY_VERSION_PIN="$xray_version" \
           XRAY_SHA256_PIN="$xray_sha" \
@@ -97,36 +123,174 @@ jobs:
           SINGBOX_VERSION_PIN="$singbox_version" \
           SINGBOX_SHA256_PIN="$singbox_sha" \
           SINGBOX_ASSET_PIN="$singbox_asset" \
+          MIHOMO_VERSION_PIN="$mihomo_version" \
+          MIHOMO_SHA256_PIN="$mihomo_sha" \
+          MIHOMO_ASSET_PIN="$mihomo_asset" \
             python3 - <<'PY'
           import os
           import re
           from pathlib import Path
 
-          path = Path(".github/actions/prepare-update/action.yml")
-          content = path.read_text(encoding="utf-8")
-          values = {
+          action_path = Path(".github/actions/prepare-update/action.yml")
+          action_values = {
               "XRAY_VERSION_PIN": os.environ["XRAY_VERSION_PIN"],
               "XRAY_SHA256_PIN": os.environ["XRAY_SHA256_PIN"],
               "XRAY_ASSET_PIN": os.environ["XRAY_ASSET_PIN"],
               "SINGBOX_VERSION_PIN": os.environ["SINGBOX_VERSION_PIN"],
               "SINGBOX_SHA256_PIN": os.environ["SINGBOX_SHA256_PIN"],
               "SINGBOX_ASSET_PIN": os.environ["SINGBOX_ASSET_PIN"],
+              "MIHOMO_VERSION_PIN": os.environ["MIHOMO_VERSION_PIN"],
+              "MIHOMO_SHA256_PIN": os.environ["MIHOMO_SHA256_PIN"],
+              "MIHOMO_ASSET_PIN": os.environ["MIHOMO_ASSET_PIN"],
+          }
+          validation_path = Path(".github/workflows/validate.yml")
+          validation_values = {
+              "MIHOMO_VERSION": os.environ["MIHOMO_VERSION_PIN"],
+              "MIHOMO_SHA256": os.environ["MIHOMO_SHA256_PIN"],
+              "MIHOMO_ASSET": os.environ["MIHOMO_ASSET_PIN"],
           }
 
-          for key, value in values.items():
-              pattern = rf'(?m)^([ \t]*{re.escape(key)}:[ \t]*)"[^"]*"$'
-              content, count = re.subn(
-                  pattern,
-                  lambda match: f'{match.group(1)}"{value}"',
-                  content,
-              )
-              if count != 1:
-                  raise SystemExit(f"Expected exactly one {key} pin, found {count}")
+          for path, values in (
+              (action_path, action_values),
+              (validation_path, validation_values),
+          ):
+              content = path.read_text(encoding="utf-8")
+              for key, value in values.items():
+                  pattern = rf'(?m)^([ \t]*{re.escape(key)}:[ \t]*)"[^"]*"
+          git diff --check
+          bash scripts/update/test_resolve_validation_cores.sh
 
-          path.write_text(content, encoding="utf-8")
+      - name: Create or update core-pin pull request
+        id: cpr
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ github.token }}
+          base: main
+          branch: automation/update-core-pins
+          delete-branch: true
+          add-paths: |
+            .github/actions/prepare-update/action.yml
+            .github/workflows/validate.yml
+          commit-message: "chore: update Xray, sing-box, and Mihomo pins"
+          title: "chore: update Xray, sing-box, and Mihomo versions"
+          body: |
+            Automated update of the pinned Xray-core, sing-box, and Mihomo releases.
+
+            Versions, Linux asset names, and SHA-256 digests are read from each project's official GitHub Releases API. The updater refuses to create changes if the release tags, asset names, or digests do not match the expected format.
+
+            The PR is validated by the repository's Rust CI before the auto-merge workflow is asked to merge it.
+
+      - name: Dispatch Rust CI for the generated PR
+        id: dispatch-ci
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          head_sha="$(gh pr view "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json headRefOid \
+            --jq '.headRefOid')"
+
+          prior_run_ids="$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow validate.yml \
+            --branch automation/update-core-pins \
+            --event workflow_dispatch \
+            --limit 50 \
+            --json databaseId | jq '[.[].databaseId]')"
+
+          echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "prior-run-ids=$prior_run_ids" >> "$GITHUB_OUTPUT"
+
+          gh workflow run validate.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref automation/update-core-pins
+
+      - name: Wait for Rust CI to finish
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ steps.dispatch-ci.outputs.head-sha }}
+          PRIOR_RUN_IDS: ${{ steps.dispatch-ci.outputs.prior-run-ids }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          deadline=$((SECONDS + 3300))
+          ci_conclusion=""
+
+          while (( SECONDS < deadline )); do
+            runs="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow validate.yml \
+              --branch automation/update-core-pins \
+              --event workflow_dispatch \
+              --limit 50 \
+              --json databaseId,headSha,status,conclusion)"
+
+            run_id="$(jq -r \
+              --arg sha "$EXPECTED_HEAD_SHA" \
+              --argjson prior "$PRIOR_RUN_IDS" '
+                [
+                  .[]
+                  | select(.headSha == $sha)
+                  | select(.databaseId as $id | ($prior | index($id)) == null)
+                ]
+                | first
+                | .databaseId // empty
+              ' <<< "$runs")"
+
+            if [[ -n "$run_id" ]]; then
+              run_details="$(gh run view "$run_id" \
+                --repo "$GITHUB_REPOSITORY" \
+                --json status,conclusion)"
+              status="$(jq -r '.status' <<< "$run_details")"
+              conclusion="$(jq -r '.conclusion // empty' <<< "$run_details")"
+
+              if [[ "$status" == "completed" ]]; then
+                ci_conclusion="$conclusion"
+                break
+              fi
+            fi
+
+            sleep 15
+          done
+
+          if [[ "$ci_conclusion" != "success" ]]; then
+            echo "Rust CI did not succeed; leaving the core update PR open for inspection." >&2
+            exit 1
+          fi
+
+          echo "Rust CI passed for $EXPECTED_HEAD_SHA."
+
+      - name: Request auto-merge evaluation
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run dependabot-auto-merge.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main
+
+                  content, count = re.subn(
+                      pattern,
+                      lambda match: f'{match.group(1)}"{value}"',
+                      content,
+                  )
+                  if count != 1:
+                      raise SystemExit(
+                          f"Expected exactly one {key} in {path}, found {count}"
+                      )
+              path.write_text(content, encoding="utf-8")
+
           print(
-              f"Resolved Xray {values['XRAY_VERSION_PIN']} and "
-              f"sing-box {values['SINGBOX_VERSION_PIN']}; both release asset "
+              f"Resolved Xray {action_values['XRAY_VERSION_PIN']}, "
+              f"sing-box {action_values['SINGBOX_VERSION_PIN']}, and "
+              f"Mihomo {action_values['MIHOMO_VERSION_PIN']}; release asset "
               "SHA-256 digests were verified as present in GitHub metadata."
           )
           PY
