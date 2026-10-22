@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Unit tests for stable-release validation and pin replacement."""
 
+import gzip
 import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import update_core_pins
 
 from update_core_pins import (
     asset_sha256,
@@ -16,6 +20,29 @@ from update_core_pins import (
 )
 
 
+PYTHON_DOWNLOADS_HTML = b"""<!doctype html>
+<html><body>
+<a href="/downloads/release/python-3151/">Python 3.15.1</a>
+<a href="/downloads/release/python-3149/">Python 3.14.9</a>
+</body></html>
+"""
+
+
+class FakeResponse:
+    def __init__(self, body, headers=None):
+        self._body = body
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def read(self):
+        return self._body
+
+
 def release(tag, assets=()):
     return {
         "tag_name": tag,
@@ -24,6 +51,26 @@ def release(tag, assets=()):
 
 
 class CorePinUpdaterTests(unittest.TestCase):
+
+    def test_fetches_gzip_python_release_page_from_header(self):
+        response = FakeResponse(
+            gzip.compress(PYTHON_DOWNLOADS_HTML),
+            {"Content-Encoding": "gzip"},
+        )
+        with patch.object(update_core_pins, "urlopen", return_value=response):
+            self.assertEqual(
+                update_core_pins.fetch_latest_python_version(),
+                "3.15.1",
+            )
+
+    def test_detects_gzip_body_without_content_encoding_header(self):
+        response = FakeResponse(gzip.compress(PYTHON_DOWNLOADS_HTML))
+        with patch.object(update_core_pins, "urlopen", return_value=response):
+            self.assertEqual(
+                update_core_pins.fetch_latest_python_version(),
+                "3.15.1",
+            )
+
     def test_resolves_latest_python_stable_release_and_skips_pre_releases(self):
         page = """
         <html><body>

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Resolve stable tool releases and update the repository's pinned versions."""
 
+import gzip
 import json
 import os
 import re
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -71,13 +73,21 @@ def fetch_latest_python_version():
         PYTHON_DOWNLOADS_URL,
         headers={
             "Accept": "text/html",
+            "Accept-Encoding": "identity",
             "User-Agent": "ProxyRift core-pin updater",
         },
     )
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-                html = response.read().decode("utf-8")
+                payload = response.read()
+                content_encoding = response.headers.get("Content-Encoding", "").lower()
+            if (
+                "gzip" in {item.strip() for item in content_encoding.split(",")}
+                or payload.startswith(b"\x1f\x8b")
+            ):
+                payload = gzip.decompress(payload)
+            html = payload.decode("utf-8")
             return latest_python_version(html)
         except HTTPError as error:
             if error.code not in (403, 429) and 400 <= error.code < 500:
@@ -85,7 +95,7 @@ def fetch_latest_python_version():
                     f"python.org downloads page returned HTTP {error.code}"
                 ) from error
             cause = error
-        except (URLError, TimeoutError, UnicodeDecodeError, ValueError) as error:
+        except (URLError, TimeoutError, UnicodeDecodeError, ValueError, OSError, EOFError, zlib.error) as error:
             cause = error
 
         if attempt == MAX_ATTEMPTS:
