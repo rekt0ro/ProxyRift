@@ -12,6 +12,7 @@ on:
       - ".github/actions/**"
       - ".github/dependabot.yml"
       - ".gitignore"
+      - ".ruby-version"
       - "scripts/**"
   pull_request:
     paths:
@@ -22,6 +23,7 @@ on:
       - ".github/actions/**"
       - ".github/dependabot.yml"
       - ".gitignore"
+      - ".ruby-version"
       - "scripts/**"
   workflow_dispatch:
 
@@ -38,6 +40,11 @@ jobs:
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
+
+      - name: Verify Ruby version pin
+        run: |
+          ruby --version
+          ruby -e 'abort "Ruby version does not match .ruby-version" unless RUBY_VERSION == File.read(".ruby-version").strip'
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
