@@ -1319,7 +1319,12 @@ mod tests {
         ];
 
         let yaml = render(&configs).expect("supported proxy types should render");
-        assert_eq!(yaml.lines().filter(|line| line.starts_with("  - name:")).count(), 2);
+        assert_eq!(
+            yaml.lines()
+                .filter(|line| line.starts_with("  - name:"))
+                .count(),
+            2
+        );
         assert!(!yaml.lines().any(|line| line.starts_with(" - name:")));
     }
 
