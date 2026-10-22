@@ -46,64 +46,71 @@ jobs:
           python3 scripts/update/update_core_pins.py
           git diff --check
           bash scripts/update/test_resolve_validation_cores.sh
-      - name: Ensure update labels exist
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS='|' read -r name color description; do
-            if gh api "repos/${GITHUB_REPOSITORY}/labels/${name}" >/dev/null 2>&1; then
-              continue
-            fi
-            echo "Creating repository label: ${name}"
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/labels" \
-              -f "name=${name}" \
-              -f "color=${color}" \
-              -f "description=${description}" >/dev/null
-          done <<'LABELS'
-          dependencies|0366d6|Automated dependency and release pin updates
-          python|3572A5|Updates to the Python runtime pin
-          ruby|701516|Updates to the Ruby runtime pin
-          xray|c6538c|Updates to Xray-core release pins
-          sing-box|b4e197|Updates to sing-box release pins
-          mihomo|1f883d|Updates to Mihomo release pins
-          LABELS
-
       - name: Determine labels for changed pins
         id: labels
         shell: bash
         run: |
           set -euo pipefail
-          labels=()
-
-          if ! git diff --quiet -- .python-version; then
-            labels+=("python")
-          fi
-          if ! git diff --quiet -- .ruby-version; then
-            labels+=("ruby")
-          fi
-
-          pin_diff="$(git diff --unified=0 -- .github/actions/prepare-update/action.yml)"
-          if grep -Eq '^[+-][[:space:]]*XRAY_(VERSION|SHA256|ASSET)_PIN:' <<< "${pin_diff}"; then
-            labels+=("xray")
-          fi
-          if grep -Eq '^[+-][[:space:]]*SINGBOX_(VERSION|SHA256|ASSET)_PIN:' <<< "${pin_diff}"; then
-            labels+=("sing-box")
-          fi
-          if grep -Eq '^[+-][[:space:]]*MIHOMO_(VERSION|SHA256|ASSET)_PIN:' <<< "${pin_diff}"; then
-            labels+=("mihomo")
-          fi
-
-          if ((${#labels[@]} > 0)); then
-            labels=("dependencies" "${labels[@]}")
-          fi
-
           {
             echo 'value<<EOF'
-            printf '%s\n' "${labels[@]}"
+            bash scripts/update/resolve_core_pin_labels.sh
             echo EOF
           } >> "$GITHUB_OUTPUT"
+
+      - name: Ensure selected update labels exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABELS: ${{ steps.labels.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r name; do
+            [[ -n "$name" ]] || continue
+            case "$name" in
+              dependencies)
+                color="0366d6"
+                description="Updates to core dependencies: Xray, sing-box, or Mihomo"
+                ;;
+              toolchain)
+                color="6f42c1"
+                description="Updates to CI runtimes and toolchain"
+                ;;
+              python)
+                color="3572A5"
+                description="Updates to the pinned Python runtime"
+                ;;
+              ruby)
+                color="701516"
+                description="Updates to the pinned Ruby runtime"
+                ;;
+              xray)
+                color="c6538c"
+                description="Updates to Xray-core release pins"
+                ;;
+              sing-box)
+                color="b4e197"
+                description="Updates to sing-box release pins"
+                ;;
+              mihomo)
+                color="1f883d"
+                description="Updates to Mihomo release pins"
+                ;;
+              *)
+                echo "Refusing to create an unrecognized update label: $name" >&2
+                exit 1
+                ;;
+            esac
+
+            if gh api "repos/${GITHUB_REPOSITORY}/labels/${name}" >/dev/null 2>&1; then
+              continue
+            fi
+
+            echo "Creating repository label: ${name}"
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/labels" \
+              -f "name=${name}" \
+              -f "color=${color}" \
+              -f "description=${description}" >/dev/null
+          done <<< "$LABELS"
 
       - name: Create or update core-pin pull request
         id: cpr
@@ -119,13 +126,56 @@ jobs:
             .ruby-version
           commit-message: "chore: update core and runtime versions"
           title: "chore: update core and runtime versions"
-          labels: ${{ steps.labels.outputs.value }}
           body: |
             Automated update of the pinned Python and Ruby runtimes plus Xray-core, sing-box, and Mihomo releases used by CI and subscription validation.
 
             Python is resolved from the official python.org stable-release list. Ruby and Xray-core, sing-box, and Mihomo versions come from their official GitHub Releases APIs; core asset names and SHA-256 digests are validated before any pins are changed.
 
             The generated PR is validated by the repository's CI before the auto-merge workflow evaluates it.
+
+      - name: Synchronize core-pin PR labels
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+          SELECTED_LABELS: ${{ steps.labels.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          selected_labels=()
+          while IFS= read -r label; do
+            [[ -n "$label" ]] && selected_labels+=("$label")
+          done <<< "$SELECTED_LABELS"
+
+          current_labels=()
+          mapfile -t current_labels < <(
+            gh pr view "$PR_NUMBER" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json labels \
+              --jq '.labels[].name'
+          )
+
+          contains_label() {
+            local wanted="$1"
+            shift
+            local label
+            for label in "$@"; do
+              [[ "$label" == "$wanted" ]] && return 0
+            done
+            return 1
+          }
+
+          managed_labels=(dependencies toolchain python ruby xray sing-box mihomo)
+          for label in "${managed_labels[@]}"; do
+            if contains_label "$label" "${selected_labels[@]}"; then
+              if ! contains_label "$label" "${current_labels[@]}"; then
+                gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "$label"
+              fi
+            elif contains_label "$label" "${current_labels[@]}"; then
+              gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "$label"
+            fi
+          done
 
       - name: Dispatch validation CI for the generated PR
         id: dispatch-ci
