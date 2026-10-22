@@ -37,8 +37,10 @@ jobs:
           python-version-file: .python-version
 
       - name: Resolve latest stable releases and update pins
+        id: resolve-pins
         env:
           GH_TOKEN: ${{ github.token }}
+          CORE_PIN_PR_BODY_PATH: ${{ runner.temp }}/core-pin-pr-body.md
         shell: bash
         run: |
           set -euo pipefail
@@ -125,13 +127,8 @@ jobs:
             .python-version
             .ruby-version
           commit-message: "chore: update core and runtime versions"
-          title: "chore: update core and runtime versions"
-          body: |
-            Automated update of the pinned Python and Ruby runtimes plus Xray-core, sing-box, and Mihomo releases used by CI and subscription validation.
-
-            Python is resolved from the official python.org stable-release list. Ruby and Xray-core, sing-box, and Mihomo versions come from their official GitHub Releases APIs; core asset names and SHA-256 digests are validated before any pins are changed.
-
-            The generated PR is validated by the repository's CI before the auto-merge workflow evaluates it.
+          title: ${{ steps.resolve-pins.outputs.pr_title }}
+          body-path: ${{ runner.temp }}/core-pin-pr-body.md
 
       - name: Synchronize core-pin PR labels
         if: steps.cpr.outputs.pull-request-number != ''
