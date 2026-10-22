@@ -805,16 +805,20 @@ fn repair_escaped_query_suffixes(config: &str) -> Option<String> {
             repaired_pairs.push((key, value));
             continue;
         };
-        let recognized_prefix = match key_lower.as_str() {
-            "type" | "network" => matches!(
-                normalize_transport(prefix).as_str(),
-                "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic"
-            ),
-            "security" => matches!(
-                normalize_security_label(prefix).as_str(),
-                "" | "none" | "tls" | "t" | "tl" | "reality"
-            ),
-            _ => false,
+        let recognized_prefix = if prefix.trim().is_empty() {
+            false
+        } else {
+            match key_lower.as_str() {
+                "type" | "network" => matches!(
+                    normalize_transport(prefix).as_str(),
+                    "raw" | "ws" | "http" | "grpc" | "httpupgrade" | "xhttp" | "kcp" | "quic"
+                ),
+                "security" => matches!(
+                    normalize_security_label(prefix).as_str(),
+                    "none" | "tls" | "t" | "tl" | "reality"
+                ),
+                _ => false,
+            }
         };
         if !recognized_prefix {
             repaired_pairs.push((key, value));
