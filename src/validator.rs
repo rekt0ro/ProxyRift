@@ -827,7 +827,7 @@ fn repair_escaped_query_suffixes(config: &str) -> Option<String> {
 
         let mut suffix_pairs = Vec::new();
         let mut valid_suffix = true;
-        for segment in normalized_value.split('&').skip(1) {
+        for segment in std::iter::once(suffix).chain(normalized_value.split('&').skip(2)) {
             let Some((suffix_key, suffix_value)) = segment.split_once('=') else {
                 valid_suffix = false;
                 break;
