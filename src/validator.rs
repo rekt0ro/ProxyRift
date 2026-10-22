@@ -724,7 +724,7 @@ fn normalize_security_label(value: &str) -> String {
         .next()
         .unwrap_or(value)
         .trim()
-        .trim_end_matches('.')
+        .trim_end_matches(['.', '…'])
         .trim()
         .to_string()
 }
@@ -890,7 +890,8 @@ fn normalize_transport(value: &str) -> String {
                 .split(['#', '@', '?', '&', '¬', 'Â'])
                 .next()
                 .unwrap_or(candidate)
-                .trim();
+                .trim()
+                .trim_end_matches(['.', '…']);
             let candidate = if let Some((prefix, suffix)) = candidate.rsplit_once(':') {
                 if prefix == "tcp" && suffix.parse::<u16>().is_ok_and(|port| port > 0) {
                     "tcp"
@@ -6848,6 +6849,7 @@ mod tests {
             "tls...",
             "tls%26alpn=h2",
             "tls%5Cu0026alpn=h2",
+            "tl%E2%80%A6",
         ] {
             let config = format!("trojan://password@example.com:443?security={security}&type=tcp");
             assert_eq!(
@@ -6918,6 +6920,8 @@ mod tests {
             ("grpc%26serviceName=vless", "grpc"),
             ("ws%5Cu0026path=%2Fws", "ws"),
             ("xhttp%5Cu0026mode=auto", "xhttp"),
+            ("ws...", "ws"),
+            ("tcp%E2%80%A6", "raw"),
             ("tcp%23provider@oneclickvpnkeys", "raw"),
             ("tcp@freenettir", "raw"),
             ("tcp¬e=volt____network", "raw"),
@@ -6938,6 +6942,12 @@ mod tests {
             let parsed = parse_config(&config).expect("recognized transport alias should parse");
             assert_eq!(parsed["streamSettings"]["network"], expected);
         }
+
+        let malformed = "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=...";
+        assert_eq!(
+            cheap_compatibility_rejection_reason(malformed),
+            Some("unsupported-transport")
+        );
     }
 
     #[test]
