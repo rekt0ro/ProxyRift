@@ -40,6 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 scripts/update/test_update_core_pins.py
           python3 scripts/update/update_core_pins.py
           git diff --check
           bash scripts/update/test_resolve_validation_cores.sh
