@@ -93,6 +93,11 @@ jobs:
           JSON
           "$HOME/.local/bin/sing-box" check -c "$config"
 
+      - name: Validate published sing-box exports with sing-box
+        run: |
+          "$HOME/.local/bin/sing-box" check -c subscriptions/light-singbox.json
+          "$HOME/.local/bin/sing-box" check -c subscriptions/all-singbox.json
+
       - name: Install pinned Mihomo core for Clash export validation
         env:
           MIHOMO_REPOSITORY: "MetaCubeX/mihomo"
@@ -114,6 +119,11 @@ jobs:
               port: 1080
           YAML
           "$HOME/.local/bin/mihomo" -t -f "$config"
+
+      - name: Validate published Clash exports with Mihomo
+        run: |
+          "$HOME/.local/bin/mihomo" -t -f subscriptions/light-clash.yaml
+          "$HOME/.local/bin/mihomo" -t -f subscriptions/all-clash.yaml
 
       - name: Test watchdog output validation and cleanup
         run: bash scripts/autopilot/test_watchdog.sh
