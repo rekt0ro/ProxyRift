@@ -46,6 +46,11 @@ if [[ ! -x "$singbox_binary" ]]; then
   echo "[ERROR] sing-box validator is missing or not executable: $singbox_binary" >&2
   exit 1
 fi
+mihomo_binary="${MIHOMO_BINARY:-$HOME/.local/bin/mihomo}"
+if [[ ! -x "$mihomo_binary" ]]; then
+  echo "[ERROR] Mihomo validator is missing or not executable: $mihomo_binary" >&2
+  exit 1
+fi
 
 for name in light all; do
   decoded="$(mktemp)"
@@ -91,6 +96,10 @@ PY
     exit 1
   fi
   printf '[OK] [Clash/Mihomo] Structurally valid | subscriptions/%s-clash.yaml | Proxies: %s\n' "$name" "$clash_count"
+  if ! "$mihomo_binary" -t -f "subscriptions/$name-clash.yaml"; then
+    echo "[ERROR] Mihomo rejected Clash configuration: subscriptions/$name-clash.yaml" >&2
+    exit 1
+  fi
 
   source_count="$all_count"
   if [[ "$name" == "light" ]]; then
