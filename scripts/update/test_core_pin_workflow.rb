@@ -1,6 +1,9 @@
 #!/usr/bin/env ruby
 
 require "tempfile"
+require "tmpdir"
+require "fileutils"
+require "open3"
 require "yaml"
 
 workflow_path = ".github/workflows/update-core-pins.yml"
@@ -21,29 +24,23 @@ abort "Core-pin updater must not stage workflow files without workflow permissio
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip.start_with?(".github/workflows/") }
 
 steps = workflow.dig("jobs", "update-pins", "steps")
-label_setup = steps.find { |entry| entry["name"] == "Ensure update labels exist" }
+label_setup = steps.find { |entry| entry["name"] == "Ensure selected update labels exist" }
 label_step = steps.find { |entry| entry["name"] == "Determine labels for changed pins" }
-expected_labels = %w[dependencies python ruby xray sing-box mihomo]
+expected_labels = %w[dependencies toolchain python ruby xray sing-box mihomo]
 
-abort "Core-pin workflow must create missing repository labels" unless
+abort "Core-pin workflow must create only selected, recognized labels" unless
   label_setup && label_setup["run"].is_a?(String) &&
     label_setup["run"].include?('gh api --method POST') &&
-    expected_labels.all? { |label| label_setup["run"].include?("#{label}|") }
+    expected_labels.all? { |label| label_setup["run"].include?("#{label})") } &&
+    label_setup.dig("env", "LABELS") == "${{ steps.labels.outputs.value }}"
 
-abort "Core-pin workflow must derive labels from actual pin changes" unless
+abort "Core-pin workflow must delegate label classification to the tested resolver" unless
   label_step && label_step["run"].is_a?(String) &&
-    label_step["run"].include?("labels=()") &&
-    label_step["run"].include?('if ((${#labels[@]} > 0)); then') &&
-    label_step["run"].include?('labels=("dependencies" "${labels[@]}")') &&
-    !label_step["run"].include?('labels=("dependencies")') &&
-    label_step["run"].include?('git diff --quiet -- .python-version') &&
-    label_step["run"].include?('git diff --quiet -- .ruby-version') &&
-    label_step["run"].include?('XRAY_(VERSION|SHA256|ASSET)_PIN') &&
-    label_step["run"].include?('SINGBOX_(VERSION|SHA256|ASSET)_PIN') &&
-    label_step["run"].include?('MIHOMO_(VERSION|SHA256|ASSET)_PIN')
+    label_step["run"].include?("bash scripts/update/resolve_core_pin_labels.sh")
 
 abort "Core-pin PR labels must use the labels calculated by the workflow" unless
   create_pr.dig("with", "labels") == "${{ steps.labels.outputs.value }}"
+
 abort "Core-pin updater must include the Python runtime pin" unless
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == ".python-version" }
 abort "Updater workflow must set up its pinned Python runtime" unless
@@ -65,13 +62,92 @@ abort "Validation core-pin loader is missing" unless
 {
   "core-pin updater" => step.fetch("run"),
   "label creation" => label_setup.fetch("run"),
-  "dynamic label calculation" => label_step.fetch("run")
+  "label calculation step" => label_step.fetch("run"),
+  "label resolver" => File.read("scripts/update/resolve_core_pin_labels.sh", encoding: "UTF-8")
 }.each do |name, script|
   Tempfile.create(["core-pin-workflow", ".sh"]) do |file|
     file.write(script)
     file.flush
     abort "#{name} shell syntax is invalid" unless system("bash", "-n", file.path)
   end
+end
+
+helper_path = File.expand_path("scripts/update/resolve_core_pin_labels.sh")
+baseline_action = <<~YAML
+  XRAY_VERSION_PIN: "1.0.0"
+  XRAY_SHA256_PIN: "aaaa"
+  XRAY_ASSET_PIN: "xray.zip"
+  SINGBOX_VERSION_PIN: "1.0.0"
+  SINGBOX_SHA256_PIN: "bbbb"
+  SINGBOX_ASSET_PIN: "sing-box.tar.gz"
+  MIHOMO_VERSION_PIN: "1.0.0"
+  MIHOMO_SHA256_PIN: "cccc"
+  MIHOMO_ASSET_PIN: "mihomo.gz"
+YAML
+
+resolve_labels = lambda do |changes|
+  Dir.mktmpdir("proxyrift-label-test") do |directory|
+    FileUtils.mkdir_p(File.join(directory, ".github/actions/prepare-update"))
+    File.write(File.join(directory, ".python-version"), "3.14.0\n")
+    File.write(File.join(directory, ".ruby-version"), "3.4.0\n")
+    action_path = File.join(directory, ".github/actions/prepare-update/action.yml")
+    File.write(action_path, baseline_action)
+
+    abort "Could not initialize temporary Git repo" unless
+      system("git", "-C", directory, "init", "--quiet")
+    abort "Could not set temporary Git author" unless
+      system("git", "-C", directory, "config", "user.name", "Workflow Test")
+    abort "Could not set temporary Git email" unless
+      system("git", "-C", directory, "config", "user.email", "workflow-test@example.invalid")
+    abort "Could not stage baseline pin files" unless
+      system("git", "-C", directory, "add", ".")
+    abort "Could not commit baseline pin files" unless
+      system("git", "-C", directory, "commit", "--quiet", "-m", "baseline")
+
+    changes.each do |path, content|
+      full_path = File.join(directory, path)
+      FileUtils.mkdir_p(File.dirname(full_path))
+      File.write(full_path, content)
+    end
+
+    stdout, stderr, status = Open3.capture3("bash", helper_path, chdir: directory)
+    abort "Label resolver failed: #{stderr}" unless status.success?
+    stdout.lines.map(&:strip).reject(&:empty?)
+  end
+end
+
+mihomo_only = baseline_action.sub('MIHOMO_VERSION_PIN: "1.0.0"', 'MIHOMO_VERSION_PIN: "1.0.1"')
+python_and_xray = baseline_action.sub('XRAY_VERSION_PIN: "1.0.0"', 'XRAY_VERSION_PIN: "1.0.1"')
+ruby_and_singbox = baseline_action.sub('SINGBOX_VERSION_PIN: "1.0.0"', 'SINGBOX_VERSION_PIN: "1.0.1"')
+all_cores = baseline_action
+  .sub('XRAY_VERSION_PIN: "1.0.0"', 'XRAY_VERSION_PIN: "1.0.1"')
+  .sub('SINGBOX_VERSION_PIN: "1.0.0"', 'SINGBOX_VERSION_PIN: "1.0.1"')
+  .sub('MIHOMO_VERSION_PIN: "1.0.0"', 'MIHOMO_VERSION_PIN: "1.0.1"')
+
+expected_scenarios = {
+  "no changes" => [{}, []],
+  "Mihomo only" => [{ ".github/actions/prepare-update/action.yml" => mihomo_only }, %w[dependencies mihomo]],
+  "Python only" => [{ ".python-version" => "3.14.1\n" }, %w[toolchain python]],
+  "Python plus Xray" => [
+    { ".python-version" => "3.14.1\n", ".github/actions/prepare-update/action.yml" => python_and_xray },
+    %w[dependencies xray toolchain python]
+  ],
+  "Ruby plus sing-box" => [
+    { ".ruby-version" => "3.4.1\n", ".github/actions/prepare-update/action.yml" => ruby_and_singbox },
+    %w[dependencies sing-box toolchain ruby]
+  ],
+  "all core and runtime pins" => [
+    {
+      ".python-version" => "3.14.1\n",
+      ".ruby-version" => "3.4.1\n",
+      ".github/actions/prepare-update/action.yml" => all_cores
+    },
+    %w[dependencies xray sing-box mihomo toolchain python ruby]
+  ]
+}
+expected_scenarios.each do |name, (changes, expected)|
+  actual = resolve_labels.call(changes)
+  abort "Wrong labels for #{name}: expected #{expected.inspect}, got #{actual.inspect}" unless actual == expected
 end
 
 attributes = File.read(".gitattributes", encoding: "UTF-8")
