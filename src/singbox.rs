@@ -3,8 +3,7 @@ use crate::validator::{
     read_response_body_at_least, read_response_body_at_least_with_max_idle,
     read_response_body_limited_to, record_target_rate_limit, response_limit_for_target,
     target_is_rate_limited, uses_udp_transport, ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
-    MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, CLOUDFLARE_HTTP_TARGET, PRIMARY_TARGET,
-    STABILITY_ATTEMPTS,
+    MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS,
     STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS,
     STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
     SUSTAINED_THROUGHPUT_TIMEOUT,
@@ -1292,7 +1291,7 @@ fn client_for_port(
 }
 
 fn valid_probe_status(url: &str, status: u16) -> bool {
-    (url != TARGET && url != CLOUDFLARE_HTTP_TARGET) || status == 204
+    url != TARGET || status == 204
 }
 
 fn valid_probe_body(url: &str, body: &[u8]) -> bool {
@@ -2789,19 +2788,18 @@ mod tests {
     }
 
     #[test]
-    fn connectivity_probes_require_http_204() {
+    fn primary_probe_is_cloudflare_and_requires_http_204() {
+        assert_eq!(TARGET, "http://cp.cloudflare.com/");
         assert!(valid_probe_status(TARGET, 204));
         assert!(!valid_probe_status(TARGET, 200));
-        assert!(valid_probe_status(CLOUDFLARE_HTTP_TARGET, 204));
-        assert!(!valid_probe_status(CLOUDFLARE_HTTP_TARGET, 200));
         assert!(valid_probe_status("https://example.com/", 200));
     }
 
     #[test]
     fn default_probe_targets_require_expected_payloads() {
-        assert!(valid_probe_body("https://www.google.com/generate_204", b""));
+        assert!(valid_probe_body(TARGET, b""));
         assert!(!valid_probe_body(
-            "https://www.google.com/generate_204",
+            TARGET,
             b"blocked by upstream"
         ));
         assert!(valid_probe_body(
