@@ -64,6 +64,16 @@ jobs:
       - name: Shell syntax check
         run: for script in scripts/*.sh scripts/update/*.sh scripts/autopilot/*.sh; do bash -n "$script" || exit 1; done
 
+      - name: Validate workflow and composite-action YAML
+        run: |
+          ruby -e '
+            require "yaml"
+            paths = Dir.glob(".github/workflows/*.yml") + Dir.glob(".github/actions/**/*.yml")
+            abort "No workflow or action YAML files found" if paths.empty?
+            paths.each { |path| YAML.parse_file(path) }
+            puts "Validated #{paths.length} workflow/action YAML files."
+          '
+
       - name: Test publication quality gate
         run: bash scripts/autopilot/test_publication_gate.sh
 
