@@ -16,6 +16,13 @@ abort "Auto-merge workflow must checkout trusted scripts from the default branch
 
 merge = steps.find { |step| step["name"] == "Merge ready Dependabot tooling updates" }
 abort "Auto-merge workflow step is missing" unless merge && merge["run"].is_a?(String)
+abort "Core-pin auto-merge must use the successful workflow_dispatch run for the exact PR head SHA" unless
+  merge["run"].include?("--event workflow_dispatch") &&
+    merge["run"].include?("--json headSha,status,conclusion") &&
+    merge["run"].include?(".headSha == $sha and .status == \"completed\" and .conclusion == \"success\"") &&
+    merge["run"].include?('.head.sha // empty') &&
+    merge["run"].include?('{"name": "validate", "workflow": "CI", "bucket": "pass"}') &&
+    merge["run"].include?("jq -s 'add'")
 abort "Auto-merge workflow must request named CI checks" unless
   merge["run"].include?("--json name,workflow,bucket")
 abort "Auto-merge workflow must call the tested status gate" unless
