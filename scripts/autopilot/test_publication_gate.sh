@@ -70,54 +70,35 @@ make_outputs() {
     printf 'socks5://test-%s@example.com:1080\n' "$i" >> "$dir/all.txt"
   done
 
-  python3 - "$dir" <<'PY'
-import base64
-import json
-import pathlib
-import sys
+  local light_entries=0 all_entries=0 name source_content entry_count index
+  for name in light all; do
+    source_content="$(cat "$dir/$name.txt")"
+    printf '%s' "$source_content" | base64 --wrap=0 > "$dir/$name-base64.txt"
+    printf '\n' >> "$dir/$name-base64.txt"
 
-directory = pathlib.Path(sys.argv[1])
-counts = {}
-for name in ("light", "all"):
-    source_path = directory / f"{name}.txt"
-    entries = [
-        line.strip()
-        for line in source_path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#") and "://" in line
-    ]
-    source = source_path.read_bytes().rstrip(b"\r\n")
-    (directory / f"{name}-base64.txt").write_text(
-        base64.b64encode(source).decode("ascii") + "\n", encoding="ascii"
-    )
-    (directory / f"{name}-singbox.json").write_text(
-        json.dumps({
-            "outbounds": [
-                {"type": "direct", "tag": f"test-{index}"}
-                for index, _ in enumerate(entries, start=1)
-            ]
-        }) + "\n",
-        encoding="utf-8",
-    )
-    (directory / f"{name}-clash.yaml").write_text(
-        "proxies:\n" + "".join(
-            f"  - name: 'test proxy {index}'\n"
-            "    type: vless\n"
-            "    server: example.com\n"
-            "    port: 443\n"
-            for index, _ in enumerate(entries, start=1)
-        ),
-        encoding="utf-8",
-    )
-    counts[name] = {
-        "source": len(entries),
-        "clash": len(entries),
-        "singbox": len(entries),
-    }
+    entry_count="$(awk 'NF && $0 !~ /^#/ && index($0, "://") { n++ } END { print n + 0 }' "$dir/$name.txt")"
+    jq -n --argjson count "$entry_count" \
+      '{outbounds: [range(1; $count + 1) | {type: "direct", tag: ("test-" + tostring)}]}' \
+      > "$dir/$name-singbox.json"
 
-(directory / ".output-counts.json").write_text(
-    json.dumps(counts) + "\n", encoding="utf-8"
-)
-PY
+    {
+      printf 'proxies:\n'
+      for ((index = 1; index <= entry_count; index++)); do
+        printf "  - name: 'test proxy %s'\\n    type: vless\\n    server: example.com\\n    port: 443\\n" "$index"
+      done
+    } > "$dir/$name-clash.yaml"
+
+    if [[ "$name" == "light" ]]; then
+      light_entries="$entry_count"
+    else
+      all_entries="$entry_count"
+    fi
+  done
+
+  jq -n --argjson light "$light_entries" --argjson all "$all_entries" \
+    '{light: {source: $light, clash: $light, singbox: $light}, all: {source: $all, clash: $all, singbox: $all}}' \
+    > "$dir/.output-counts.json"
+
 }
 
 run_gate() {
@@ -133,21 +114,11 @@ run_gate >/dev/null
 echo "[OK] Valid generated outputs pass the publication gate."
 
 make_outputs 50
-python3 - "$work/subscriptions" <<'PY'
-import json
-import pathlib
-import sys
-
-directory = pathlib.Path(sys.argv[1])
-(directory / "light-clash.yaml").write_text(
-    'proxies: [{name: "inline proxy", type: vless, server: example.com, port: 443}]\n',
-    encoding="utf-8",
-)
-manifest_path = directory / ".output-counts.json"
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-manifest["light"]["clash"] = 1
-manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
-PY
+cat > "$work/subscriptions/light-clash.yaml" <<'YAML'
+proxies: [{name: "inline proxy", type: vless, server: example.com, port: 443}]
+YAML
+jq '.light.clash = 1' "$work/subscriptions/.output-counts.json" > "$tmp/output-counts.json"
+mv "$tmp/output-counts.json" "$work/subscriptions/.output-counts.json"
 if ! run_gate >"$tmp/clash-inline.log" 2>&1; then
   echo "[ERROR] Publication gate rejected valid YAML because its formatting changed." >&2
   cat "$tmp/clash-inline.log" >&2
@@ -199,22 +170,11 @@ echo "[OK] All above the hard maximum is rejected."
 
 make_outputs 50
 printf 'wireguard://test@example.com:51820\n' >> "$work/subscriptions/all.txt"
-python3 - "$work/subscriptions" <<'PY'
-import base64
-import json
-import pathlib
-import sys
-
-directory = pathlib.Path(sys.argv[1])
-source = (directory / "all.txt").read_bytes().rstrip(b"\r\n")
-(directory / "all-base64.txt").write_text(
-    base64.b64encode(source).decode("ascii") + "\n", encoding="ascii"
-)
-counts_path = directory / ".output-counts.json"
-counts = json.loads(counts_path.read_text(encoding="utf-8"))
-counts["all"]["source"] += 1
-counts_path.write_text(json.dumps(counts) + "\n", encoding="utf-8")
-PY
+source_content="$(cat "$work/subscriptions/all.txt")"
+printf '%s' "$source_content" | base64 --wrap=0 > "$work/subscriptions/all-base64.txt"
+printf '\n' >> "$work/subscriptions/all-base64.txt"
+jq '.all.source += 1' "$work/subscriptions/.output-counts.json" > "$tmp/output-counts.json"
+mv "$tmp/output-counts.json" "$work/subscriptions/.output-counts.json"
 if ! run_gate >"$tmp/omissions.log" 2>&1; then
   echo "[ERROR] Publication gate rejected explicitly accounted unsupported-format omissions." >&2
   cat "$tmp/omissions.log" >&2
@@ -224,19 +184,8 @@ grep --quiet "all source: 2 | Clash: 1 (omitted: 1) | sing-box: 1 (omitted: 1)" 
 echo "[OK] Accounted unsupported-format omissions are allowed and reported."
 
 make_outputs 50
-python3 - "$work/subscriptions/all-singbox.json" <<'PY'
-import json
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-path.write_text(json.dumps({
-    "outbounds": [
-        {"type": "direct", "tag": "unexpected-1"},
-        {"type": "direct", "tag": "unexpected-2"},
-    ]
-}) + "\n", encoding="utf-8")
-PY
+jq -n '{outbounds: [{type: "direct", tag: "unexpected-1"}, {type: "direct", tag: "unexpected-2"}]}' \
+  > "$work/subscriptions/all-singbox.json"
 if run_gate >"$tmp/count-parity.log" 2>&1; then
   echo "[ERROR] Publication gate accepted sing-box output with an unaccounted entry count." >&2
   exit 1
