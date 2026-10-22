@@ -93,6 +93,28 @@ jobs:
           JSON
           "$HOME/.local/bin/sing-box" check -c "$config"
 
+      - name: Install pinned Mihomo core for Clash export validation
+        env:
+          MIHOMO_REPOSITORY: "MetaCubeX/mihomo"
+          MIHOMO_VERSION: "1.19.32"
+          MIHOMO_SHA256: "8451100836c9eda194331c2babfad490b2faf30cebc1a04b0e76fd8ac2d35d10"
+          MIHOMO_ASSET: "mihomo-linux-amd64-v1.19.32.gz"
+        run: bash scripts/update/install_mihomo.sh
+
+      - name: Smoke-test Mihomo validation on Clash proxy output
+        shell: bash
+        run: |
+          config="$(mktemp)"
+          trap 'rm -f "$config"' EXIT
+          cat > "$config" <<'YAML'
+          proxies:
+            - name: "ProxyRift validation smoke test"
+              type: socks5
+              server: 127.0.0.1
+              port: 1080
+          YAML
+          "$HOME/.local/bin/mihomo" -t -f "$config"
+
       - name: Test watchdog output validation and cleanup
         run: bash scripts/autopilot/test_watchdog.sh
 
