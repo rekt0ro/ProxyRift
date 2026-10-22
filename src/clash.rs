@@ -91,6 +91,27 @@ fn b64decode(value: &str) -> Option<Vec<u8>> {
     decoded
 }
 
+fn contains_control_characters(value: &str) -> bool {
+    value.chars().any(char::is_control)
+}
+
+fn json_contains_control_characters(value: &Value) -> bool {
+    match value {
+        Value::String(value) => contains_control_characters(value),
+        Value::Array(values) => values.iter().any(json_contains_control_characters),
+        Value::Object(values) => values.iter().any(|(key, value)| {
+            contains_control_characters(key) || json_contains_control_characters(value)
+        }),
+        _ => false,
+    }
+}
+
+fn contains_percent_decoded_control_characters(config: &str) -> bool {
+    percent_decode_str(config)
+        .decode_utf8()
+        .is_ok_and(|decoded| contains_control_characters(&decoded))
+}
+
 fn vmess_json(config: &str) -> Result<Value, String> {
     let payload = clean(config)
         .split_once("://")
@@ -162,7 +183,7 @@ fn is_emoji_codepoint(codepoint: u32) -> bool {
 fn yaml_quote(value: &str) -> String {
     if !value
         .chars()
-        .any(|character| is_emoji_codepoint(character as u32))
+        .any(|character| is_emoji_codepoint(character as u32) || character.is_control())
     {
         return format!("'{}'", value.replace('\'', "''"));
     }
@@ -178,6 +199,16 @@ fn yaml_quote(value: &str) -> String {
                 '\n' => escaped.push_str("\\n"),
                 '\r' => escaped.push_str("\\r"),
                 '\t' => escaped.push_str("\\t"),
+                _ if character.is_control() => {
+                    let codepoint = character as u32;
+                    if codepoint <= 0xFF {
+                        escaped.push_str(&format!("\\x{codepoint:02X}"));
+                    } else if codepoint <= 0xFFFF {
+                        escaped.push_str(&format!("\\u{codepoint:04X}"));
+                    } else {
+                        escaped.push_str(&format!("\\U{codepoint:08X}"));
+                    }
+                }
                 _ => escaped.push(character),
             }
         }
@@ -540,6 +571,9 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
 
 fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
     let object = vmess_json(config)?;
+    if json_contains_control_characters(&object) {
+        return Err("VMess config contains control characters".to_string());
+    }
     let server = json_string(object.get("add"))
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "VMess server missing".to_string())?;
@@ -1159,6 +1193,10 @@ fn convert_http(config: &str, index: usize) -> Result<String, String> {
 }
 
 fn convert_config(config: &str, index: usize) -> Result<String, String> {
+    if contains_percent_decoded_control_characters(config) {
+        return Err("config contains percent-decoded control characters".to_string());
+    }
+
     match scheme_of(config).to_ascii_lowercase().as_str() {
         "vless" => convert_vless(config, index),
         "vmess" => convert_vmess(config, index),
@@ -1552,6 +1590,56 @@ mod tests {
             super::yaml_quote(&format!("ws-{flag}")),
             "\"ws-\\U0001F1E8\\U0001F1F3\""
         );
+    }
+
+    #[test]
+    fn yaml_quotes_escape_control_characters() {
+        assert_eq!(
+            super::yaml_quote("host\0\tline\nnext"),
+            "\"host\\x00\\tline\\nnext\""
+        );
+    }
+
+    #[test]
+    fn skips_percent_decoded_control_characters_and_keeps_valid_configs() {
+        let configs = vec![
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&sni=cdn%00.example.com"
+                .to_string(),
+            "socks5://proxy.example.com:1080".to_string(),
+        ];
+
+        let (yaml, rendered) =
+            super::render_with_count(&configs).expect("valid configs should still render");
+
+        assert_eq!(rendered, 1);
+        assert!(!yaml.contains("cdn"));
+        assert!(yaml.contains("proxy.example.com"));
+    }
+
+    #[test]
+    fn skips_vmess_configs_with_control_characters_in_json_values() {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+
+        let payload = serde_json::json!({
+            "add": "vmess.example.com",
+            "port": 443,
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": "tcp",
+            "ps": "bad\u{0000}name"
+        });
+        let encoded = STANDARD.encode(payload.to_string());
+        let configs = vec![
+            format!("vmess://{encoded}"),
+            "socks5://proxy.example.com:1080".to_string(),
+        ];
+
+        let (yaml, rendered) =
+            super::render_with_count(&configs).expect("valid configs should still render");
+
+        assert_eq!(rendered, 1);
+        assert!(!yaml.contains("vmess.example.com"));
+        assert!(yaml.contains("proxy.example.com"));
     }
 
     #[test]
