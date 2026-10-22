@@ -73,7 +73,7 @@ abort "Cargo updates must only modify Cargo manifests/lockfiles" unless
 
 abort "Core-pin squash merges must use the exact current PR title as commit subject" unless
   body.include?('merge_args+=(--subject "${pr_title}")') &&
-    body.include?('pr_title="$(jq -r \' .title // empty \' <<< "${pr_data}")"'.strip) &&
+    body.include?(%q{pr_title="$(jq -r '.title // empty' <<< "${pr_data}")"}) &&
     body.include?('if gh pr merge "${pr}" "${merge_args[@]}"; then') &&
     body.include?('PR #${pr} has no title; refusing to merge without a commit subject.')
 abort "Core-pin updater must only modify its three managed pin files" unless
