@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -84,7 +85,10 @@ def fetch_latest_python_version():
             # urllib does not automatically decompress HTTP response bodies. Some
             # intermediaries return gzip bytes even when we request identity, so
             # check both the header and the gzip magic bytes.
-            if "gzip" in {item.strip() for item in content_encoding.split(",")} or payload.startswith(b"\x1f\x8b"):
+            if (
+                "gzip" in {item.strip() for item in content_encoding.split(",")}
+                or payload.startswith(b"\\x1f\\x8b")
+            ):
                 payload = gzip.decompress(payload)
             html = payload.decode("utf-8")
             return latest_python_version(html)
@@ -94,7 +98,7 @@ def fetch_latest_python_version():
                     f"python.org downloads page returned HTTP {error.code}"
                 ) from error
             cause = error
-        except (URLError, TimeoutError, UnicodeDecodeError, ValueError, OSError, EOFError) as error:
+        except (URLError, TimeoutError, UnicodeDecodeError, ValueError, OSError, EOFError, zlib.error) as error:
             cause = error
 
         if attempt == MAX_ATTEMPTS:
