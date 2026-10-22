@@ -106,6 +106,12 @@ jobs:
 
       - name: Validate core-pin workflow shell syntax
         run: ruby scripts/update/test_core_pin_workflow.rb
+
+      - name: Test Dependabot auto-merge check policy
+        run: bash scripts/update/test_dependabot_auto_merge_checks.sh
+
+      - name: Validate Dependabot auto-merge workflow
+        run: ruby scripts/update/test_dependabot_auto_merge_workflow.rb
       - name: Test publication quality gate
         run: bash scripts/update/test_publication_gate.sh
 
