@@ -172,10 +172,21 @@ jobs:
             fi
 
             echo "Required CI/Rust/Ruby/Python checks passed for PR #${pr}; merging."
-            if gh pr merge "${pr}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --squash \
-              --delete-branch; then
+            merge_args=(
+              --repo "${GITHUB_REPOSITORY}"
+              --squash
+              --delete-branch
+            )
+            if [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]; then
+              pr_title="$(jq -r '.title // empty' <<< "${pr_data}")"
+              if [ -z "${pr_title}" ]; then
+                echo "PR #${pr} has no title; refusing to merge without a commit subject."
+                exit 1
+              fi
+              merge_args+=(--subject "${pr_title}")
+            fi
+
+            if gh pr merge "${pr}" "${merge_args[@]}"; then
               echo "Merged PR #${pr}."
             else
               state="$(gh pr view "${pr}" --repo "${GITHUB_REPOSITORY}" --json state --jq '.state' 2>/dev/null || true)"
