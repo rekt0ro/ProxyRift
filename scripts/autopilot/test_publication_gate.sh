@@ -279,7 +279,7 @@ grep --quiet "minimum is 200" "$tmp/light-target.log"
 echo "[OK] Light below the 200-config target is rejected."
 
 make_outputs 200
-(cd "$work" && SINGBOX_BINARY="$bin/sing-box" LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >/dev/null
+(cd "$work" && SINGBOX_BINARY="$bin/sing-box" MIHOMO_BINARY="$bin/mihomo" LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >/dev/null
 echo "[OK] Exactly 200 Light entries pass the production publication gate."
 
 make_outputs 50 999
