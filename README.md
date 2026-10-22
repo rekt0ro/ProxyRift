@@ -66,6 +66,6 @@ For security vulnerabilities affecting ProxyRift itself, see our [Security Polic
 
 ## Updates
 
-Subscriptions are refreshed automatically through GitHub Actions.
+Subscriptions are refreshed automatically through GitHub Actions. Runtime and core pins (Python, Ruby, Xray-core, sing-box, and Mihomo) are checked daily, and GitHub Actions and Cargo dependencies are monitored by Dependabot. Generated pin updates are validated in CI before the auto-merge workflow evaluates them.
 
 Validation reflects the conditions at the time of testing.
