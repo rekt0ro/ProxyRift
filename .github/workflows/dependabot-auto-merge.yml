@@ -79,8 +79,9 @@ jobs:
               continue
             fi
 
-            pr_author="$(gh pr view "${pr}" --repo "${GITHUB_REPOSITORY}" --json author --jq '.author.login')"
-            head_ref="$(gh pr view "${pr}" --repo "${GITHUB_REPOSITORY}" --json headRefName --jq '.headRefName')"
+            pr_data="$(printf '%s\\n' "${open_prs}" | jq -c --argjson pr "${pr}" '.[] | select(.number == $pr)')"
+            pr_author="$(jq -r '.user.login // empty' <<< "${pr_data}")"
+            head_ref="$(jq -r '.head.ref // empty' <<< "${pr_data}")"
 
             mapfile -t files < <(
               gh pr view "${pr}" \
