@@ -118,7 +118,7 @@ jobs:
         id: cpr
         uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ github.token }}
+          token: ${{ secrets.CORE_PIN_UPDATE_TOKEN || github.token }}
           base: main
           branch: automation/update-core-pins
           delete-branch: true
