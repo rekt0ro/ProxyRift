@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/../.." && pwd)"
+
 minimum_light="${LIGHT_MIN_PUBLISH:-50}"
 minimum_all="${ALL_MIN_PUBLISH:-1000}"
 maximum_light="${LIGHT_SELECTION_LIMIT:-200}"
@@ -38,6 +41,12 @@ if (( all_count > maximum_all )); then
   exit 1
 fi
 
+singbox_binary="${SINGBOX_BINARY:-$HOME/.local/bin/sing-box}"
+if [[ ! -x "$singbox_binary" ]]; then
+  echo "[ERROR] sing-box validator is missing or not executable: $singbox_binary" >&2
+  exit 1
+fi
+
 for name in light all; do
   decoded="$(mktemp)"
   if ! base64 --decode "subscriptions/$name-base64.txt" > "$decoded"; then
@@ -61,16 +70,24 @@ PY
   fi
   rm -f "$decoded"
 
-  if ! jq --exit-status \
-    'type == "object" and (.outbounds | type == "array") and (.outbounds | length > 0)' \
-    "subscriptions/$name-singbox.json" >/dev/null; then
-    echo "[ERROR] Invalid sing-box JSON or empty outbounds: subscriptions/$name-singbox.json" >&2
+  if ! jq --exit-status '
+    type == "object"
+    and (.outbounds | type == "array" and length > 0)
+    and all(.outbounds[]; type == "object"
+      and (.type | type == "string" and length > 0)
+      and (.tag | type == "string" and length > 0))
+  ' "subscriptions/$name-singbox.json" >/dev/null; then
+    echo "[ERROR] Invalid sing-box JSON or outbound missing a non-empty type/tag: subscriptions/$name-singbox.json" >&2
     exit 1
   fi
 
-  if ! grep --quiet --extended-regexp '^proxies:[[:space:]]*$' "subscriptions/$name-clash.yaml" \
-      || ! grep --quiet --extended-regexp '^[[:space:]]+- name:' "subscriptions/$name-clash.yaml"; then
-    echo "[ERROR] Clash output has no proxy entries: subscriptions/$name-clash.yaml" >&2
+  if ! "$singbox_binary" check -c "subscriptions/$name-singbox.json"; then
+    echo "[ERROR] sing-box rejected configuration: subscriptions/$name-singbox.json" >&2
+    exit 1
+  fi
+
+  if ! ruby "$repo_root/scripts/update/validate_clash_output.rb" "subscriptions/$name-clash.yaml"; then
+    echo "[ERROR] Clash/Mihomo output failed structural validation: subscriptions/$name-clash.yaml" >&2
     exit 1
   fi
 

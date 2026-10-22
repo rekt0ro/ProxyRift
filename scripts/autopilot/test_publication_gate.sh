@@ -5,7 +5,42 @@ repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 work="$tmp/work"
-mkdir -p "$work/subscriptions"
+bin="$tmp/bin"
+mkdir -p "$work/subscriptions" "$bin"
+
+cat > "$bin/sing-box" <<'SINGBOX'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" != "check" ]]; then
+  echo "[mock] expected the check command" >&2
+  exit 2
+fi
+config=""
+while (($#)); do
+  if [[ "$1" == "-c" ]]; then
+    config="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+if [[ -z "$config" ]]; then
+  echo "[mock] missing config path" >&2
+  exit 2
+fi
+if [[ "${MOCK_SINGBOX_FAIL:-false}" == "true" ]]; then
+  echo "[mock] schema rejection" >&2
+  exit 1
+fi
+jq --exit-status '
+  type == "object"
+  and (.outbounds | type == "array" and length > 0)
+  and all(.outbounds[]; type == "object"
+    and (.type | type == "string" and length > 0)
+    and (.tag | type == "string" and length > 0))
+' "$config" >/dev/null
+SINGBOX
+chmod +x "$bin/sing-box"
 
 make_outputs() {
   local light_count="$1"
@@ -52,6 +87,9 @@ for name in ("light", "all"):
     (directory / f"{name}-clash.yaml").write_text(
         "proxies:\n" + "".join(
             f"  - name: 'test proxy {index}'\n"
+            "    type: vless\n"
+            "    server: example.com\n"
+            "    port: 443\n"
             for index, _ in enumerate(entries, start=1)
         ),
         encoding="utf-8",
@@ -69,16 +107,33 @@ PY
 }
 
 run_gate() {
-  (cd "$work" && LIGHT_MIN_PUBLISH=50 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh")
+  (cd "$work" && SINGBOX_BINARY="$bin/sing-box" LIGHT_MIN_PUBLISH=50 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh")
 }
 
 run_gate_production_all_min() {
-  (cd "$work" && LIGHT_MIN_PUBLISH=50 bash "$repo_root/scripts/update/prepare_published_outputs.sh")
+  (cd "$work" && SINGBOX_BINARY="$bin/sing-box" LIGHT_MIN_PUBLISH=50 bash "$repo_root/scripts/update/prepare_published_outputs.sh")
 }
 
 make_outputs 50
 run_gate >/dev/null
 echo "[OK] Valid generated outputs pass the publication gate."
+
+make_outputs 50
+sed -i '/port: 443/d' "$work/subscriptions/light-clash.yaml"
+if run_gate >"$tmp/clash-structure.log" 2>&1; then
+  echo "[ERROR] Publication gate accepted a Clash proxy with a missing port." >&2
+  exit 1
+fi
+grep --fixed-strings --quiet "proxies[0].port must be an integer from 1 to 65535" "$tmp/clash-structure.log"
+echo "[OK] Clash proxies missing required fields are rejected."
+
+make_outputs 50
+if MOCK_SINGBOX_FAIL=true run_gate >"$tmp/singbox-check.log" 2>&1; then
+  echo "[ERROR] Publication gate accepted a sing-box config rejected by the core validator." >&2
+  exit 1
+fi
+grep --fixed-strings --quiet "sing-box rejected configuration" "$tmp/singbox-check.log"
+echo "[OK] sing-box core validation failures block publication."
 
 make_outputs 201
 if run_gate >"$tmp/light-max.log" 2>&1; then
@@ -170,7 +225,7 @@ grep --quiet "minimum is 50" "$tmp/count.log"
 echo "[OK] Light below the minimum is rejected."
 
 make_outputs 199
-if (cd "$work" && LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >"$tmp/light-target.log" 2>&1; then
+if (cd "$work" && SINGBOX_BINARY="$bin/sing-box" LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >"$tmp/light-target.log" 2>&1; then
   echo "[ERROR] Publication gate accepted Light below the 200-config production target." >&2
   exit 1
 fi
@@ -178,7 +233,7 @@ grep --quiet "minimum is 200" "$tmp/light-target.log"
 echo "[OK] Light below the 200-config target is rejected."
 
 make_outputs 200
-(cd "$work" && LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >/dev/null
+(cd "$work" && SINGBOX_BINARY="$bin/sing-box" LIGHT_MIN_PUBLISH=200 ALL_MIN_PUBLISH=1 bash "$repo_root/scripts/update/prepare_published_outputs.sh") >/dev/null
 echo "[OK] Exactly 200 Light entries pass the production publication gate."
 
 make_outputs 50 999
