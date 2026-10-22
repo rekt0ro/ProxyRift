@@ -3309,6 +3309,8 @@ fn boolish_value(value: Option<&Value>) -> bool {
 }
 
 pub fn is_locally_supported_config(config: &str) -> bool {
+    let repaired = repair_escaped_query_suffixes(config);
+    let config = repaired.as_deref().unwrap_or(config);
     let scheme = scheme_of(clean(config));
 
     if scheme == "tuic" {
