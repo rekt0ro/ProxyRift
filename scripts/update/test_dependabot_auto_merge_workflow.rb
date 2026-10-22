@@ -26,6 +26,17 @@ abort "Auto-merge must re-check PRs when CodeQL finishes, even though its aggreg
   workflow_text.include?("      - CI\n      - CodeQL")
 
 body = merge.fetch("run")
+metadata_tokens = [
+  "pr_data=\"$(printf",
+  '--argjson pr "${pr}"',
+  "select(.number == $pr)",
+  "jq -r '.user.login // empty' <<< \"${pr_data}\"",
+  "jq -r '.head.ref // empty' <<< \"${pr_data}\""
+]
+abort "Auto-merge must validate the author and branch from the same GitHub API PR record" unless
+  metadata_tokens.all? { |token| body.include?(token) } &&
+    !body.include?("--json author --jq") &&
+    !body.include?("--json headRefName --jq")
 abort "Runtime pins must be restricted to the trusted core-pin updater PR" unless
   body.include?(".python-version|.ruby-version") &&
     body.include?('elif [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]')
