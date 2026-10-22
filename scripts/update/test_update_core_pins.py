@@ -13,6 +13,7 @@ import update_core_pins
 
 from update_core_pins import (
     asset_sha256,
+    build_pr_description,
     build_updates,
     latest_python_version,
     latest_supported_ruby_version,
@@ -79,6 +80,118 @@ class CorePinUpdaterTests(unittest.TestCase):
             self.assertEqual(
                 update_core_pins.fetch_latest_supported_ruby_version(),
                 "4.0.7",
+            )
+
+    def test_builds_release_note_pr_body_for_only_changed_versions(self):
+        previous = {
+            "Python": "3.15.1",
+            "Ruby": "4.0.7",
+            "Xray-core": "26.3.26",
+            "sing-box": "1.14.3",
+            "Mihomo": "1.19.32",
+        }
+        current = {
+            "Python": "3.15.1",
+            "Ruby": "4.0.8",
+            "Xray-core": "26.3.26",
+            "sing-box": "1.14.3",
+            "Mihomo": "1.19.33",
+        }
+        releases = {
+            "Ruby": {
+                "tag_name": "v4.0.8",
+                "html_url": "https://github.com/ruby/ruby/releases/tag/v4.0.8",
+                "body": "## What's Changed\n\n* Fixed a runtime bug.",
+            },
+            "Mihomo": {
+                "tag_name": "v1.19.33",
+                "html_url": "https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.33",
+                "body": "## Bug fixes\n\n* Fixed a connection issue.",
+            },
+        }
+
+        title, body = build_pr_description(previous, current, releases)
+
+        self.assertEqual(
+            title,
+            "Bump the core/runtime group with 2 updates",
+        )
+        mark = chr(96)
+        self.assertIn(f"| Ruby | {mark}4.0.7{mark} | {mark}4.0.8{mark} |", body)
+        self.assertIn("https://github.com/ruby/ruby/compare/v4.0.7...v4.0.8", body)
+        self.assertIn("https://github.com/MetaCubeX/mihomo/compare/v1.19.32...v1.19.33", body)
+        self.assertIn("Fixed a runtime bug.", body)
+        self.assertIn("Fixed a connection issue.", body)
+        self.assertNotIn("| Python |", body)
+        self.assertNotIn("Python 3.15.1", body)
+
+    def test_pr_description_links_python_release_notes_and_previous_version(self):
+        previous = {
+            "Python": "3.14.9",
+            "Ruby": "4.0.7",
+            "Xray-core": "26.3.26",
+            "sing-box": "1.14.3",
+            "Mihomo": "1.19.32",
+        }
+        current = dict(previous, **{"Python": "3.15.1"})
+
+        title, body = build_pr_description(previous, current, {})
+
+        self.assertEqual(title, "Bump python from 3.14.9 to 3.15.1")
+        self.assertIn(
+            "https://www.python.org/downloads/release/python-3151/",
+            body,
+        )
+        self.assertIn(
+            "https://www.python.org/downloads/release/python-3149/",
+            body,
+        )
+
+    def test_uses_dependabot_style_group_title_for_toolchain_updates(self):
+        previous = {
+            "Python": "3.14.9",
+            "Ruby": "4.0.7",
+            "Xray-core": "26.3.26",
+            "sing-box": "1.14.3",
+            "Mihomo": "1.19.32",
+        }
+        current = dict(previous, **{"Python": "3.15.1", "Ruby": "4.0.8"})
+
+        title, _ = build_pr_description(previous, current, {})
+
+        self.assertEqual(title, "Bump the toolchain group with 2 updates")
+
+    def test_uses_dependabot_style_group_title_for_core_updates(self):
+        previous = {
+            "Python": "3.14.9",
+            "Ruby": "4.0.7",
+            "Xray-core": "26.3.26",
+            "sing-box": "1.14.3",
+            "Mihomo": "1.19.32",
+        }
+        current = dict(previous, **{"Xray-core": "26.3.27", "Mihomo": "1.19.33"})
+
+        title, _ = build_pr_description(previous, current, {})
+
+        self.assertEqual(title, "Bump the core group with 2 updates")
+
+    def test_release_note_excerpt_is_bounded(self):
+        excerpt = update_core_pins.release_note_excerpt("A" * 4000, limit=200)
+
+        self.assertLess(len(excerpt), 300)
+        self.assertIn("excerpt shortened", excerpt)
+
+    def test_fetches_github_release_notes_by_tag(self):
+        payload = {
+            "tag_name": "v4.0.8",
+            "html_url": "https://github.com/ruby/ruby/releases/tag/v4.0.8",
+            "body": "Release notes",
+        }
+        response = FakeResponse(json.dumps(payload).encode("utf-8"))
+        with patch.object(update_core_pins, "urlopen", return_value=response):
+            self.assertEqual(
+                update_core_pins.fetch_release_by_tag("ruby/ruby", "v4.0.8", "token"),
+                payload,
             )
 
     def test_fetches_gzip_python_release_page_from_header(self):

@@ -246,6 +246,178 @@ def asset_sha256(release, asset_name, project):
     return match.group(1).lower()
 
 
+RELEASE_REPOSITORIES = {
+    "Ruby": "ruby/ruby",
+    "Xray-core": "XTLS/Xray-core",
+    "sing-box": "SagerNet/sing-box",
+    "Mihomo": "MetaCubeX/mihomo",
+}
+
+
+def fetch_release_by_tag(repository, tag, token):
+    url = f"https://api.github.com/repos/{repository}/releases/tags/{tag}"
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "ProxyRift",
+        },
+    )
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            payload = json.load(response)
+        return payload if isinstance(payload, dict) else {}
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+        print(
+            f"[WARN] Unable to fetch release notes for {repository} {tag}: {error}",
+            file=sys.stderr,
+        )
+        return {}
+
+
+def pinned_value(content, key, path):
+    pattern = re.compile(
+        rf'(?m)^[ \t]*{re.escape(key)}:[ \t]*"([^"\r\n]*)"[ \t]*$'
+    )
+    matches = pattern.findall(content)
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one {key} pin in {path}, found {len(matches)}")
+    return matches[0]
+
+
+def python_release_url(version):
+    compact_version = version.replace(".", "")
+    return f"https://www.python.org/downloads/release/python-{compact_version}/"
+
+
+def release_notes_url(component, version, release):
+    release_tag = release.get("tag_name") if isinstance(release, dict) else None
+    release_url = release.get("html_url") if isinstance(release, dict) else None
+    if (
+        isinstance(release_url, str)
+        and release_url.startswith("https://")
+        and release_tag in (f"v{version}", version)
+    ):
+        return release_url
+    if component == "Python":
+        return python_release_url(version)
+    repository = RELEASE_REPOSITORIES[component]
+    return f"https://github.com/{repository}/releases/tag/v{version}"
+
+
+def release_note_excerpt(body, limit=2400):
+    if not isinstance(body, str):
+        return ""
+    body = body.strip()
+    if len(body) <= limit:
+        return body
+    cutoff = body.rfind("\n", 0, limit)
+    if cutoff < limit // 2:
+        cutoff = limit
+    suffix = "\n\n_Release notes excerpt shortened; see the official release link above for the complete notes._"
+    return body[:cutoff].rstrip() + suffix
+
+
+def build_pr_description(previous_versions, current_versions, release_metadata):
+    components = ("Python", "Ruby", "Xray-core", "sing-box", "Mihomo")
+    changed = [
+        (name, previous_versions[name], current_versions[name])
+        for name in components
+        if previous_versions[name] != current_versions[name]
+    ]
+    if len(changed) == 1:
+        name, old, new = changed[0]
+        component_slug = {
+            "Python": "python",
+            "Ruby": "ruby",
+            "Xray-core": "xray-core",
+            "sing-box": "sing-box",
+            "Mihomo": "mihomo",
+        }[name]
+        title = f"Bump {component_slug} from {old} to {new}"
+    elif changed:
+        names = {name for name, _, _ in changed}
+        toolchain = {"Python", "Ruby"}
+        cores = {"Xray-core", "sing-box", "Mihomo"}
+        if names <= toolchain:
+            group = "toolchain"
+        elif names <= cores:
+            group = "core"
+        else:
+            group = "core/runtime"
+        title = f"Bump the {group} group with {len(changed)} updates"
+    else:
+        title = "Bump core/runtime pins"
+
+    mark = chr(96)
+    lines = [
+        "## Updates",
+        "",
+        "| Component | Previous | Updated | Changelog |",
+        "| --- | --- | --- | --- |",
+    ]
+    for name, old, new in changed:
+        release = release_metadata.get(name, {})
+        notes_url = release_notes_url(name, new, release)
+        if name == "Python":
+            old_link = python_release_url(old)
+            changelog = f"[Release notes]({notes_url}) · [Previous release]({old_link})"
+        else:
+            repository = RELEASE_REPOSITORIES[name]
+            compare_url = f"https://github.com/{repository}/compare/v{old}...v{new}"
+            changelog = (
+                f"[Release notes]({notes_url}) · "
+                f"[Full changelog]({compare_url})"
+            )
+        lines.append(
+            f"| {name} | {mark}{old}{mark} | {mark}{new}{mark} | {changelog} |"
+        )
+
+    if not changed:
+        lines.extend(["", "No pinned versions changed."])
+    else:
+        lines.extend(["", "## Release notes"])
+        for name, old, new in changed:
+            release = release_metadata.get(name, {})
+            notes_url = release_notes_url(name, new, release)
+            lines.extend(
+                [
+                    "",
+                    f"### {name} {new}",
+                    "",
+                    f"[Official release notes]({notes_url})",
+                ]
+            )
+            excerpt = release_note_excerpt(release.get("body"))
+            if excerpt:
+                lines.extend(["", excerpt])
+
+    lines.extend(
+        [
+            "",
+            "Versions and release notes are collected from official upstream sources. "
+            "Core release asset names and SHA-256 digests are validated before pins "
+            "are changed; CI validates the resulting updates.",
+        ]
+    )
+    return title, "\n".join(lines).rstrip() + "\n"
+
+
+def write_pr_metadata(title, body):
+    body_path = os.environ.get("CORE_PIN_PR_BODY_PATH")
+    if body_path:
+        target = Path(body_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as output:
+            output.write(f"pr_title={title}\n")
+
+
 def replace_pins(content, values, path):
     for key, value in values.items():
         pattern = re.compile(
@@ -345,15 +517,41 @@ def main():
     python_path = ROOT / ".python-version"
     ruby_path = ROOT / ".ruby-version"
 
-    action_content = replace_pins(
-        action_path.read_text(encoding="utf-8"), action_values, action_path
-    )
+    action_source = action_path.read_text(encoding="utf-8")
+    action_content = replace_pins(action_source, action_values, action_path)
     current_python = python_path.read_text(encoding="utf-8")
     if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_python) is None:
         raise ValueError(f"{python_path} must contain exactly one stable X.Y.Z version")
     current_ruby = ruby_path.read_text(encoding="utf-8")
     if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_ruby) is None:
         raise ValueError(f"{ruby_path} must contain exactly one stable X.Y.Z version")
+
+    previous_versions = {
+        "Python": current_python.strip(),
+        "Ruby": current_ruby.strip(),
+        "Xray-core": pinned_value(action_source, "XRAY_VERSION_PIN", action_path),
+        "sing-box": pinned_value(action_source, "SINGBOX_VERSION_PIN", action_path),
+        "Mihomo": pinned_value(action_source, "MIHOMO_VERSION_PIN", action_path),
+    }
+    current_versions = {
+        "Python": python_version,
+        "Ruby": ruby_version,
+        "Xray-core": action_values["XRAY_VERSION_PIN"],
+        "sing-box": action_values["SINGBOX_VERSION_PIN"],
+        "Mihomo": action_values["MIHOMO_VERSION_PIN"],
+    }
+    release_metadata = {
+        "Xray-core": releases["xray"],
+        "sing-box": releases["singbox"],
+        "Mihomo": releases["mihomo"],
+    }
+    if previous_versions["Ruby"] != ruby_version:
+        release_metadata["Ruby"] = fetch_release_by_tag(
+            "ruby/ruby", f"v{ruby_version}", token
+        )
+    pr_title, pr_body = build_pr_description(
+        previous_versions, current_versions, release_metadata
+    )
 
     pin_environment = os.environ.copy()
     pin_environment["RUBY_VERSION_PIN"] = ruby_version
@@ -369,6 +567,7 @@ def main():
     )
     write_atomically(action_path, action_content)
     write_atomically(python_path, f"{python_version}\n")
+    write_pr_metadata(pr_title, pr_body)
 
     print(
         f"Resolved Python {python_version}, Ruby {ruby_version}, "
