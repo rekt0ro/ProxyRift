@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Unit tests for stable-release validation and pin replacement."""
 
+import stat
+import tempfile
 import unittest
+from pathlib import Path
 
-from update_core_pins import asset_sha256, build_updates, replace_pins, stable_version
+from update_core_pins import asset_sha256, build_updates, replace_pins, stable_version, write_atomically
 
 
 def release(tag, assets=()):
@@ -51,6 +54,17 @@ class CorePinUpdaterTests(unittest.TestCase):
         self.assertEqual(action["MIHOMO_SHA256_PIN"], "3" * 64)
         self.assertEqual(validation["MIHOMO_VERSION"], "3.4.5")
         self.assertEqual(validation["MIHOMO_SHA256"], action["MIHOMO_SHA256_PIN"])
+
+    def test_atomic_write_preserves_file_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "pins.yml"
+            path.write_text('pin: "old"\\n', encoding="utf-8")
+            path.chmod(0o640)
+
+            write_atomically(path, 'pin: "new"\\n')
+
+            self.assertEqual(path.read_text(encoding="utf-8"), 'pin: "new"\\n')
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o640)
 
     def test_replaces_exactly_one_pin_and_preserves_other_text(self):
         source = '  MIHOMO_VERSION: "1.0.0"\nnext: "unchanged"\n'
