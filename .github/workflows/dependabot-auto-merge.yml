@@ -163,7 +163,7 @@ jobs:
                 ]
                 | if length > 0 then [{ "name": "validate", "workflow": "CI", "bucket": "pass" }] else [] end
               ' <<< "${dispatch_runs}")"
-              checks="$(jq -s 'add' <(printf '%s\\n' "${checks}") <(printf '%s\\n' "${dispatched_ci}"))"
+              checks="$(jq -s 'add' <(printf '%s\n' "${checks}") <(printf '%s\n' "${dispatched_ci}"))"
             fi
 
             if ! bash scripts/update/verify_dependabot_auto_merge_checks.sh <<< "${checks}"; then
