@@ -26,6 +26,7 @@ abort "Core-pin updater must not stage workflow files without workflow permissio
 steps = workflow.dig("jobs", "update-pins", "steps")
 label_setup = steps.find { |entry| entry["name"] == "Ensure selected update labels exist" }
 label_step = steps.find { |entry| entry["name"] == "Determine labels for changed pins" }
+label_sync = steps.find { |entry| entry["name"] == "Synchronize core-pin PR labels" }
 expected_labels = %w[dependencies toolchain python ruby xray sing-box mihomo]
 
 abort "Core-pin workflow must create only selected, recognized labels" unless
@@ -38,8 +39,14 @@ abort "Core-pin workflow must delegate label classification to the tested resolv
   label_step && label_step["run"].is_a?(String) &&
     label_step["run"].include?("bash scripts/update/resolve_core_pin_labels.sh")
 
-abort "Core-pin PR labels must use the labels calculated by the workflow" unless
-  create_pr.dig("with", "labels") == "${{ steps.labels.outputs.value }}"
+abort "Core-pin PR labels must be synchronized to the exact calculated labels" unless
+  label_sync && label_sync["run"].is_a?(String) &&
+    label_sync["if"] == "steps.cpr.outputs.pull-request-number != ''" &&
+    label_sync.dig("env", "SELECTED_LABELS") == "${{ steps.labels.outputs.value }}" &&
+    label_sync["run"].include?("managed_labels=(dependencies toolchain python ruby xray sing-box mihomo)") &&
+    label_sync["run"].include?("--add-label") &&
+    label_sync["run"].include?("--remove-label") &&
+    label_sync["run"].include?("gh pr view")
 
 abort "Core-pin updater must include the Python runtime pin" unless
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == ".python-version" }
@@ -63,6 +70,7 @@ abort "Validation core-pin loader is missing" unless
   "core-pin updater" => step.fetch("run"),
   "label creation" => label_setup.fetch("run"),
   "label calculation step" => label_step.fetch("run"),
+  "label synchronization" => label_sync.fetch("run"),
   "label resolver" => File.read("scripts/update/resolve_core_pin_labels.sh", encoding: "UTF-8")
 }.each do |name, script|
   Tempfile.create(["core-pin-workflow", ".sh"]) do |file|
