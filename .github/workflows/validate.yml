@@ -114,6 +114,8 @@ jobs:
         run: ruby scripts/update/test_dependabot_auto_merge_workflow.rb
       - name: Test publication quality gate
         run: bash scripts/update/test_publication_gate.sh
+      - name: Test Light validation timeout settings
+        run: bash scripts/update/test_light_timeout_settings.sh
 
       - name: Load pinned core versions for export validation
         shell: bash
