@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env
 """Unit tests for stable-release validation and pin replacement."""
 
 import stat
