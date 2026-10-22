@@ -111,6 +111,8 @@ runs:
         XRAY_SHA256: ${{ steps.validation-cores.outputs.xray_sha256 }}
         SINGBOX_VERSION: ${{ steps.validation-cores.outputs.singbox_version }}
         SINGBOX_SHA256: ${{ steps.validation-cores.outputs.singbox_sha256 }}
+        MIHOMO_VERSION: ${{ steps.validation-cores.outputs.mihomo_version }}
+        MIHOMO_SHA256: ${{ steps.validation-cores.outputs.mihomo_sha256 }}
       shell: bash
       run: bash scripts/update/compute_cache_keys.sh
     - name: "Restore Rust registry cache"
