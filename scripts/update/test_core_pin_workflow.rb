@@ -26,11 +26,14 @@ abort "Updater workflow must set up its pinned Python runtime" unless
     entry["uses"] == "actions/setup-python@v6" &&
       entry.dig("with", "python-version-file") == ".python-version"
   end
+validation_workflow = YAML.load_file(".github/workflows/validate.yml")
 abort "Validation workflow must use the pinned Python runtime" unless
-  YAML.load_file(".github/workflows/validate.yml").dig("jobs", "validate", "steps").any? do |entry|
+  validation_workflow.dig("jobs", "validate", "steps").any? do |entry|
     entry["uses"] == "actions/setup-python@v6" &&
       entry.dig("with", "python-version-file") == ".python-version"
   end
+abort "Both push and pull-request filters must include .python-version" unless
+  File.read(".github/workflows/validate.yml").scan(/^\s*- "\.python-version"\s*$/).length == 2
 abort "Validation core-pin loader is missing" unless
   File.file?("scripts/update/load_validation_core_pins.rb")
 
