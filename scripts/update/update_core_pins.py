@@ -327,16 +327,29 @@ def build_pr_description(previous_versions, current_versions, release_metadata):
         for name in components
         if previous_versions[name] != current_versions[name]
     ]
-    if changed:
-        title_parts = [
-            f"{name} {old} → {new}"
-            for name, old, new in changed
-        ]
-        title = f"chore: update {', '.join(title_parts)}"
-        if len(title) > 110:
-            title = f"chore: update {len(changed)} core/runtime pins"
+    if len(changed) == 1:
+        name, old, new = changed[0]
+        component_slug = {
+            "Python": "python",
+            "Ruby": "ruby",
+            "Xray-core": "xray-core",
+            "sing-box": "sing-box",
+            "Mihomo": "mihomo",
+        }[name]
+        title = f"Bump {component_slug} from {old} to {new}"
+    elif changed:
+        names = {name for name, _, _ in changed}
+        toolchain = {"Python", "Ruby"}
+        cores = {"Xray-core", "sing-box", "Mihomo"}
+        if names <= toolchain:
+            group = "toolchain"
+        elif names <= cores:
+            group = "core"
+        else:
+            group = "core/runtime"
+        title = f"Bump the {group} group with {len(changed)} updates"
     else:
-        title = "chore: update core and runtime versions"
+        title = "Bump core/runtime pins"
 
     mark = chr(96)
     lines = [
