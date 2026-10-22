@@ -115,8 +115,6 @@ if WATCHDOG_FIXTURES="$fixtures" \
 fi
 grep -Fq "maximum is 200" "$tmp/watchdog-max.log"
 
-# Restore the 50-entry source so the structural-validation regression reaches
-# the rendered Clash output check rather than stopping at the size guard.
 for ((i = 1; i <= 50; i++)); do
   printf 'vless://light-%s@example.net:443\n' "$i"
 done > "$fixtures/light.txt"
