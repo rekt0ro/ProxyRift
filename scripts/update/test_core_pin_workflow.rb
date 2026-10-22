@@ -32,7 +32,10 @@ abort "Core-pin workflow must create missing repository labels" unless
 
 abort "Core-pin workflow must derive labels from actual pin changes" unless
   label_step && label_step["run"].is_a?(String) &&
-    label_step["run"].include?('labels=("dependencies")') &&
+    label_step["run"].include?("labels=()") &&
+    label_step["run"].include?('if ((${#labels[@]} > 0)); then') &&
+    label_step["run"].include?('labels=("dependencies" "${labels[@]}")') &&
+    !label_step["run"].include?('labels=("dependencies")') &&
     label_step["run"].include?('git diff --quiet -- .python-version') &&
     label_step["run"].include?('git diff --quiet -- .ruby-version') &&
     label_step["run"].include?('XRAY_(VERSION|SHA256|ASSET)_PIN') &&
