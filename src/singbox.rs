@@ -2798,10 +2798,7 @@ mod tests {
     #[test]
     fn default_probe_targets_require_expected_payloads() {
         assert!(valid_probe_body(TARGET, b""));
-        assert!(!valid_probe_body(
-            TARGET,
-            b"blocked by upstream"
-        ));
+        assert!(!valid_probe_body(TARGET, b"blocked by upstream"));
         assert!(valid_probe_body(
             crate::validator::STRICT_THROUGHPUT_TARGET,
             &vec![0_u8; STRICT_THROUGHPUT_BYTES]
