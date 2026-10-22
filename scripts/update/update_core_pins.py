@@ -82,12 +82,9 @@ def fetch_latest_python_version():
             with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
                 payload = response.read()
                 content_encoding = response.headers.get("Content-Encoding", "").lower()
-            # urllib does not automatically decompress HTTP response bodies. Some
-            # intermediaries return gzip bytes even when we request identity, so
-            # check both the header and the gzip magic bytes.
             if (
                 "gzip" in {item.strip() for item in content_encoding.split(",")}
-                or payload.startswith(b"\\x1f\\x8b")
+                or payload.startswith(b"\x1f\x8b")
             ):
                 payload = gzip.decompress(payload)
             html = payload.decode("utf-8")
