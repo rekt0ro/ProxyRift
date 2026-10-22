@@ -158,7 +158,7 @@ jobs:
                   pattern = rf'(?m)^([ \t]*{re.escape(key)}:[ \t]*)"[^"]*"$'
                   content, count = re.subn(
                       pattern,
-                      lambda match: f'\${match.group(1)}"{value}"',
+                      lambda match: f'${match.group(1)}"{value}"',
                       content,
                   )
                   if count != 1:
