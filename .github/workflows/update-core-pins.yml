@@ -162,9 +162,9 @@ jobs:
           }
           ruby_version_path = Path(".ruby-version")
           current_ruby_version = ruby_version_path.read_text(encoding="utf-8")
-          if re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+\\n?", current_ruby_version) is None:
+          if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_ruby_version) is None:
               raise SystemExit(".ruby-version must contain exactly one stable X.Y.Z version")
-          ruby_version_path.write_text(os.environ["RUBY_VERSION_PIN"] + "\\n", encoding="utf-8")
+          ruby_version_path.write_text(os.environ["RUBY_VERSION_PIN"] + "\n", encoding="utf-8")
           validation_path = Path(".github/workflows/validate.yml")
           validation_values = {
               "MIHOMO_VERSION": os.environ["MIHOMO_VERSION_PIN"],
