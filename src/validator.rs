@@ -717,7 +717,10 @@ fn normalize_vmess_transport(value: &str) -> String {
 fn normalize_security_label(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase();
     normalized
-        .split(['#', '@', '?', '='])
+        .split("\\u0026")
+        .next()
+        .unwrap_or(normalized.as_str())
+        .split(['#', '@', '?', '=', '&', '¬', 'Â'])
         .next()
         .unwrap_or(value)
         .trim()
@@ -754,7 +757,10 @@ fn normalize_transport(value: &str) -> String {
         .map(str::trim)
         .find_map(|candidate| {
             let candidate = candidate
-                .split(['#', '@', '?', '¬', 'Â'])
+                .split("\\u0026")
+                .next()
+                .unwrap_or(candidate)
+                .split(['#', '@', '?', '&', '¬', 'Â'])
                 .next()
                 .unwrap_or(candidate)
                 .trim();
@@ -6703,7 +6709,13 @@ mod tests {
 
     #[test]
     fn cheap_compatibility_accepts_security_provider_suffixes_and_trailing_markers() {
-        for security in ["tls%40freenettir", "tls%3D", "tls..."] {
+        for security in [
+            "tls%40freenettir",
+            "tls%3D",
+            "tls...",
+            "tls%26alpn=h2",
+            "tls%5Cu0026alpn=h2",
+        ] {
             let config = format!("trojan://password@example.com:443?security={security}&type=tcp");
             assert_eq!(
                 cheap_compatibility_rejection_reason(&config),
@@ -6756,6 +6768,9 @@ mod tests {
         for (transport, expected) in [
             ("websocket", "ws"),
             ("http-upgrade", "httpupgrade"),
+            ("grpc%26serviceName=vless", "grpc"),
+            ("ws%5Cu0026path=%2Fws", "ws"),
+            ("xhttp%5Cu0026mode=auto", "xhttp"),
             ("tcp%23provider@oneclickvpnkeys", "raw"),
             ("tcp@freenettir", "raw"),
             ("tcp¬e=volt____network", "raw"),
