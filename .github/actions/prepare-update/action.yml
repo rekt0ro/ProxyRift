@@ -75,6 +75,8 @@ runs:
         RUST_TOOLCHAIN_VERSION: ${{ steps.rust-toolchain.outputs.version }}
       shell: bash
       run: bash scripts/update/record_rust_version.sh
+    - name: "Set up Ruby"
+      uses: ruby/setup-ruby@v1
     - name: "Verify dependency lock"
       shell: bash
       run: test -s Cargo.lock
