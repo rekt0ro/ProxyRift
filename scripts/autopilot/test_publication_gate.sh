@@ -119,6 +119,30 @@ run_gate >/dev/null
 echo "[OK] Valid generated outputs pass the publication gate."
 
 make_outputs 50
+python3 - "$work/subscriptions" <<'PY'
+import json
+import pathlib
+import sys
+
+directory = pathlib.Path(sys.argv[1])
+(directory / "light-clash.yaml").write_text(
+    'proxies: [{name: "inline proxy", type: vless, server: example.com, port: 443}]\n',
+    encoding="utf-8",
+)
+manifest_path = directory / ".output-counts.json"
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+manifest["light"]["clash"] = 1
+manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+PY
+if ! run_gate >"$tmp/clash-inline.log" 2>&1; then
+  echo "[ERROR] Publication gate rejected valid YAML because its formatting changed." >&2
+  cat "$tmp/clash-inline.log" >&2
+  exit 1
+fi
+grep -Fq "light source: 50 | Clash: 1 (omitted: 49)" "$tmp/clash-inline.log"
+echo "[OK] Clash accounting uses parsed YAML entries, not text layout."
+
+make_outputs 50
 sed -i '/port: 443/d' "$work/subscriptions/light-clash.yaml"
 if run_gate >"$tmp/clash-structure.log" 2>&1; then
   echo "[ERROR] Publication gate accepted a Clash proxy with a missing port." >&2
