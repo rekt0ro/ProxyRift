@@ -50,8 +50,8 @@ const MAX_COLLECTED_CONFIGS: usize = 30_000;
 const MAX_ALL_CONFIGS: usize = 2000;
 const MAX_ALL_PER_ENDPOINT: usize = 5;
 const HTTP_HANDSHAKE_TARGET: &str = proxyrift::validator::PRIMARY_TARGET;
-const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 5;
-const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = 5000.0;
+const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 3;
+const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = (HTTP_HANDSHAKE_TIMEOUT_SECS * 1000) as f64;
 const HTTP_HANDSHAKE_WORKERS: usize = 40;
 const HTTP_HANDSHAKE_BATCH_SIZE: usize = 1000;
 const HTTP_HANDSHAKE_SETUP_FAILURE_LIMIT: usize = 128;
@@ -4286,5 +4286,16 @@ mod uri_emoji_tests {
         assert!(!encoded
             .chars()
             .any(|character| super::is_emoji_codepoint(character as u32)));
+    }
+}
+
+#[cfg(test)]
+mod http_handshake_timeout_tests {
+    use super::{HTTP_HANDSHAKE_MAX_LATENCY_MS, HTTP_HANDSHAKE_TIMEOUT_SECS};
+
+    #[test]
+    fn handshake_timeout_and_logged_latency_are_three_seconds() {
+        assert_eq!(HTTP_HANDSHAKE_TIMEOUT_SECS, 3);
+        assert_eq!(HTTP_HANDSHAKE_MAX_LATENCY_MS, 3000.0);
     }
 }
