@@ -822,12 +822,13 @@ fn repair_escaped_query_suffixes(config: &str) -> Option<String> {
 
         let mut suffix_pairs = Vec::new();
         let mut valid_suffix = true;
-        for segment in std::iter::once(suffix).chain(std::iter::empty()) {
+        for segment in value.split("\\u0026").skip(1) {
             let Some((suffix_key, suffix_value)) = segment.split_once('=') else {
                 valid_suffix = false;
                 break;
             };
-            if !allowed_keys.contains(&suffix_key.to_ascii_lowercase().as_str()) {
+            let suffix_key_lower = suffix_key.to_ascii_lowercase();
+            if !allowed_keys.contains(&suffix_key_lower.as_str()) {
                 valid_suffix = false;
                 break;
             }
@@ -849,7 +850,7 @@ fn repair_escaped_query_suffixes(config: &str) -> Option<String> {
 
     url.query_pairs_mut()
         .clear()
-        .extend_pairs(repaired_pairs.iter().map(|(key, value)| (key, value)));
+        .extend_pairs(repaired_pairs.iter().map(|(key, value)| (key.as_str(), value.as_str())));
     Some(url.to_string())
 }
 
