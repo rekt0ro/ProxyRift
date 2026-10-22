@@ -6,7 +6,7 @@ tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 valid_xray_sha="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-valid_singbox_sha="abcdef0123456789abcdef0123456789abcdef0123456789"
+valid_singbox_sha="abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
 valid_mihomo_sha="fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 
 GITHUB_OUTPUT="$tmp_dir/valid-output" \
