@@ -2,7 +2,7 @@
 
 ### Light
 
-Up to 200 configs that pass stricter validation, including transfer and sustained-stream checks.
+Up to 200 configs that pass stricter validation, including transfer and sustained stream checks.
 
 **Plain text**
 ```text
@@ -50,11 +50,11 @@ https://raw.githubusercontent.com/rekt0ro/ProxyRift/main/subscriptions/all-singb
 
 ## Supported Protocols
 
-VLESS, VMess, Trojan, Shadowsocks, Hysteria, Hysteria2, TUIC, SOCKS, HTTP and WireGuard.
+VLESS, VMess, Trojan, Shadowsocks, Hysteria v1, Hysteria2, TUIC, SOCKS, HTTP and WireGuard.
 
 Hysteria v1 and WireGuard are not included in Light. WireGuard entries may appear in All's plain-text and Base64 lists, but are not supported by the current Clash/Mihomo or sing-box exporters.
 
-Clash/Mihomo exports may omit configs they cannot represent. All sing-box may also contain fewer entries than its plain-text list. Light sing-box output is published only when every Light entry can be converted.
+Clash/Mihomo exports may omit configs the exporter cannot represent, including TUIC and SOCKS4/4a entries. All sing-box may also contain fewer entries than its plain-text list when configs cannot be mapped faithfully. Light sing-box output is published only when every Light entry can be converted successfully.
 
 ## Security and Trust
 
