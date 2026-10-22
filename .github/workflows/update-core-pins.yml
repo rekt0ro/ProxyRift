@@ -60,9 +60,9 @@ jobs:
           body: |
             Automated update of the pinned Python and Ruby runtimes plus Xray-core, sing-box, and Mihomo releases used by CI and subscription validation.
 
-            Versions, Linux asset names, and SHA-256 digests are read from each project's official GitHub Releases API. The updater refuses to create changes if the release tags, asset names, or digests do not match the expected format.
+            Python is resolved from the official python.org stable-release list. Ruby and Xray-core, sing-box, and Mihomo versions come from their official GitHub Releases APIs; core asset names and SHA-256 digests are validated before any pins are changed.
 
-            The PR is validated by the repository's Rust CI before the auto-merge workflow is asked to merge it.
+            The generated PR is validated by the repository's CI before the auto-merge workflow evaluates it.
 
       - name: Dispatch validation CI for the generated PR
         id: dispatch-ci
