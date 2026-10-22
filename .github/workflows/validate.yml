@@ -97,12 +97,13 @@ jobs:
       - name: Test publication quality gate
         run: bash scripts/autopilot/test_publication_gate.sh
 
+      - name: Load pinned core versions for export validation
+        shell: bash
+        run: ruby scripts/update/load_validation_core_pins.rb >> "$GITHUB_ENV"
+
       - name: Install pinned sing-box core for export validation
         env:
           SINGBOX_REPOSITORY: "SagerNet/sing-box"
-          SINGBOX_VERSION: "1.14.3"
-          SINGBOX_SHA256: "e2bdf179c15a3652955dc44867e33ca0965c9c9b91b34267dcc5a5d639a5feee"
-          SINGBOX_ASSET: "sing-box-1.14.3-linux-amd64.tar.gz"
         run: bash scripts/update/install_singbox.sh
 
       - name: Smoke-test sing-box check on an exported subscription
@@ -131,9 +132,6 @@ jobs:
       - name: Install pinned Mihomo core for Clash export validation
         env:
           MIHOMO_REPOSITORY: "MetaCubeX/mihomo"
-          MIHOMO_VERSION: "1.19.32"
-          MIHOMO_SHA256: "8451100836c9eda194331c2babfad490b2faf30cebc1a04b0e76fd8ac2d35d10"
-          MIHOMO_ASSET: "mihomo-linux-amd64-v1.19.32.gz"
         run: bash scripts/update/install_mihomo.sh
 
       - name: Smoke-test Mihomo validation on Clash proxy output
