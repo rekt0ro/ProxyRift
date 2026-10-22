@@ -80,6 +80,12 @@ jobs:
               case "${path}" in
                 .github/workflows/*.yml|.github/workflows/*.yaml|Cargo.toml|Cargo.lock|requirements*.txt)
                   ;;
+                .ruby-version)
+                  if [[ "${pr_author}" != "github-actions[bot]" || "${head_ref}" != "automation/update-core-pins" ]]; then
+                    valid=false
+                    echo "PR #${pr} changes the Ruby version pin outside the trusted update branch"
+                  fi
+                  ;;
                 .github/actions/prepare-update/action.yml)
                   if [[ "${pr_author}" != "github-actions[bot]" || "${head_ref}" != "automation/update-core-pins" ]]; then
                     valid=false
