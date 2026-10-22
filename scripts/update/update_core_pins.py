@@ -4,6 +4,7 @@
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -114,7 +115,7 @@ def replace_pins(content, values, path):
 
 def write_atomically(path, content):
     path = Path(path)
-    current_mode = path.stat().st_mode
+    current_mode = stat.S_IMODE(path.stat().st_mode)
     temporary_name = None
     try:
         with tempfile.NamedTemporaryFile(
