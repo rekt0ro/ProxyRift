@@ -280,3 +280,293 @@ def fetch_release_by_tag(repository, tag, token):
 def pinned_value(content, key, path):
     pattern = re.compile(
         rf'(?m)^[ \t]*{re.escape(key)}:[ \t]*"([^"\r\n]*)"[ \t]*$'
+    )
+    matches = pattern.findall(content)
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one {key} pin in {path}, found {len(matches)}")
+    return matches[0]
+
+
+def python_release_url(version):
+    compact_version = version.replace(".", "")
+    return f"https://www.python.org/downloads/release/python-{compact_version}/"
+
+
+def release_notes_url(component, version, release):
+    release_tag = release.get("tag_name") if isinstance(release, dict) else None
+    release_url = release.get("html_url") if isinstance(release, dict) else None
+    if (
+        isinstance(release_url, str)
+        and release_url.startswith("https://")
+        and release_tag in (f"v{version}", version)
+    ):
+        return release_url
+    if component == "Python":
+        return python_release_url(version)
+    repository = RELEASE_REPOSITORIES[component]
+    return f"https://github.com/{repository}/releases/tag/v{version}"
+
+
+def release_note_excerpt(body, limit=2400):
+    if not isinstance(body, str):
+        return ""
+    body = body.strip()
+    if len(body) <= limit:
+        return body
+    cutoff = body.rfind("\n", 0, limit)
+    if cutoff < limit // 2:
+        cutoff = limit
+    suffix = "\n\n_Release notes excerpt shortened; see the official release link above for the complete notes._"
+    return body[:cutoff].rstrip() + suffix
+
+
+def build_pr_description(previous_versions, current_versions, release_metadata):
+    components = ("Python", "Ruby", "Xray-core", "sing-box", "Mihomo")
+    changed = [
+        (name, previous_versions[name], current_versions[name])
+        for name in components
+        if previous_versions[name] != current_versions[name]
+    ]
+    if changed:
+        title_parts = [
+            f"{name} {old} → {new}"
+            for name, old, new in changed
+        ]
+        title = f"chore: update {', '.join(title_parts)}"
+        if len(title) > 110:
+            title = f"chore: update {len(changed)} core/runtime pins"
+    else:
+        title = "chore: update core and runtime versions"
+
+    mark = chr(96)
+    lines = [
+        "## Updates",
+        "",
+        "| Component | Previous | Updated | Changelog |",
+        "| --- | --- | --- | --- |",
+    ]
+    for name, old, new in changed:
+        release = release_metadata.get(name, {})
+        notes_url = release_notes_url(name, new, release)
+        if name == "Python":
+            old_link = python_release_url(old)
+            changelog = f"[Release notes]({notes_url}) · [Previous release]({old_link})"
+        else:
+            repository = RELEASE_REPOSITORIES[name]
+            compare_url = f"https://github.com/{repository}/compare/v{old}...v{new}"
+            changelog = (
+                f"[Release notes]({notes_url}) · "
+                f"[Full changelog]({compare_url})"
+            )
+        lines.append(
+            f"| {name} | {mark}{old}{mark} | {mark}{new}{mark} | {changelog} |"
+        )
+
+    if not changed:
+        lines.extend(["", "No pinned versions changed."])
+    else:
+        lines.extend(["", "## Release notes"])
+        for name, old, new in changed:
+            release = release_metadata.get(name, {})
+            notes_url = release_notes_url(name, new, release)
+            lines.extend(
+                [
+                    "",
+                    f"### {name} {new}",
+                    "",
+                    f"[Official release notes]({notes_url})",
+                ]
+            )
+            excerpt = release_note_excerpt(release.get("body"))
+            if excerpt:
+                lines.extend(["", excerpt])
+
+    lines.extend(
+        [
+            "",
+            "Versions and release notes are collected from official upstream sources. "
+            "Core release asset names and SHA-256 digests are validated before pins "
+            "are changed; CI validates the resulting updates.",
+        ]
+    )
+    return title, "\n".join(lines).rstrip() + "\n"
+
+
+def write_pr_metadata(title, body):
+    body_path = os.environ.get("CORE_PIN_PR_BODY_PATH")
+    if body_path:
+        target = Path(body_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as output:
+            output.write(f"pr_title={title}\n")
+
+
+def replace_pins(content, values, path):
+    for key, value in values.items():
+        pattern = re.compile(
+            rf'(?m)^([ \t]*{re.escape(key)}:[ \t]*)"[^"\r\n]*"[ \t]*$'
+        )
+        updated, count = pattern.subn(
+            lambda match: f'{match.group(1)}"{value}"',
+            content,
+        )
+        if count != 1:
+            raise ValueError(
+                f"Expected exactly one {key} pin in {path}, found {count}"
+            )
+        content = updated
+    return content
+
+
+def write_atomically(path, content):
+    path = Path(path)
+    current_mode = stat.S_IMODE(path.stat().st_mode)
+    temporary_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as temporary:
+            temporary.write(content)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+            temporary_name = temporary.name
+        os.chmod(temporary_name, current_mode)
+        os.replace(temporary_name, path)
+    finally:
+        if temporary_name is not None:
+            try:
+                os.unlink(temporary_name)
+            except FileNotFoundError:
+                pass
+
+
+def build_updates(releases, python_version, ruby_version):
+    if not isinstance(python_version, str) or PLAIN_VERSION_PATTERN.fullmatch(python_version) is None:
+        raise ValueError(f"Invalid stable Python version: {python_version!r}")
+    if not isinstance(ruby_version, str) or PLAIN_VERSION_PATTERN.fullmatch(ruby_version) is None:
+        raise ValueError(f"Invalid supported Ruby version: {ruby_version!r}")
+    xray_version = stable_version(releases["xray"], "Xray")
+    singbox_version = stable_version(releases["singbox"], "sing-box")
+    mihomo_version = stable_version(releases["mihomo"], "Mihomo")
+
+    xray_asset = "Xray-linux-64.zip"
+    singbox_asset = f"sing-box-{singbox_version}-linux-amd64.tar.gz"
+    mihomo_asset = f"mihomo-linux-amd64-v{mihomo_version}.gz"
+
+    action_values = {
+        "XRAY_VERSION_PIN": xray_version,
+        "XRAY_SHA256_PIN": asset_sha256(releases["xray"], xray_asset, "Xray"),
+        "XRAY_ASSET_PIN": xray_asset,
+        "SINGBOX_VERSION_PIN": singbox_version,
+        "SINGBOX_SHA256_PIN": asset_sha256(
+            releases["singbox"], singbox_asset, "sing-box"
+        ),
+        "SINGBOX_ASSET_PIN": singbox_asset,
+        "MIHOMO_VERSION_PIN": mihomo_version,
+        "MIHOMO_SHA256_PIN": asset_sha256(
+            releases["mihomo"], mihomo_asset, "Mihomo"
+        ),
+        "MIHOMO_ASSET_PIN": mihomo_asset,
+    }
+    return python_version, ruby_version, action_values
+
+
+def main():
+    token = os.environ.get("GH_TOKEN")
+    if not token:
+        raise SystemExit("GH_TOKEN is required to query GitHub Releases")
+
+    repositories = {
+        "xray": "XTLS/Xray-core",
+        "singbox": "SagerNet/sing-box",
+        "mihomo": "MetaCubeX/mihomo",
+    }
+    releases = {
+        name: fetch_release(repository, token)
+        for name, repository in repositories.items()
+    }
+    python_version = fetch_latest_python_version()
+    ruby_version = fetch_latest_supported_ruby_version()
+    python_version, ruby_version, action_values = build_updates(
+        releases, python_version, ruby_version
+    )
+
+    action_path = ROOT / ".github/actions/prepare-update/action.yml"
+    python_path = ROOT / ".python-version"
+    ruby_path = ROOT / ".ruby-version"
+
+    action_source = action_path.read_text(encoding="utf-8")
+    action_content = replace_pins(action_source, action_values, action_path)
+    current_python = python_path.read_text(encoding="utf-8")
+    if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_python) is None:
+        raise ValueError(f"{python_path} must contain exactly one stable X.Y.Z version")
+    current_ruby = ruby_path.read_text(encoding="utf-8")
+    if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_ruby) is None:
+        raise ValueError(f"{ruby_path} must contain exactly one stable X.Y.Z version")
+
+    previous_versions = {
+        "Python": current_python.strip(),
+        "Ruby": current_ruby.strip(),
+        "Xray-core": pinned_value(action_source, "XRAY_VERSION_PIN", action_path),
+        "sing-box": pinned_value(action_source, "SINGBOX_VERSION_PIN", action_path),
+        "Mihomo": pinned_value(action_source, "MIHOMO_VERSION_PIN", action_path),
+    }
+    current_versions = {
+        "Python": python_version,
+        "Ruby": ruby_version,
+        "Xray-core": action_values["XRAY_VERSION_PIN"],
+        "sing-box": action_values["SINGBOX_VERSION_PIN"],
+        "Mihomo": action_values["MIHOMO_VERSION_PIN"],
+    }
+    release_metadata = {
+        "Xray-core": releases["xray"],
+        "sing-box": releases["singbox"],
+        "Mihomo": releases["mihomo"],
+    }
+    if previous_versions["Ruby"] != ruby_version:
+        release_metadata["Ruby"] = fetch_release_by_tag(
+            "ruby/ruby", f"v{ruby_version}", token
+        )
+    pr_title, pr_body = build_pr_description(
+        previous_versions, current_versions, release_metadata
+    )
+
+    pin_environment = os.environ.copy()
+    pin_environment["RUBY_VERSION_PIN"] = ruby_version
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/update/pin_ruby_version.py"),
+            str(ruby_path),
+        ],
+        cwd=ROOT,
+        env=pin_environment,
+        check=True,
+    )
+    write_atomically(action_path, action_content)
+    write_atomically(python_path, f"{python_version}\n")
+    write_pr_metadata(pr_title, pr_body)
+
+    print(
+        f"Resolved Python {python_version}, Ruby {ruby_version}, "
+        f"Xray {action_values['XRAY_VERSION_PIN']}, "
+        f"sing-box {action_values['SINGBOX_VERSION_PIN']}, "
+        f"and Mihomo {action_values['MIHOMO_VERSION_PIN']}; "
+        "required release asset SHA-256 digests were verified."
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
+        raise SystemExit(f"[ERROR] Core pin update failed: {error}") from error
