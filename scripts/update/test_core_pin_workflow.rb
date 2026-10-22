@@ -29,6 +29,7 @@ abort "Core-pin updater must emit a PR title and changelog body from resolved ve
   step["id"] == "resolve-pins" &&
     step.dig("env", "CORE_PIN_PR_BODY_PATH") == "${{ runner.temp }}/core-pin-pr-body.md" &&
     create_pr.dig("with", "title") == "${{ steps.resolve-pins.outputs.pr_title }}" &&
+    create_pr.dig("with", "commit-message") == "${{ steps.resolve-pins.outputs.pr_title }}" &&
     create_pr.dig("with", "body-path") == "${{ runner.temp }}/core-pin-pr-body.md" &&
     step["run"].include?("python3 scripts/update/update_core_pins.py")
 
