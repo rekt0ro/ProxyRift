@@ -19,6 +19,18 @@ create_pr = workflow.dig("jobs", "update-pins", "steps").find do |entry|
 end
 abort "Core-pin updater must not stage workflow files without workflow permission" if
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip.start_with?(".github/workflows/") }
+abort "Core-pin updater must include the Python runtime pin" unless
+  create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == ".python-version" }
+abort "Updater workflow must set up its pinned Python runtime" unless
+  workflow.dig("jobs", "update-pins", "steps").any? do |entry|
+    entry["uses"] == "actions/setup-python@v6" &&
+      entry.dig("with", "python-version-file") == ".python-version"
+  end
+abort "Validation workflow must use the pinned Python runtime" unless
+  YAML.load_file(".github/workflows/validate.yml").dig("jobs", "validate", "steps").any? do |entry|
+    entry["uses"] == "actions/setup-python@v6" &&
+      entry.dig("with", "python-version-file") == ".python-version"
+  end
 abort "Validation core-pin loader is missing" unless
   File.file?("scripts/update/load_validation_core_pins.rb")
 
