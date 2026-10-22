@@ -26,10 +26,9 @@ abort "Auto-merge must re-check PRs when CodeQL finishes, even though its aggreg
   workflow_text.include?("      - CI\n      - CodeQL")
 
 body = merge.fetch("run")
-abort "Python pin must be restricted to the trusted core-pin updater PR" unless
-  body.include?(".ruby-version|.python-version") &&
-    body.include?('"${pr_author}" != "github-actions[bot]"') &&
-    body.include?('"${head_ref}" != "automation/update-core-pins"')
+abort "Runtime pins must be restricted to the trusted core-pin updater PR" unless
+  body.include?(".python-version|.ruby-version") &&
+    body.include?('elif [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]')
 
 
 dependabot_branch_rules =
