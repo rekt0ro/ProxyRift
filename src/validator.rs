@@ -800,7 +800,8 @@ fn repair_escaped_query_suffixes(config: &str) -> Option<String> {
 
     for (key, value) in pairs {
         let key_lower = key.to_ascii_lowercase();
-        let Some((prefix, suffix)) = value.split_once("\\u0026") else {
+        let normalized_value = value.replace("\\u0026", "&");
+        let Some((prefix, suffix)) = normalized_value.split_once('&') else {
             repaired_pairs.push((key, value));
             continue;
         };
@@ -822,7 +823,7 @@ fn repair_escaped_query_suffixes(config: &str) -> Option<String> {
 
         let mut suffix_pairs = Vec::new();
         let mut valid_suffix = true;
-        for segment in value.split("\\u0026").skip(1) {
+        for segment in normalized_value.split('&').skip(1) {
             let Some((suffix_key, suffix_value)) = segment.split_once('=') else {
                 valid_suffix = false;
                 break;
@@ -6866,7 +6867,7 @@ mod tests {
 
     #[test]
     fn cheap_compatibility_repairs_escaped_query_suffixes() {
-        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls%5Cu0026alpn=h2%5Cu0026type=grpc%5Cu0026serviceName=svc";
+        let config = "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls%5Cu0026alpn=h2%26type=grpc%5Cu0026serviceName=svc";
         assert_eq!(cheap_compatibility_rejection_reason(config), None);
         assert!(is_light_consumer_compatible(config));
         let parsed = parse_config(config).expect("escaped query separators should be repaired");
