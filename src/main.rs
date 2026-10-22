@@ -776,7 +776,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     println!(
-        "[INFO] [HTTP handshake] Complete | {} unique probe identities | {} candidate configs passed | Targets: {} | Timeout: {}s",
+        "[INFO] [HTTP handshake] Complete | {} unique probe identities | {} candidate configs passed | Target: {} | Timeout: {}s",
         unique_http_probe_count,
         ranked_working_configs.len(),
         HTTP_HANDSHAKE_TARGET,
