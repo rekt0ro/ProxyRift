@@ -84,7 +84,7 @@ jobs:
           path = Path(".github/workflows/update-core-pins.yml")
           workflow = path.read_text(encoding="utf-8")
           match = re.search(
-              r"(?ms)^[ \\t]*python3 - <<'PY'\\n(.*?)^[ \\t]*PY[ \\t]*$",
+              r"(?ms)^[ \t]*python3 - <<'PY'\n(.*?)^[ \t]*PY[ \t]*$",
               workflow,
           )
           if match is None:
