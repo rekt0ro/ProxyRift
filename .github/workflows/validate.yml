@@ -74,7 +74,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
 
       - name: Shell syntax check
-        run: for script in scripts/*.sh scripts/update/*.sh scripts/autopilot/*.sh; do bash -n "$script" || exit 1; done
+        run: for script in scripts/*.sh scripts/update/*.sh; do bash -n "$script" || exit 1; done
 
       - name: Validate workflow and composite-action YAML
         run: |
@@ -95,7 +95,7 @@ jobs:
       - name: Validate core-pin workflow shell syntax
         run: ruby scripts/update/test_core_pin_workflow.rb
       - name: Test publication quality gate
-        run: bash scripts/autopilot/test_publication_gate.sh
+        run: bash scripts/update/test_publication_gate.sh
 
       - name: Load pinned core versions for export validation
         shell: bash
@@ -152,9 +152,6 @@ jobs:
         run: |
           "$HOME/.local/bin/mihomo" -t -f subscriptions/light-clash.yaml
           "$HOME/.local/bin/mihomo" -t -f subscriptions/all-clash.yaml
-
-      - name: Test watchdog output validation and cleanup
-        run: bash scripts/autopilot/test_watchdog.sh
 
       - name: Test source-sensitive build cache keys
         run: bash scripts/update/test_compute_cache_keys.sh
