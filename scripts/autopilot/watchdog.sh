@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 repo="$GH_REPOSITORY"
 runs_endpoint="/repos/$repo/actions/workflows/update.yml/runs?per_page=20&branch=main&exclude_pull_requests=true"
 
