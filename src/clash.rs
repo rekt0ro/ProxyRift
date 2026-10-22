@@ -492,7 +492,7 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
     let short_id = query_any(&url, &["sid", "shortId", "short_id", "short-id"]);
 
     let mut lines = vec![format!(
-        " - name: {}",
+        "  - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "vless");
@@ -605,7 +605,7 @@ fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
         .to_string();
     let cipher = json_string(object.get("scy")).unwrap_or_else(|| "auto".to_string());
 
-    let mut lines = vec![format!(" - name: {}", yaml_quote(name.trim()))];
+    let mut lines = vec![format!("  - name: {}", yaml_quote(name.trim()))];
     push_field(&mut lines, 4, "type", "vmess");
     push_field(&mut lines, 4, "server", &server);
     push_raw_field(&mut lines, 4, "port", &port.to_string());
@@ -684,7 +684,7 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
     let short_id = query_any(&url, &["sid", "shortId", "short_id", "short-id"]);
 
     let mut lines = vec![format!(
-        " - name: {}",
+        "  - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "trojan");
@@ -902,7 +902,7 @@ fn convert_shadowsocks(config: &str, index: usize) -> Result<String, String> {
         };
 
     let mut lines = vec![format!(
-        " - name: {}",
+        "  - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "ss");
@@ -971,7 +971,7 @@ fn convert_hysteria(config: &str, index: usize) -> Result<String, String> {
     };
 
     let mut lines = vec![format!(
-        " - name: {}",
+        "  - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "hysteria");
@@ -1065,7 +1065,7 @@ fn convert_hysteria2(config: &str, index: usize) -> Result<String, String> {
     let down = get(&["down", "downmbps"]);
 
     let mut lines = vec![format!(
-        " - name: {}",
+        "  - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "hysteria2");
@@ -1108,7 +1108,7 @@ fn convert_socks(config: &str, index: usize) -> Result<String, String> {
     let (server, port) = endpoint_from_url(&url)?;
 
     let mut lines = vec![format!(
-        " - name: {}",
+        "  - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "socks5");
@@ -1136,7 +1136,7 @@ fn convert_http(config: &str, index: usize) -> Result<String, String> {
     let (server, port) = endpoint_from_url(&url)?;
 
     let mut lines = vec![format!(
-        " - name: {}",
+        "  - name: {}",
         yaml_quote(&name_from_config(config, index))
     )];
     push_field(&mut lines, 4, "type", "http");
@@ -1309,6 +1309,18 @@ mod tests {
 
         assert_eq!(*count, 60);
         assert_eq!(sample_indexes, &[1691, 1692, 1693, 1694, 1695]);
+    }
+
+    #[test]
+    fn renders_clash_sequence_items_with_valid_indentation() {
+        let configs = vec![
+            "socks5://proxy1.example.com:1080".to_string(),
+            "http://proxy2.example.com:8080".to_string(),
+        ];
+
+        let yaml = render(&configs).expect("supported proxy types should render");
+        assert_eq!(yaml.lines().filter(|line| line.starts_with("  - name:")).count(), 2);
+        assert!(!yaml.lines().any(|line| line.starts_with(" - name:")));
     }
 
     #[test]
