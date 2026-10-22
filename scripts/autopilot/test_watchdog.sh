@@ -34,7 +34,7 @@ proxies:
 YAML
 done
 
- <<'CURL'
+cat > "$bin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
 url=""
