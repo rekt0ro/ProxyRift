@@ -2,6 +2,7 @@
 """Unit tests for stable-release validation and pin replacement."""
 
 import gzip
+import json
 import stat
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ from update_core_pins import (
     asset_sha256,
     build_updates,
     latest_python_version,
+    latest_supported_ruby_version,
     replace_pins,
     stable_version,
     write_atomically,
@@ -51,6 +53,33 @@ def release(tag, assets=()):
 
 
 class CorePinUpdaterTests(unittest.TestCase):
+
+    def test_selects_latest_stable_ruby_release_supported_by_setup_ruby(self):
+        manifest = {
+            "ruby": [
+                "3.4.11",
+                "4.0.6",
+                "4.1.0-preview1",
+                "4.0.7",
+                "head",
+            ]
+        }
+        self.assertEqual(latest_supported_ruby_version(manifest), "4.0.7")
+
+    def test_rejects_ruby_manifest_without_stable_releases(self):
+        for manifest in ({}, {"ruby": ["4.1.0-preview1", "head"]}):
+            with self.subTest(manifest=manifest):
+                with self.assertRaises(ValueError):
+                    latest_supported_ruby_version(manifest)
+
+    def test_fetches_latest_supported_ruby_version(self):
+        manifest = {"ruby": ["4.0.6", "4.1.0-preview1", "4.0.7"]}
+        response = FakeResponse(json.dumps(manifest).encode("utf-8"))
+        with patch.object(update_core_pins, "urlopen", return_value=response):
+            self.assertEqual(
+                update_core_pins.fetch_latest_supported_ruby_version(),
+                "4.0.7",
+            )
 
     def test_fetches_gzip_python_release_page_from_header(self):
         response = FakeResponse(
@@ -114,15 +143,16 @@ class CorePinUpdaterTests(unittest.TestCase):
                 "v3.4.5",
                 [("mihomo-linux-amd64-v3.4.5.gz", "sha256:" + "3" * 64)],
             ),
-            "ruby": release("v4.5.6"),
         }
-        python_version, ruby_version, action = build_updates(releases, "3.15.1")
+        python_version, ruby_version, action = build_updates(releases, "3.15.1", "4.0.7")
         self.assertEqual(python_version, "3.15.1")
-        self.assertEqual(ruby_version, "4.5.6")
+        self.assertEqual(ruby_version, "4.0.7")
         self.assertEqual(action["SINGBOX_ASSET_PIN"], "sing-box-2.3.4-linux-amd64.tar.gz")
         self.assertEqual(action["MIHOMO_SHA256_PIN"], "3" * 64)
         with self.assertRaises(ValueError):
-            build_updates(releases, "3.15.1rc1")
+            build_updates(releases, "3.15.1rc1", "4.0.7")
+        with self.assertRaises(ValueError):
+            build_updates(releases, "3.15.1", "4.1.0-preview1")
 
     def test_atomic_write_preserves_file_permissions(self):
         with tempfile.TemporaryDirectory() as directory:

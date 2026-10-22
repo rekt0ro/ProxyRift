@@ -22,6 +22,7 @@ VERSION_PATTERN = re.compile(r"v([0-9]+\.[0-9]+\.[0-9]+)\Z")
 PLAIN_VERSION_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
 DIGEST_PATTERN = re.compile(r"sha256:([0-9a-fA-F]{64})\Z")
 PYTHON_DOWNLOADS_URL = "https://www.python.org/downloads/"
+RUBY_SETUP_MANIFEST_URL = "https://raw.githubusercontent.com/ruby/setup-ruby/master/ruby-builder-versions.json"
 
 
 class PythonReleasePageParser(HTMLParser):
@@ -115,6 +116,59 @@ def fetch_latest_python_version():
 MAX_ATTEMPTS = 5
 REQUEST_TIMEOUT_SECONDS = 15
 RETRY_DELAY_SECONDS = 2
+
+
+def latest_supported_ruby_version(manifest):
+    versions = manifest.get("ruby") if isinstance(manifest, dict) else None
+    if not isinstance(versions, list):
+        raise ValueError("ruby/setup-ruby manifest has no Ruby version list")
+    stable_versions = [
+        version for version in versions
+        if isinstance(version, str) and PLAIN_VERSION_PATTERN.fullmatch(version)
+    ]
+    if not stable_versions:
+        raise ValueError("ruby/setup-ruby manifest has no stable Ruby releases")
+    return max(
+        stable_versions,
+        key=lambda version: tuple(map(int, version.split("."))),
+    )
+
+
+def fetch_latest_supported_ruby_version():
+    request = Request(
+        RUBY_SETUP_MANIFEST_URL,
+        headers={
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+            "User-Agent": "ProxyRift core-pin updater",
+        },
+    )
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                manifest = json.load(response)
+            return latest_supported_ruby_version(manifest)
+        except HTTPError as error:
+            if error.code not in (403, 429) and 400 <= error.code < 500:
+                raise RuntimeError(
+                    f"ruby/setup-ruby manifest returned HTTP {error.code}"
+                ) from error
+            cause = error
+        except (URLError, TimeoutError, json.JSONDecodeError, ValueError, OSError) as error:
+            cause = error
+
+        if attempt == MAX_ATTEMPTS:
+            raise RuntimeError(
+                f"Unable to resolve supported Ruby after {MAX_ATTEMPTS} attempts: {cause}"
+            ) from cause
+        print(
+            f"[WARN] Ruby version lookup failed on attempt "
+            f"{attempt}/{MAX_ATTEMPTS}: {cause}; retrying.",
+            file=sys.stderr,
+        )
+        time.sleep(RETRY_DELAY_SECONDS)
+
+    raise AssertionError("Retry loop exited unexpectedly")
 
 
 def fetch_release(repository, token):
@@ -236,13 +290,14 @@ def write_atomically(path, content):
                 pass
 
 
-def build_updates(releases, python_version):
+def build_updates(releases, python_version, ruby_version):
     if not isinstance(python_version, str) or PLAIN_VERSION_PATTERN.fullmatch(python_version) is None:
         raise ValueError(f"Invalid stable Python version: {python_version!r}")
+    if not isinstance(ruby_version, str) or PLAIN_VERSION_PATTERN.fullmatch(ruby_version) is None:
+        raise ValueError(f"Invalid supported Ruby version: {ruby_version!r}")
     xray_version = stable_version(releases["xray"], "Xray")
     singbox_version = stable_version(releases["singbox"], "sing-box")
     mihomo_version = stable_version(releases["mihomo"], "Mihomo")
-    ruby_version = stable_version(releases["ruby"], "Ruby")
 
     xray_asset = "Xray-linux-64.zip"
     singbox_asset = f"sing-box-{singbox_version}-linux-amd64.tar.gz"
@@ -275,14 +330,16 @@ def main():
         "xray": "XTLS/Xray-core",
         "singbox": "SagerNet/sing-box",
         "mihomo": "MetaCubeX/mihomo",
-        "ruby": "ruby/ruby",
     }
     releases = {
         name: fetch_release(repository, token)
         for name, repository in repositories.items()
     }
     python_version = fetch_latest_python_version()
-    python_version, ruby_version, action_values = build_updates(releases, python_version)
+    ruby_version = fetch_latest_supported_ruby_version()
+    python_version, ruby_version, action_values = build_updates(
+        releases, python_version, ruby_version
+    )
 
     action_path = ROOT / ".github/actions/prepare-update/action.yml"
     python_path = ROOT / ".python-version"
