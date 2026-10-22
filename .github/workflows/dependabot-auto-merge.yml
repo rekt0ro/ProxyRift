@@ -26,6 +26,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout trusted merge-gate scripts
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
       - name: Merge ready Dependabot tooling updates
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -80,10 +86,10 @@ jobs:
               case "${path}" in
                 .github/workflows/*.yml|.github/workflows/*.yaml|Cargo.toml|Cargo.lock|requirements*.txt)
                   ;;
-                .ruby-version)
+                .ruby-version|.python-version)
                   if [[ "${pr_author}" != "github-actions[bot]" || "${head_ref}" != "automation/update-core-pins" ]]; then
                     valid=false
-                    echo "PR #${pr} changes the Ruby version pin outside the trusted update branch"
+                    echo "PR #${pr} changes a runtime version pin outside the trusted update branch: ${path}"
                   fi
                   ;;
                 .github/actions/prepare-update/action.yml)
@@ -105,22 +111,19 @@ jobs:
 
             checks="$(gh pr checks "${pr}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --json workflow,bucket 2>/dev/null || true)"
+              --json name,workflow,bucket 2>/dev/null || true)"
 
             if [ -z "${checks}" ]; then
               echo "No check results for PR #${pr} yet; skipping."
               continue
             fi
 
-            if ! printf '%s' "${checks}" | jq -e '
-              [ .[] | select(.workflow == "CI") ] as $ci
-              | ($ci | length > 0) and all($ci[]; .bucket == "pass")
-            ' >/dev/null; then
-              echo "Rust CI has not passed for PR #${pr}; skipping."
+            if ! bash scripts/update/verify_dependabot_auto_merge_checks.sh <<< "${checks}"; then
+              echo "Required CI/Rust/Ruby/Python checks have not all passed for PR #${pr}; skipping."
               continue
             fi
 
-            echo "Rust CI passed for PR #${pr}; merging."
+            echo "Required CI/Rust/Ruby/Python checks passed for PR #${pr}; merging."
             if gh pr merge "${pr}" \
               --repo "${GITHUB_REPOSITORY}" \
               --squash \
