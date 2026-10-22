@@ -1565,6 +1565,7 @@ mod tests {
     use super::{
         candidate_fingerprint, feature_signature, speed_features_for_observation,
         speed_history_by_key, speed_ranking_score, top_quintile_speed_lift, LightGbmScores,
+        DEFAULT_SCORE,
         SpeedObservation, SPEED_MODEL_FEATURE_COUNT, STRUCTURAL_FEATURE_COUNT,
     };
     use serde_json::Value;
