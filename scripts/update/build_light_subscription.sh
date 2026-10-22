@@ -8,7 +8,7 @@ set +e
 ./target/release/polish_light \
   --candidates subscriptions/.light-candidates.txt \
   --prevalidated-http-metrics subscriptions/.light-candidates-http.json \
-  --precheck-timeout 5 \
+  --precheck-timeout 3 \
   --output /tmp/proxyrift/light.next.txt \
   --workers 48 \
   --batch-size 1000 \
