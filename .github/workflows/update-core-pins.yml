@@ -198,7 +198,7 @@ jobs:
             --branch automation/update-core-pins \
             --event workflow_dispatch \
             --limit 50 \
-            --json databaseId | jq '[.[].databaseId]')"
+            --json databaseId | jq -c '[.[].databaseId]')"
 
           echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
           echo "prior-run-ids=$prior_run_ids" >> "$GITHUB_OUTPUT"
