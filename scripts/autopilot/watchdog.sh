@@ -108,8 +108,8 @@ PY
     echo "- Light entries: **$light_count** (minimum: 50)"
     echo "- All entries: **$all_count** (minimum: 1000)"
     echo "- Base64 mirrors: valid"
-    echo "- sing-box JSON: valid"
-    echo "- Clash outputs: proxy entries present"
+    echo "- sing-box outbound structure: valid"
+    echo "- Clash proxy structure: valid"
   } >> "$GITHUB_STEP_SUMMARY"
   echo "[OK] Published outputs passed integrity checks (Light=$light_count, All=$all_count)."
 }
