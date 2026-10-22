@@ -91,8 +91,7 @@ jobs:
           mihomo_version="$(printf '%s' "$mihomo_tag" | cut -c 2-)"
           xray_asset="Xray-linux-64.zip"
           singbox_asset="sing-box-$singbox_version-linux-amd64.tar.gz"
-          mihomo_asset="mihomo-linux-amd64-v$ mihomo_version.gz"
-          mihomo_asset="${mihomo_asset// /}"
+          mihomo_asset="mihomo-linux-amd64-v${mihomo_version}.gz"
 
           xray_digest="$(jq -er --arg name "$xray_asset" '
             .assets[]
