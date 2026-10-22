@@ -28,6 +28,9 @@ inputs:
   singbox_version:
     description: "Resolved sing-box version."
     required: true
+  mihomo_version:
+    description: "Resolved Mihomo version."
+    required: true
   github_token:
     description: "Token used to read workflow run metadata and persist learning state."
     required: true
@@ -60,6 +63,7 @@ runs:
         GH_REPOSITORY: ${{ inputs.github_repository }}
         XRAY_VERSION: ${{ inputs.xray_version }}
         SINGBOX_VERSION: ${{ inputs.singbox_version }}
+        MIHOMO_VERSION: ${{ inputs.mihomo_version }}
       shell: bash
       run: bash scripts/update/write_run_summary.sh
     - name: Verify LightGBM summary against run report
