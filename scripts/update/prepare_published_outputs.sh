@@ -59,16 +59,7 @@ for name in light all; do
     echo "[ERROR] Base64 output cannot be decoded: subscriptions/$name-base64.txt" >&2
     exit 1
   fi
-  if ! python3 - "subscriptions/$name.txt" "$decoded" <<'PY'
-import pathlib
-import sys
-
-source = pathlib.Path(sys.argv[1]).read_bytes().rstrip(b"\r\n")
-decoded = pathlib.Path(sys.argv[2]).read_bytes()
-if source != decoded:
-    raise SystemExit(1)
-PY
-  then
+  if ! perl -0777 -pe 's/[\r\n]+\z//' "subscriptions/$name.txt" | cmp -s - "$decoded"; then
     rm -f "$decoded"
     echo "[ERROR] Base64 output does not mirror subscriptions/$name.txt." >&2
     exit 1
