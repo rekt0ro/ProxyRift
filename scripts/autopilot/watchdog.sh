@@ -88,14 +88,17 @@ PY
   done
 
   for name in light all; do
-    if ! jq --exit-status \
-      'type == "object" and (.outbounds | type == "array") and (.outbounds | length > 0)' \
-      "$tmp/$name-singbox.json" >/dev/null; then
-      fail "Published $name sing-box output is not valid JSON with at least one outbound."
+    if ! jq --exit-status '
+      type == "object"
+      and (.outbounds | type == "array" and length > 0)
+      and all(.outbounds[]; type == "object"
+        and (.type | type == "string" and length > 0)
+        and (.tag | type == "string" and length > 0))
+    ' "$tmp/$name-singbox.json" >/dev/null; then
+      fail "Published $name sing-box output has invalid outbound entries."
     fi
-    if ! grep --quiet --extended-regexp '^proxies:[[:space:]]*$' "$tmp/$name-clash.yaml" \
-        || ! grep --quiet --extended-regexp '^[[:space:]]+- name:' "$tmp/$name-clash.yaml"; then
-      fail "Published $name Clash output has no proxy entries."
+    if ! ruby "$repo_root/scripts/update/validate_clash_output.rb" "$tmp/$name-clash.yaml"; then
+      fail "Published $name Clash output failed structural validation."
     fi
   done
 
