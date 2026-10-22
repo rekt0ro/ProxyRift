@@ -77,6 +77,11 @@ runs:
       run: bash scripts/update/record_rust_version.sh
     - name: "Set up Ruby"
       uses: ruby/setup-ruby@v1
+    - name: "Verify Ruby version pin"
+      shell: bash
+      run: |
+        ruby --version
+        ruby -e 'abort "Ruby version does not match .ruby-version" unless RUBY_VERSION == File.read(".ruby-version").strip'
     - name: "Verify dependency lock"
       shell: bash
       run: test -s Cargo.lock
