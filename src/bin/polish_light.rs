@@ -50,7 +50,7 @@ const RECHECK_EXPLORATION_PERCENT: usize = 15;
 const MAX_RECHECK_EXPLORATION: usize = 64;
 const MAX_FINAL_RECHECK_ATTEMPTS: usize = 2;
 const FINAL_TRANSFER_BATCH_SIZE: usize = 32;
-const FINAL_TRANSFER_WORKERS: usize = 12;
+const FINAL_TRANSFER_WORKERS: usize = 24;
 const FINAL_TRANSFER_INITIAL_WORKERS: usize = 6;
 const FINAL_TRANSFER_MIN_WORKERS: usize = 2;
 const FINAL_TRANSFER_QUEUE_MULTIPLIER: usize = 3;
@@ -58,7 +58,7 @@ const FINAL_TRANSFER_CLEAN_BATCHES_TO_RAMP: usize = 2;
 const FINAL_TRANSFER_TEST_LIMIT: usize = 450;
 const STABILITY_TRANSFER_TEST_LIMIT: usize = 450;
 const STABILITY_TRANSFER_BATCH_SIZE: usize = 32;
-const STABILITY_TRANSFER_WORKERS: usize = 16;
+const STABILITY_TRANSFER_WORKERS: usize = 24;
 const STABILITY_TEST_MAX_PER_ENDPOINT: usize = 2;
 const STABILITY_TEST_MAX_PER_FAMILY: usize = 6;
 const STABILITY_TRANSFER_MAX_LATENCY_MS: f64 = 15000.0;
@@ -1978,7 +1978,7 @@ async fn fill_transfer_stability_gate(
             STABILITY_TRANSFER_WORKERS,
         )
         .await?;
-        let batch_elapsed = batch_started.elapsed().as_secs();
+        let batch_elapsed_ms = batch_started.elapsed().as_millis();
         let batch_passed = metadata.len();
         let passed_configs = metadata.keys().cloned().collect::<Vec<_>>();
         stability_verified.extend(metadata);
@@ -1988,10 +1988,10 @@ async fn fill_transfer_stability_gate(
         }
 
         proxyrift::emit_log_if!(proxyrift::should_emit_compact_progress(stability_tested.len(), batch.len(), 1000, stability_verified.len() >= stability_target);
-            "[INFO] [1 MiB] {}/{} Passed the initial transfer probe | Batch: {}s | Stable pool: {} | Transfer pipeline: active",
+            "[INFO] [1 MiB] {}/{} Passed the initial transfer probe | Batch: {}ms | Stable pool: {} | Transfer pipeline: active",
             batch_passed,
             batch.len(),
-            batch_elapsed,
+            batch_elapsed_ms,
             stability_verified.len()
         );
     }
@@ -2266,7 +2266,7 @@ async fn run_transfer_gate_consumer(
                 let result =
                     validate_light_transfer_batch(xray, singbox, &batch, transfer_workers, target)
                         .await;
-                let batch_elapsed = batch_started.elapsed().as_secs();
+                let batch_elapsed = batch_started.elapsed();
                 let rate_limits = target_rate_limit_events(target)
                     .saturating_sub(rate_limits_before)
                     .min(batch.len() as u64);
@@ -2317,7 +2317,7 @@ async fn run_transfer_gate_consumer(
                 batch.len(),
                 batch_passed,
                 rate_limits,
-                batch_elapsed,
+                batch_elapsed.as_secs(),
             );
             if target_is_rate_limited(target) {
                 target_states[target_index].quarantined = true;
@@ -2418,10 +2418,10 @@ async fn run_transfer_gate_consumer(
                     1000,
                     publishable_count >= selection_limit || (receiver_closed && pending.is_empty())
                 );
-                "[INFO] [9 MiB sustained] {}/{} Passed in {}s | Total passed: {} | Publication-ready: {}/{} | Remaining: {}",
+                "[INFO] [9 MiB sustained] {}/{} Passed in {}ms | Total passed: {} | Publication-ready: {}/{} | Remaining: {}",
                 batch_passed,
                 batch.len(),
-                batch_elapsed,
+                batch_elapsed.as_millis(),
                 transfer_verified.len(),
                 publishable_count,
                 selection_limit,
