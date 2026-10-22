@@ -23,6 +23,13 @@ end
 abort "Core-pin updater must not stage workflow files without workflow permission" if
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip.start_with?(".github/workflows/") }
 
+abort "Core-pin updater must emit a PR title and changelog body from resolved versions" unless
+  step["id"] == "resolve-pins" &&
+    step.dig("env", "CORE_PIN_PR_BODY_PATH") == "${{ runner.temp }}/core-pin-pr-body.md" &&
+    create_pr.dig("with", "title") == "${{ steps.resolve-pins.outputs.pr_title }}" &&
+    create_pr.dig("with", "body-path") == "${{ runner.temp }}/core-pin-pr-body.md" &&
+    step["run"].include?("python3 scripts/update/update_core_pins.py")
+
 steps = workflow.dig("jobs", "update-pins", "steps")
 label_setup = steps.find { |entry| entry["name"] == "Ensure selected update labels exist" }
 label_step = steps.find { |entry| entry["name"] == "Determine labels for changed pins" }
