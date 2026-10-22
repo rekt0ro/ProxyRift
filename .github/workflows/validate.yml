@@ -14,6 +14,7 @@ on:
       - ".gitignore"
       - ".gitattributes"
       - ".ruby-version"
+      - ".python-version"
       - "scripts/**"
   pull_request:
     paths:
@@ -39,6 +40,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - name: Verify Python version pin
+        run: |
+          python --version
+          python -c 'import pathlib, sys; expected = pathlib.Path(".python-version").read_text().strip(); actual = ".".join(map(str, sys.version_info[:3])); assert actual == expected, f"Python {actual} does not match .python-version ({expected})"'
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
