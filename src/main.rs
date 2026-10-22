@@ -4289,7 +4289,6 @@ mod uri_emoji_tests {
     }
 }
 
-
 #[cfg(test)]
 mod http_handshake_timeout_tests {
     use super::{HTTP_HANDSHAKE_MAX_LATENCY_MS, HTTP_HANDSHAKE_TIMEOUT_SECS};
