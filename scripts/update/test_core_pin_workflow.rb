@@ -23,13 +23,13 @@ abort "Core-pin updater must include the Python runtime pin" unless
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == ".python-version" }
 abort "Updater workflow must set up its pinned Python runtime" unless
   workflow.dig("jobs", "update-pins", "steps").any? do |entry|
-    entry["uses"] == "actions/setup-python@v6" &&
+    entry["uses"] == "actions/setup-python@v7" &&
       entry.dig("with", "python-version-file") == ".python-version"
   end
 validation_workflow = YAML.load_file(".github/workflows/validate.yml")
 abort "Validation workflow must use the pinned Python runtime" unless
   validation_workflow.dig("jobs", "validate", "steps").any? do |entry|
-    entry["uses"] == "actions/setup-python@v6" &&
+    entry["uses"] == "actions/setup-python@v7" &&
       entry.dig("with", "python-version-file") == ".python-version"
   end
 abort "Both push and pull-request filters must include .python-version" unless
