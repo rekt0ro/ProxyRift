@@ -49,7 +49,8 @@ const MAX_SOURCE_REDIRECTS: usize = 2;
 const MAX_COLLECTED_CONFIGS: usize = 30_000;
 const MAX_ALL_CONFIGS: usize = 2000;
 const MAX_ALL_PER_ENDPOINT: usize = 5;
-const HTTP_HANDSHAKE_TARGET: &str = "https://www.google.com/generate_204";
+const HTTP_HANDSHAKE_TARGET: &str = proxyrift::validator::PRIMARY_TARGET;
+const HTTP_HANDSHAKE_TARGETS: &[&str] = proxyrift::validator::CONNECTIVITY_TARGETS;
 const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 5;
 const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = 5000.0;
 const HTTP_HANDSHAKE_WORKERS: usize = 40;
@@ -741,10 +742,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .collect::<HashSet<_>>()
         .len();
     println!(
-        "[INFO] [HTTP handshake] Plan | {} candidate variants | {} unique probe identities | Target: {} | Timeout: {}s | Max latency: {}ms",
+        "[INFO] [HTTP handshake] Plan | {} candidate variants | {} unique probe identities | Targets: {} | Timeout: {}s | Max latency: {}ms",
         http_handshake_candidates.len(),
         unique_http_probe_count,
-        HTTP_HANDSHAKE_TARGET,
+        HTTP_HANDSHAKE_TARGETS.join(", "),
         HTTP_HANDSHAKE_TIMEOUT_SECS,
         HTTP_HANDSHAKE_MAX_LATENCY_MS
     );
@@ -776,10 +777,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     println!(
-        "[INFO] [HTTP handshake] Complete | {} unique probe identities | {} candidate configs passed | Target: {} | Timeout: {}s",
+        "[INFO] [HTTP handshake] Complete | {} unique probe identities | {} candidate configs passed | Targets: {} | Timeout: {}s",
         unique_http_probe_count,
         ranked_working_configs.len(),
-        HTTP_HANDSHAKE_TARGET,
+        HTTP_HANDSHAKE_TARGETS.join(", "),
         HTTP_HANDSHAKE_TIMEOUT_SECS
     );
 
@@ -3373,10 +3374,10 @@ async fn validate_singbox_http_candidates(
     let mut setup_failures = 0usize;
 
     while let Some(batch) = pending.pop() {
-        match proxyrift::singbox::validate_candidates_with_target_once(
+        match proxyrift::singbox::validate_candidates_with_targets_once(
             binary,
             &batch,
-            HTTP_HANDSHAKE_TARGET,
+            HTTP_HANDSHAKE_TARGETS,
             HTTP_HANDSHAKE_WORKERS,
             Duration::from_secs(HTTP_HANDSHAKE_TIMEOUT_SECS),
             HTTP_HANDSHAKE_MAX_LATENCY_MS,
@@ -3426,10 +3427,10 @@ async fn validate_xray_http_candidates(
     let mut setup_failures = 0usize;
 
     while let Some(batch) = pending.pop() {
-        match proxyrift::validator::validate_candidates_with_target_once(
+        match proxyrift::validator::validate_candidates_with_targets_once(
             binary,
             &batch,
-            HTTP_HANDSHAKE_TARGET,
+            HTTP_HANDSHAKE_TARGETS,
             HTTP_HANDSHAKE_WORKERS,
             HTTP_HANDSHAKE_BATCH_SIZE,
             HTTP_HANDSHAKE_TIMEOUT_SECS as f64,
