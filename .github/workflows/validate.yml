@@ -104,6 +104,9 @@ jobs:
           print("Core-pin updater Python syntax is valid.")
           PY
 
+      - name: Validate core-pin workflow ending
+        run: bash scripts/update/test_core_pin_workflow.sh
+
       - name: Test publication quality gate
         run: bash scripts/autopilot/test_publication_gate.sh
 
