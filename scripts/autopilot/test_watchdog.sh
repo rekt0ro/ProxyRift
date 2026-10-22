@@ -16,27 +16,25 @@ for ((i = 1; i <= 50; i++)); do
   printf 'vless://light-%s@example.net:443\n' "$i"
 done > "$fixtures/light.txt"
 
-python3 - "$fixtures" <<'PY'
-import base64
-import pathlib
-import sys
+for name in all light; do
+  source_content="$(cat "$fixtures/$name.txt")"
+  printf '%s' "$source_content" | base64 --wrap=0 > "$fixtures/$name-base64.txt"
+  printf '\n' >> "$fixtures/$name-base64.txt"
 
-root = pathlib.Path(sys.argv[1])
-for name in ("all", "light"):
-    source = (root / f"{name}.txt").read_bytes().rstrip(b"\r\n")
-    (root / f"{name}-base64.txt").write_text(
-        base64.b64encode(source).decode("ascii") + "\n", encoding="ascii"
-    )
-    (root / f"{name}-singbox.json").write_text(
-        '{"outbounds":[{"type":"direct","tag":"direct"}]}\n', encoding="utf-8"
-    )
-    (root / f"{name}-clash.yaml").write_text(
-        'proxies:\n  - name: "test proxy"\n    type: socks5\n'
-        '    server: example.com\n    port: 1080\n', encoding="utf-8"
-    )
-PY
+  cat > "$fixtures/$name-singbox.json" <<'JSON'
+{"outbounds":[{"type":"direct","tag":"direct"}]}
+JSON
 
-cat > "$bin/curl" <<'CURL'
+  cat > "$fixtures/$name-clash.yaml" <<'YAML'
+proxies:
+  - name: "test proxy"
+    type: socks5
+    server: example.com
+    port: 1080
+YAML
+done
+
+ <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
 url=""
