@@ -3777,7 +3777,7 @@ async fn main() -> Result<(), String> {
     let (discovery_candidates, scheduled_repeat_count) =
         interleave_repeat_candidates(&ranked_discovery_candidates, &repeat_candidate_fingerprints);
     println!(
-        "[INFO] [Light] Start | Candidates: {} | New/expired: {} | Rechecks: {} | Cohorts: {} ({} configs; {} families) | Reusable Google checks: {} | Ranking: {} | Exploration: {}%",
+        "[INFO] [Light] Start | Candidates: {} | New/expired: {} | Rechecks: {} | Cohorts: {} ({} configs; {} families) | Reusable Cloudflare checks: {} | Ranking: {} | Exploration: {}%",
         discovery_candidates.len(),
         discovery_candidates.len().saturating_sub(scheduled_repeat_count),
         scheduled_repeat_count,
@@ -3942,7 +3942,7 @@ async fn main() -> Result<(), String> {
 
         let reused_prechecks = target_metadata.len();
         println!(
-            "[INFO] [Light] Wave {wave} | Candidates: {} | Google checks: {} new + {} reused | Xray-only skipped: {} | Cursor: {}/{} | Transfer-ready: {} | Publishable: {}",
+            "[INFO] [Light] Wave {wave} | Candidates: {} | Cloudflare checks: {} new + {} reused | Xray-only skipped: {} | Cursor: {}/{} | Transfer-ready: {} | Publishable: {}",
             chunk.len(),
             unprevalidated_chunk.len(),
             reused_prechecks,
@@ -4057,7 +4057,7 @@ async fn main() -> Result<(), String> {
                         .map(|(host, port)| format!("{host}:{port}"))
                         .unwrap_or_else(|| "unknown endpoint".to_string());
                     format!(
-                        "missing successful Google HTTP precheck metrics for Light candidate {candidate_endpoint}"
+                        "missing successful Cloudflare HTTP precheck metrics for Light candidate {candidate_endpoint}"
                     )
                 })?;
                 *final_attempts.entry(config.clone()).or_default() += 1;
@@ -4094,7 +4094,7 @@ async fn main() -> Result<(), String> {
         .len();
 
         println!(
-            "[INFO] [Light] Wave {wave} complete | Google passed: +{} | Pool: {} | Reachability: {} | Selectable: {}",
+            "[INFO] [Light] Wave {wave} complete | Cloudflare passed: +{} | Pool: {} | Reachability: {} | Selectable: {}",
             chunk_verified_count,
             global_verified.len(),
             final_metadata.len(),
@@ -4104,7 +4104,7 @@ async fn main() -> Result<(), String> {
         if strict_selected.len() >= selection_limit {
             if !strict_pool_ready_logged {
                 println!(
-                    "[INFO] [Light] Google-prechecked pool reached {} | Starting stability and transfer validation",
+                    "[INFO] [Light] Cloudflare-prechecked pool reached {} | Starting stability and transfer validation",
                     selection_limit
                 );
                 strict_pool_ready_logged = true;
@@ -4177,7 +4177,7 @@ async fn main() -> Result<(), String> {
             if last_funnel_snapshot != Some(funnel_snapshot) {
                 proxyrift::emit_log_if!(
                     !proxyrift::compact_logs_enabled();
-                    "[INFO] [Light adaptive funnel] Google HTTP gate: {} | 1 MiB: {}/{} | 9 MiB sustained: {}/{} | Sub-light-ready: {}/{}",
+                    "[INFO] [Light adaptive funnel] Cloudflare HTTP gate: {} | 1 MiB: {}/{} | 9 MiB sustained: {}/{} | Sub-light-ready: {}/{}",
                     final_metadata.len(),
                     stability_verified.len(),
                     stability_tested.len(),
@@ -4553,7 +4553,7 @@ async fn main() -> Result<(), String> {
         run_timestamp,
     )?;
     println!(
-        "[INFO] [Light] Validation result | Selected: {}/{} | New: {} | Revalidated: {} | Fresh families: {} | Google: {} | 1 MiB stability: {}/{} | 9 MiB sustained: {}/{}",
+        "[INFO] [Light] Validation result | Selected: {}/{} | New: {} | Revalidated: {} | Fresh families: {} | Cloudflare: {} | 1 MiB stability: {}/{} | 9 MiB sustained: {}/{}",
         selected.len(),
         selection_limit,
         selected_new_count,
