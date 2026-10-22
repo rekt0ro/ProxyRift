@@ -126,7 +126,7 @@ jobs:
             .github/actions/prepare-update/action.yml
             .python-version
             .ruby-version
-          commit-message: "chore: update core and runtime versions"
+          commit-message: ${{ steps.resolve-pins.outputs.pr_title }}
           title: ${{ steps.resolve-pins.outputs.pr_title }}
           body-path: ${{ runner.temp }}/core-pin-pr-body.md
 
