@@ -848,9 +848,11 @@ fn repair_escaped_query_suffixes(config: &str) -> Option<String> {
         return None;
     }
 
-    url.query_pairs_mut()
-        .clear()
-        .extend_pairs(repaired_pairs.iter().map(|(key, value)| (key.as_str(), value.as_str())));
+    url.query_pairs_mut().clear().extend_pairs(
+        repaired_pairs
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str())),
+    );
     Some(url.to_string())
 }
 
@@ -6866,7 +6868,10 @@ mod tests {
         let parsed = parse_config(config).expect("escaped query separators should be repaired");
         assert_eq!(parsed["streamSettings"]["security"], "tls");
         assert_eq!(parsed["streamSettings"]["network"], "grpc");
-        assert_eq!(parsed["streamSettings"]["grpcSettings"]["serviceName"], "svc");
+        assert_eq!(
+            parsed["streamSettings"]["grpcSettings"]["serviceName"],
+            "svc"
+        );
     }
 
     #[test]
