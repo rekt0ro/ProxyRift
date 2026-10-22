@@ -23,6 +23,8 @@ end
 abort "Core-pin updater must not stage workflow files without workflow permission" if
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip.start_with?(".github/workflows/") }
 
+abort "Core-pin PR creation must support a token that does not require workflow approval" unless
+  create_pr.dig("with", "token") == "${{ secrets.CORE_PIN_UPDATE_TOKEN || github.token }}"
 abort "Core-pin updater must emit a PR title and changelog body from resolved versions" unless
   step["id"] == "resolve-pins" &&
     step.dig("env", "CORE_PIN_PR_BODY_PATH") == "${{ runner.temp }}/core-pin-pr-body.md" &&
