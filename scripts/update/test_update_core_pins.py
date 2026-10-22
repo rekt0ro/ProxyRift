@@ -1,4 +1,4 @@
-#!/usr/bin/env
+#!/usr/bin/env python3
 """Unit tests for stable-release validation and pin replacement."""
 
 import stat
@@ -58,12 +58,12 @@ class CorePinUpdaterTests(unittest.TestCase):
     def test_atomic_write_preserves_file_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "pins.yml"
-            path.write_text('pin: "old"\\n', encoding="utf-8")
+            path.write_text('pin: "old"\n', encoding="utf-8")
             path.chmod(0o640)
 
-            write_atomically(path, 'pin: "new"\\n')
+            write_atomically(path, 'pin: "new"\n')
 
-            self.assertEqual(path.read_text(encoding="utf-8"), 'pin: "new"\\n')
+            self.assertEqual(path.read_text(encoding="utf-8"), 'pin: "new"\n')
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o640)
 
     def test_replaces_exactly_one_pin_and_preserves_other_text(self):
