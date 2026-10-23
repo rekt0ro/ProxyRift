@@ -58,8 +58,9 @@ abort "Auto-merge must keep rechecking pending checks instead of giving up on th
 
 abort "Auto-merge polling must combine JSON arrays with a real newline" unless
   body.include?(%q{printf '%s\n'})
+double_escaped_newline = "printf '%s" + ("\\" * 2) + "n'"
 abort "Auto-merge polling must not append a literal backslash-n to check JSON" if
-  body.include?(%q{printf '%s\\n'})
+  body.include?(double_escaped_newline)
 
 metadata_tokens = [
   "pr_data=\"$(printf",
