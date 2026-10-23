@@ -24,6 +24,21 @@ permissions:
 
 jobs:
   merge:
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      (
+        (
+          github.event.pull_request.user.login == 'dependabot[bot]' &&
+          (
+            startsWith(github.event.pull_request.head.ref, 'dependabot/github_actions/') ||
+            startsWith(github.event.pull_request.head.ref, 'dependabot/cargo/')
+          )
+        ) ||
+        (
+          github.event.pull_request.user.login == 'github-actions[bot]' &&
+          github.event.pull_request.head.ref == 'automation/update-core-pins'
+        )
+      )
     runs-on: ubuntu-latest
 
     steps:
@@ -142,32 +157,60 @@ jobs:
               continue
             fi
 
-            checks="$(gh pr checks "${pr}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --json name,workflow,bucket 2>/dev/null || true)"
-            checks="${checks:-[]}"
+            checks_ready=false
+            checks_deadline=$((SECONDS + 900))
 
-            if [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]; then
-              pr_head_sha="$(jq -r '.head.sha // empty' <<< "${pr_data}")"
-              dispatch_runs="$(gh run list \
+            while (( SECONDS < checks_deadline )); do
+              checks="$(gh pr checks "${pr}" \
                 --repo "${GITHUB_REPOSITORY}" \
-                --workflow validate.yml \
-                --branch "${head_ref}" \
-                --event workflow_dispatch \
-                --limit 50 \
-                --json headSha,status,conclusion)"
-              dispatched_ci="$(jq -c --arg sha "${pr_head_sha}" '
-                [
-                  .[]
-                  | select(.headSha == $sha and .status == "completed" and .conclusion == "success")
-                ]
-                | if length > 0 then [{ "name": "validate", "workflow": "CI", "bucket": "pass" }] else [] end
-              ' <<< "${dispatch_runs}")"
-              checks="$(jq -s 'add' <(printf '%s\n' "${checks}") <(printf '%s\n' "${dispatched_ci}"))"
-            fi
+                --json name,workflow,bucket 2>/dev/null || true)"
+              checks="${checks:-[]}"
 
-            if ! bash scripts/update/verify_dependabot_auto_merge_checks.sh <<< "${checks}"; then
-              echo "Required CI/Rust/Ruby/Python checks have not all passed for PR #${pr}; skipping."
+              if [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]; then
+                pr_head_sha="$(jq -r '.head.sha // empty' <<< "${pr_data}")"
+                dispatch_runs="$(gh run list \
+                  --repo "${GITHUB_REPOSITORY}" \
+                  --workflow validate.yml \
+                  --branch "${head_ref}" \
+                  --event workflow_dispatch \
+                  --limit 50 \
+                  --json headSha,status,conclusion)"
+                dispatched_ci="$(jq -c --arg sha "${pr_head_sha}" '
+                  [
+                    .[]
+                    | select(.headSha == $sha and .status == "completed" and .conclusion == "success")
+                  ]
+                  | if length > 0 then [{ "name": "validate", "workflow": "CI", "bucket": "pass" }] else [] end
+                ' <<< "${dispatch_runs}")"
+                checks="$(jq -s 'add' <(printf '%s\n' "${checks}") <(printf '%s\n' "${dispatched_ci}"))"
+              fi
+
+              if bash scripts/update/verify_dependabot_auto_merge_checks.sh <<< "${checks}"; then
+                checks_ready=true
+                break
+              fi
+
+              if jq -e '
+                any(.[]?;
+                  (
+                    .workflow == "CI"
+                    or .name == "Analyze (rust)"
+                    or .name == "Analyze (ruby)"
+                    or .name == "Analyze (python)"
+                  )
+                  and (.bucket == "fail" or .bucket == "cancel" or .bucket == "skipping")
+                )
+              ' <<< "${checks}" >/dev/null; then
+                echo "A required CI/Rust/Ruby/Python check failed, was cancelled, or was skipped for PR #${pr}; not merging."
+                break
+              fi
+
+              echo "Required checks are pending or not visible yet for PR #${pr}; retrying in 15 seconds."
+              sleep 15
+            done
+
+            if [ "${checks_ready}" != "true" ]; then
+              echo "Required CI/Rust/Ruby/Python checks did not all pass within 15 minutes for PR #${pr}; skipping."
               continue
             fi
 

@@ -7,6 +7,16 @@ path = ".github/workflows/dependabot-auto-merge.yml"
 workflow = YAML.load_file(path)
 steps = workflow.dig("jobs", "merge", "steps")
 
+merge_job_condition = workflow.dig("jobs", "merge", "if")
+abort "PR-triggered auto-merge must ignore unrelated human PRs" unless
+  merge_job_condition.is_a?(String) &&
+    merge_job_condition.include?("github.event_name != 'pull_request_target'") &&
+    merge_job_condition.include?("dependabot[bot]") &&
+    merge_job_condition.include?("dependabot/github_actions/") &&
+    merge_job_condition.include?("dependabot/cargo/") &&
+    merge_job_condition.include?("automation/update-core-pins") &&
+    merge_job_condition.include?("github-actions[bot]")
+
 checkout = steps.find { |step| step["name"] == "Checkout trusted merge-gate scripts" }
 abort "Auto-merge workflow must checkout trusted scripts from the default branch" unless
   checkout &&
@@ -35,6 +45,23 @@ abort "Auto-merge must re-check PRs when CodeQL finishes, even though its aggreg
   workflow_text.include?("      - CI\n      - CodeQL")
 
 body = merge.fetch("run")
+
+wait_tokens = [
+  "checks_deadline=$((SECONDS + 900))",
+  "while (( SECONDS < checks_deadline )); do",
+  "sleep 15",
+  "checks_ready=true",
+  'if [ "${checks_ready}" != "true" ]; then'
+]
+abort "Auto-merge must keep rechecking pending checks instead of giving up on the first pass" unless
+  wait_tokens.all? { |token| body.include?(token) }
+
+abort "Auto-merge polling must combine JSON arrays with a real newline" unless
+  body.include?(%q{printf '%s\n'})
+double_escaped_newline = "printf '%s" + ("\\" * 2) + "n'"
+abort "Auto-merge polling must not append a literal backslash-n to check JSON" if
+  body.include?(double_escaped_newline)
+
 metadata_tokens = [
   "pr_data=\"$(printf",
   '--argjson pr "${pr}"',
