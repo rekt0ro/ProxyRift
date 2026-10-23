@@ -98,8 +98,8 @@ abort "Cargo updates must only modify Cargo manifests/lockfiles" unless
   body.include?('dependabot/cargo/*)') &&
     body.include?('Cargo.toml|Cargo.lock)')
 
-abort "Core-pin squash merges must use the exact current PR title as commit subject" unless
-  body.include?('merge_args+=(--subject "${pr_title}")') &&
+abort "Core-pin squash merges must include the current PR title and PR number in the commit subject" unless
+  body.include?('merge_args+=(--subject "${pr_title} (#${pr})")') &&
     body.include?(%q{pr_title="$(jq -r '.title // empty' <<< "${pr_data}")"}) &&
     body.include?('if gh pr merge "${pr}" "${merge_args[@]}"; then') &&
     body.include?('PR #${pr} has no title; refusing to merge without a commit subject.')
