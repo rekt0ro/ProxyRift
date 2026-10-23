@@ -226,7 +226,7 @@ jobs:
                 echo "PR #${pr} has no title; refusing to merge without a commit subject."
                 exit 1
               fi
-              merge_args+=(--subject "${pr_title}")
+              merge_args+=(--subject "${pr_title} (#${pr})")
             fi
 
             if gh pr merge "${pr}" "${merge_args[@]}"; then
