@@ -7,6 +7,16 @@ path = ".github/workflows/dependabot-auto-merge.yml"
 workflow = YAML.load_file(path)
 steps = workflow.dig("jobs", "merge", "steps")
 
+merge_job_condition = workflow.dig("jobs", "merge", "if")
+abort "PR-triggered auto-merge must ignore unrelated human PRs" unless
+  merge_job_condition.is_a?(String) &&
+    merge_job_condition.include?("github.event_name != 'pull_request_target'") &&
+    merge_job_condition.include?("dependabot[bot]") &&
+    merge_job_condition.include?("dependabot/github_actions/") &&
+    merge_job_condition.include?("dependabot/cargo/") &&
+    merge_job_condition.include?("automation/update-core-pins") &&
+    merge_job_condition.include?("github-actions[bot]")
+
 checkout = steps.find { |step| step["name"] == "Checkout trusted merge-gate scripts" }
 abort "Auto-merge workflow must checkout trusted scripts from the default branch" unless
   checkout &&
