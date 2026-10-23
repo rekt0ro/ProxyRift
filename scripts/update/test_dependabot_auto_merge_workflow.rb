@@ -35,6 +35,17 @@ abort "Auto-merge must re-check PRs when CodeQL finishes, even though its aggreg
   workflow_text.include?("      - CI\n      - CodeQL")
 
 body = merge.fetch("run")
+
+wait_tokens = [
+  "checks_deadline=$((SECONDS + 900))",
+  "while (( SECONDS < checks_deadline )); do",
+  "sleep 15",
+  "checks_ready=true",
+  'if [ "${checks_ready}" != "true" ]; then'
+]
+abort "Auto-merge must keep rechecking pending checks instead of giving up on the first pass" unless
+  wait_tokens.all? { |token| body.include?(token) }
+
 metadata_tokens = [
   "pr_data=\"$(printf",
   '--argjson pr "${pr}"',
