@@ -46,6 +46,11 @@ wait_tokens = [
 abort "Auto-merge must keep rechecking pending checks instead of giving up on the first pass" unless
   wait_tokens.all? { |token| body.include?(token) }
 
+abort "Auto-merge polling must combine JSON arrays with a real newline" unless
+  body.include?(%q{printf '%s\n'})
+abort "Auto-merge polling must not append a literal backslash-n to check JSON" if
+  body.include?(%q{printf '%s\\n'})
+
 metadata_tokens = [
   "pr_data=\"$(printf",
   '--argjson pr "${pr}"',
