@@ -86,7 +86,11 @@ jobs:
           key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
 
       - name: Shell syntax check
-        run: for script in scripts/*.sh scripts/update/*.sh; do bash -n "$script" || exit 1; done
+        run: |
+          for script in scripts/*.sh scripts/update/*.sh; do
+            [[ -f "$script" ]] || continue
+            bash -n "$script" || exit 1
+          done
 
       - name: Validate workflow and composite-action YAML
         run: |
