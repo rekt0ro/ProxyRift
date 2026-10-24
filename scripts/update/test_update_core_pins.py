@@ -259,7 +259,9 @@ class CorePinUpdaterTests(unittest.TestCase):
                 [("mihomo-linux-amd64-v3.4.5.gz", "sha256:" + "3" * 64)],
             ),
         }
-        python_version, ruby_version, rust_version, action = build_updates(releases, "3.15.1", "4.0.7", "1.99.1")
+        python_version, ruby_version, rust_version, action = build_updates(
+            releases, "3.15.1", "4.0.7", "1.99.1"
+        )
         self.assertEqual(python_version, "3.15.1")
         self.assertEqual(ruby_version, "4.0.7")
         self.assertEqual(rust_version, "1.99.1")
@@ -320,7 +322,9 @@ class CorePinUpdaterTests(unittest.TestCase):
             'components = ["clippy", "rustfmt"]\n'
         )
         self.assertEqual(
-            replace_rust_channel(source, "1.99.1", "rust-toolchain.toml"),
+            replace_rust_channel(
+                source, "1.99.1", "rust-toolchain.toml"
+            ),
             source.replace('channel = "1.99.0"', 'channel = "1.99.1"'),
         )
 
