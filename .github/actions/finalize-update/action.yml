@@ -65,20 +65,20 @@ runs:
         SINGBOX_VERSION: ${{ inputs.singbox_version }}
         MIHOMO_VERSION: ${{ inputs.mihomo_version }}
       shell: bash
-      run: bash scripts/update/write_run_summary.sh
+      run: python3 scripts/update/write_run_summary.py
     - name: Verify LightGBM summary against run report
       if: ${{ always() && inputs.light_outcome == 'success' }}
       env:
         PROXYRIFT_TMP_DIR: /tmp/proxyrift
       shell: bash
-      run: bash scripts/update/verify_lightgbm_summary.sh "$PROXYRIFT_TMP_DIR/run-summary.md" "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "subscriptions/light-training-stats.json"
+      run: python3 scripts/update/verify_lightgbm_summary.py "$PROXYRIFT_TMP_DIR/run-summary.md" "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "subscriptions/light-training-stats.json"
     - name: Prepare sanitized LightGBM evaluation artifact
       if: ${{ always() && inputs.light_outcome == 'success' }}
       env:
         PROXYRIFT_TMP_DIR: /tmp/proxyrift
         LIGHTGBM_ARTIFACT_PATH: ${{ runner.temp }}/lightgbm-evaluation.json
       shell: bash
-      run: bash scripts/update/write_lightgbm_artifact.sh "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "$LIGHTGBM_ARTIFACT_PATH"
+      run: python3 scripts/update/write_lightgbm_artifact.py "$PROXYRIFT_TMP_DIR/lightgbm-scores.json" "$LIGHTGBM_ARTIFACT_PATH"
     - name: Upload LightGBM evaluation artifact
       if: ${{ always() && inputs.light_outcome == 'success' }}
       uses: actions/upload-artifact@v7

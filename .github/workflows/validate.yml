@@ -98,8 +98,8 @@ jobs:
             puts "Validated #{paths.length} workflow/action YAML files."
           '
 
-      - name: Validate core-pin updater Python syntax
-        run: python3 -m py_compile scripts/update/update_core_pins.py scripts/update/pin_ruby_version.py scripts/update/test_update_core_pins.py
+      - name: Validate Python script syntax
+        run: python3 -m py_compile scripts/update/*.py
 
       - name: Test core-pin updater
         run: python3 scripts/update/test_update_core_pins.py
@@ -113,7 +113,7 @@ jobs:
       - name: Validate Dependabot auto-merge workflow
         run: ruby scripts/update/test_dependabot_auto_merge_workflow.rb
       - name: Test publication quality gate
-        run: bash scripts/update/test_publication_gate.sh
+        run: python3 scripts/update/test_publication_gate.py
       - name: Test Light validation timeout settings
         run: bash scripts/update/test_light_timeout_settings.sh
 
@@ -192,10 +192,10 @@ jobs:
         run: bash scripts/update/test_publish_light_state.sh
 
       - name: Test update run summary formatting
-        run: bash scripts/update/test_write_run_summary.sh
+        run: python3 scripts/update/test_write_run_summary.py
 
       - name: Test LightGBM report verification and artifact sanitization
-        run: bash scripts/update/test_lightgbm_report.sh
+        run: python3 scripts/update/test_lightgbm_report.py
 
       - name: Install native LightGBM runtime
         env:

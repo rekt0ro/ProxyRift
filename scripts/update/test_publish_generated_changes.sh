@@ -20,7 +20,8 @@ git clone "$remote" "$seed" >/dev/null 2>&1
 git -C "$seed" config user.name "Test"
 git -C "$seed" config user.email "test@example.com"
 mkdir -p "$seed/scripts/update" "$seed/subscriptions"
-cp "$repo_root/scripts/update/publish_generated_changes.sh" "$seed/scripts/update/publish_generated_changes.sh"
+cp "$repo_root/scripts/update/publish_generated_changes.py" "$seed/scripts/update/publish_generated_changes.py"
+cp "$repo_root/scripts/update/publish_common.py" "$seed/scripts/update/publish_common.py"
 
 for file in "${output_files[@]}"; do
   printf 'old-%s\n' "$file" > "$seed/subscriptions/$file"
@@ -52,7 +53,7 @@ chmod +x "$fetch_bin/git"
 
 (
   cd "$work"
-  PATH="$fetch_bin:$PATH" REAL_GIT="$real_git" GIT_FETCH_FAIL_STATE="$tmp/fetch-failed" bash scripts/update/publish_generated_changes.sh
+  PATH="$fetch_bin:$PATH" REAL_GIT="$real_git" GIT_FETCH_FAIL_STATE="$tmp/fetch-failed" python3 scripts/update/publish_generated_changes.py
 ) > "$tmp/publish.log" 2>&1 || {
   cat "$tmp/publish.log" >&2
   printf '[ERROR] Generated subscription publishing failed.\n' >&2
