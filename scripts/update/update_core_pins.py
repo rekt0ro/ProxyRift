@@ -12,12 +12,12 @@ import tempfile
 import time
 import zlib
 from html.parser import HTMLParser
-
-from resolve_stable_rust import fetch_latest_stable_version, resolve_pinned_version
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
+
+from resolve_stable_rust import fetch_latest_stable_version, resolve_pinned_version
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSION_PATTERN = re.compile(r"v([0-9]+\.[0-9]+\.[0-9]+)\Z")
