@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import unittest
-
 from unittest.mock import patch
 
-from resolve_stable_rust import fetch_latest_stable_version, resolve_pinned_version, resolve_version
+from resolve_stable_rust import (
+    fetch_latest_stable_version,
+    resolve_pinned_version,
+    resolve_version,
+)
 
 
 class StableRustVersionTests(unittest.TestCase):
@@ -31,7 +34,6 @@ version = "2.0.0 (abcdef123 2026-10-24)"
     def test_rejects_malformed_toml(self) -> None:
         with self.assertRaisesRegex(ValueError, "not valid TOML"):
             resolve_version("[pkg.rustc\nversion = \"1.91.0\"\n")
-
 
     def test_reads_exact_pinned_toolchain_version(self) -> None:
         self.assertEqual(
