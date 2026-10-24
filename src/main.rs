@@ -49,6 +49,8 @@ const MAX_SOURCE_REDIRECTS: usize = 2;
 const MAX_COLLECTED_CONFIGS: usize = 30_000;
 const MAX_ALL_CONFIGS: usize = 2000;
 const MAX_ALL_PER_ENDPOINT: usize = 5;
+const MAX_ALL_PER_HOST: usize = 10;
+const MAX_ALL_PER_IP_NETWORK: usize = 40;
 const HTTP_HANDSHAKE_TARGET: &str = proxyrift::validator::PRIMARY_TARGET;
 const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 3;
 const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = (HTTP_HANDSHAKE_TIMEOUT_SECS * 1000) as f64;
@@ -904,13 +906,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .filter_map(|config| endpoint(config))
         .collect::<HashSet<_>>()
         .len();
+    let all_diversity_keys = working_configs
+        .iter()
+        .filter_map(|config| endpoint_diversity_keys(config))
+        .collect::<Vec<_>>();
+    let all_unique_hosts = all_diversity_keys
+        .iter()
+        .map(|(host, _)| host.clone())
+        .collect::<HashSet<_>>()
+        .len();
+    let all_unique_ip_networks = all_diversity_keys
+        .iter()
+        .filter_map(|(_, network)| network.clone())
+        .collect::<HashSet<_>>()
+        .len();
 
     println!(
-        "[INFO] [Collection] Complete | Light candidates: {} | All configs: {}/{} | Unique All endpoints: {}",
+        "[INFO] [Collection] Complete | Light candidates: {} | All configs: {}/{} | Unique endpoints: {} | Hosts: {} | IP networks: {}",
         light_candidates.len(),
         working_configs.len(),
         MAX_ALL_CONFIGS,
-        all_unique_endpoints
+        all_unique_endpoints,
+        all_unique_hosts,
+        all_unique_ip_networks
     );
 
     Ok(())
@@ -2635,6 +2653,69 @@ mod tests {
     }
 
     #[test]
+    fn all_candidates_enforce_per_host_limit_across_ports() {
+        let working = (0..12u64)
+            .map(|index| {
+                (
+                    format!(
+                        "vless://uuid{index}@same.example.com:{}?variant={index}",
+                        4_000 + index
+                    ),
+                    index,
+                )
+            })
+            .chain(std::iter::once((
+                "vless://other@other.example.com:443".to_string(),
+                100,
+            )))
+            .collect::<Vec<_>>();
+
+        let selected = select_all_candidates(&working, &[]);
+
+        assert_eq!(selected.len(), super::MAX_ALL_PER_HOST + 1);
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|config| config.contains("@same.example.com:"))
+                .count(),
+            super::MAX_ALL_PER_HOST
+        );
+        assert!(selected
+            .iter()
+            .any(|config| config.contains("@other.example.com:")));
+    }
+
+    #[test]
+    fn all_candidates_enforce_per_ip_network_limit() {
+        let working = (1..=super::MAX_ALL_PER_IP_NETWORK + 1)
+            .map(|last_octet| {
+                (
+                    format!("vless://uuid@198.51.100.{last_octet}:443?variant={last_octet}"),
+                    last_octet as u64,
+                )
+            })
+            .chain(std::iter::once((
+                "vless://other@203.0.113.1:443".to_string(),
+                100,
+            )))
+            .collect::<Vec<_>>();
+
+        let selected = select_all_candidates(&working, &[]);
+
+        assert_eq!(selected.len(), super::MAX_ALL_PER_IP_NETWORK + 1);
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|config| config.contains("@198.51.100."))
+                .count(),
+            super::MAX_ALL_PER_IP_NETWORK
+        );
+        assert!(selected
+            .iter()
+            .any(|config| config.contains("@203.0.113.1:")));
+    }
+
+    #[test]
     fn global_collection_cap_limits_total_candidates_without_protocol_quotas() {
         let configs = vec![
             "http://http.example.com:80".to_string(),
@@ -3063,7 +3144,8 @@ fn select_all_candidates(
     let mut selected = Vec::with_capacity(MAX_ALL_CONFIGS);
     let mut seen = HashSet::new();
     let mut endpoint_counts = HashMap::<(String, u16), usize>::new();
-    let mut deferred = Vec::new();
+    let mut host_counts = HashMap::<String, usize>::new();
+    let mut network_counts = HashMap::<String, usize>::new();
 
     for config in ranked_working_configs
         .iter()
@@ -3078,47 +3160,61 @@ fn select_all_candidates(
             continue;
         }
 
-        let endpoint_allowed = endpoint(config)
-            .map(|ep| endpoint_counts.get(&ep).copied().unwrap_or(0) < MAX_ALL_PER_ENDPOINT)
-            .unwrap_or(true);
-
-        if endpoint_allowed {
-            seen.insert(config.clone());
-            if let Some(ep) = endpoint(config) {
-                *endpoint_counts.entry(ep).or_default() += 1;
-            }
-            selected.push(config.clone());
-        } else {
-            deferred.push(config.clone());
-        }
-    }
-
-    for config in deferred {
-        if selected.len() >= MAX_ALL_CONFIGS {
-            break;
-        }
-
-        if seen.contains(&config) {
+        let endpoint_key = endpoint(config);
+        let diversity_keys = endpoint_diversity_keys(config);
+        if endpoint_key
+            .as_ref()
+            .is_some_and(|ep| endpoint_counts.get(ep).copied().unwrap_or(0) >= MAX_ALL_PER_ENDPOINT)
+        {
             continue;
         }
 
-        let Some(ep) = endpoint(&config) else {
-            if seen.insert(config.clone()) {
-                selected.push(config);
-            }
-            continue;
-        };
-
-        if endpoint_counts.get(&ep).copied().unwrap_or(0) >= MAX_ALL_PER_ENDPOINT {
+        if diversity_keys.as_ref().is_some_and(|(host, network)| {
+            host_counts.get(host).copied().unwrap_or(0) >= MAX_ALL_PER_HOST
+                || network.as_ref().is_some_and(|network| {
+                    network_counts.get(network).copied().unwrap_or(0) >= MAX_ALL_PER_IP_NETWORK
+                })
+        }) {
             continue;
         }
 
         seen.insert(config.clone());
-        *endpoint_counts.entry(ep).or_default() += 1;
-        selected.push(config);
+        if let Some(ep) = endpoint_key {
+            *endpoint_counts.entry(ep).or_default() += 1;
+        }
+        if let Some((host, network)) = diversity_keys {
+            *host_counts.entry(host).or_default() += 1;
+            if let Some(network) = network {
+                *network_counts.entry(network).or_default() += 1;
+            }
+        }
+        selected.push(config.clone());
     }
 
     selected
+}
+
+fn endpoint_diversity_keys(config: &str) -> Option<(String, Option<String>)> {
+    let (host, _) = endpoint(config)?;
+    let host = host
+        .trim()
+        .trim_matches(['[', ']'])
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+
+    let network = match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(address)) => {
+            let octets = address.octets();
+            Some(format!(
+                "ipv4:{:03}.{:03}.{:03}.0/24",
+                octets[0], octets[1], octets[2]
+            ))
+        }
+        Ok(IpAddr::V6(address)) => Some(format!("ipv6:{:012x}/48", u128::from(address) >> 80)),
+        Err(_) => None,
+    };
+
+    Some((host, network))
 }
 
 fn config_scheme(config: &str) -> String {
