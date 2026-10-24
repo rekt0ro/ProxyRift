@@ -123,7 +123,6 @@ def main() -> int:
         content = request_bytes(
             asset_url,
             {"Accept": "application/octet-stream", "User-Agent": "ProxyRift"},
-            token,
         )
         write_verified_asset(content, destination, expected_sha256)
 

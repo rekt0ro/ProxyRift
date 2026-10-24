@@ -58,7 +58,7 @@ runs:
       with:
         python-version-file: .python-version
 
-    - name: "Resolve stable Rust toolchain"
+    - name: "Resolve pinned Rust toolchain"
       id: rust-toolchain
       shell: bash
       run: python3 scripts/update/resolve_stable_rust.py
