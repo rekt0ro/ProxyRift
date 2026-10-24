@@ -3199,12 +3199,13 @@ fn endpoint_diversity_keys(config: &str) -> Option<(String, Option<String>)> {
         .trim_end_matches('.')
         .to_ascii_lowercase();
 
-    let network = match host.parse::<IpAddr>().ok()? {
-        IpAddr::V4(address) => {
+    let network = match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(address)) => {
             let octets = address.octets();
             Some(format!("ipv4:{:03}.{:03}.{:03}.0/24", octets[0], octets[1], octets[2]))
         }
-        IpAddr::V6(address) => Some(format!("ipv6:{:012x}/48", u128::from(address) >> 80)),
+        Ok(IpAddr::V6(address)) => Some(format!("ipv6:{:012x}/48", u128::from(address) >> 80)),
+        Err(_) => None,
     };
 
     Some((host, network))
