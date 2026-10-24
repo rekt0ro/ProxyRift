@@ -141,7 +141,7 @@ jobs:
                 esac
               elif [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]; then
                 case "${path}" in
-                  .github/actions/prepare-update/action.yml|.python-version|.ruby-version)
+                  .github/actions/prepare-update/action.yml|.python-version|.ruby-version|rust-toolchain.toml)
                     ;;
                   *)
                     valid=false
