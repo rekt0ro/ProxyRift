@@ -16,6 +16,8 @@ RETRY_DELAY = 2
 REQUEST_TIMEOUT = 45
 RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 VERSION_PATTERN = re.compile(r"^(1\.[0-9]+\.[0-9]+)(?:\s|$)")
+PIN_PATH = Path(__file__).resolve().parents[2] / "rust-toolchain.toml"
+PIN_PATTERN = re.compile(r"^1\.[0-9]+\.[0-9]+$")
 
 
 def download_channel() -> bytes:
@@ -49,19 +51,35 @@ def resolve_version(channel_text: str) -> str:
     return match.group(1)
 
 
+def resolve_pinned_version(toolchain_text: str) -> str:
+    try:
+        document = tomllib.loads(toolchain_text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError("Rust toolchain pin is not valid TOML.") from exc
+
+    toolchain = document.get("toolchain")
+    channel = toolchain.get("channel") if isinstance(toolchain, dict) else None
+    if not isinstance(channel, str) or PIN_PATTERN.fullmatch(channel) is None:
+        raise ValueError(f"Invalid pinned Rust toolchain version: {channel}")
+    return channel
+
+
+def fetch_latest_stable_version() -> str:
+    return resolve_version(download_channel().decode("utf-8"))
+
+
 def main() -> int:
     try:
         github_output = os.environ.get("GITHUB_OUTPUT")
         if not github_output:
             raise ValueError("GITHUB_OUTPUT is required.")
-        channel = download_channel().decode("utf-8")
-        rust_version = resolve_version(channel)
+        rust_version = resolve_pinned_version(PIN_PATH.read_text(encoding="utf-8"))
         with Path(github_output).open("a", encoding="utf-8") as output:
             output.write(f"version={rust_version}\n")
     except (OSError, RuntimeError, UnicodeDecodeError, ValueError) as exc:
         print(f"[ERROR] [Rust] {exc}", file=sys.stderr)
         return 1
-    print(f"[INFO] [Rust] Stable toolchain | {rust_version}")
+    print(f"[INFO] [Rust] Pinned toolchain | {rust_version}")
     return 0
 
 
