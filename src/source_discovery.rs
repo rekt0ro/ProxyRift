@@ -57,8 +57,13 @@ const GITHUB_SEARCH_FRESH_DAYS: u64 = 120;
 const SELF_REPOSITORY: &str = "rekt0ro/proxyrift";
 
 const SEARCH_SORTS: [&str; 2] = ["updated", "stars"];
-const SEARCH_QUERY_SET_NAMES: [&str; 5] =
-    ["protocol", "sources", "fresh-low-star", "chinese", "persian"];
+const SEARCH_QUERY_SET_NAMES: [&str; 5] = [
+    "protocol",
+    "sources",
+    "fresh-low-star",
+    "chinese",
+    "persian",
+];
 
 const SEARCH_QUERY_SETS: [[&str; 16]; 5] = [
     [
