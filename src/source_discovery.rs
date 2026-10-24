@@ -57,9 +57,15 @@ const GITHUB_SEARCH_FRESH_DAYS: u64 = 120;
 const SELF_REPOSITORY: &str = "rekt0ro/proxyrift";
 
 const SEARCH_SORTS: [&str; 2] = ["updated", "stars"];
-const SEARCH_QUERY_SET_NAMES: [&str; 3] = ["protocol", "sources", "fresh-low-star"];
+const SEARCH_QUERY_SET_NAMES: [&str; 5] = [
+    "protocol",
+    "sources",
+    "fresh-low-star",
+    "chinese",
+    "persian",
+];
 
-const SEARCH_QUERY_SETS: [[&str; 16]; 3] = [
+const SEARCH_QUERY_SETS: [[&str; 16]; 5] = [
     [
         "v2ray subscription",
         "vless subscription",
@@ -113,6 +119,42 @@ const SEARCH_QUERY_SETS: [[&str; 16]; 3] = [
         "proxy collector",
         "public proxy",
         "free proxy configs",
+    ],
+    [
+        "v2ray 订阅",
+        "v2ray 节点",
+        "vless 节点",
+        "vmess 节点",
+        "免费节点 订阅",
+        "机场 订阅",
+        "代理节点 订阅",
+        "clash 订阅",
+        "mihomo 订阅",
+        "sing-box 订阅",
+        "singbox 节点",
+        "订阅 转换",
+        "公益 节点",
+        "节点 分享",
+        "免费代理 节点",
+        "订阅 地址",
+    ],
+    [
+        "کانفیگ v2ray",
+        "کانفیگ vless",
+        "کانفیگ vmess",
+        "کانفیگ xray",
+        "کانفیگ رایگان",
+        "کانفیگ reality",
+        "کانفیگ hysteria2",
+        "سابسکریپشن v2ray",
+        "سابسکرایب v2ray",
+        "لینک سابسکریپشن",
+        "نود رایگان v2ray",
+        "نود vless",
+        "کانفیگ clash",
+        "کانفیگ mihomo",
+        "فیلترشکن رایگان",
+        "پروکسی رایگان",
     ],
 ];
 
@@ -3137,9 +3179,11 @@ mod tests {
         assert_eq!(search_sort_for_run(Some(100), 0), "updated");
         assert_eq!(search_sort_for_run(Some(101), 0), "stars");
         assert_eq!(search_sort_for_run(Some(102), 0), "updated");
-        assert_eq!(search_query_set_for_run(Some(100), 0), 1);
-        assert_eq!(search_query_set_for_run(Some(101), 0), 2);
-        assert_eq!(search_query_set_for_run(Some(102), 0), 0);
+        assert_eq!(search_query_set_for_run(Some(100), 0), 0);
+        assert_eq!(search_query_set_for_run(Some(101), 0), 1);
+        assert_eq!(search_query_set_for_run(Some(102), 0), 2);
+        assert_eq!(search_query_set_for_run(Some(103), 0), 3);
+        assert_eq!(search_query_set_for_run(Some(104), 0), 4);
     }
 
     #[test]
@@ -3151,10 +3195,11 @@ mod tests {
 
     #[test]
     fn discovery_search_strategy_rotates_query_lenses() {
-        assert_eq!(search_strategy_for_run(Some(100), 0), ("updated", 1));
-        assert_eq!(search_strategy_for_run(Some(101), 0), ("updated", 2));
-        assert_eq!(search_strategy_for_run(Some(102), 0), ("updated", 0));
-        assert_eq!(search_strategy_for_run(Some(103), 0), ("stars", 1));
+        assert_eq!(search_strategy_for_run(Some(100), 0), ("updated", 0));
+        assert_eq!(search_strategy_for_run(Some(101), 0), ("stars", 1));
+        assert_eq!(search_strategy_for_run(Some(102), 0), ("updated", 2));
+        assert_eq!(search_strategy_for_run(Some(103), 0), ("stars", 3));
+        assert_eq!(search_strategy_for_run(Some(104), 0), ("updated", 4));
     }
 
     #[test]
@@ -3162,6 +3207,24 @@ mod tests {
         assert_eq!(
             build_search_query("vless nodes", 2, 1_750_000_000),
             "vless nodes archived:false fork:false is:public in:name,description,readme stars:0..100 pushed:>2025-02-15"
+        );
+    }
+
+    #[test]
+    fn chinese_search_lens_uses_public_repository_filters() {
+        assert_eq!(search_query_set_for_run(Some(103), 0), 3);
+        assert_eq!(
+            build_search_query("机场 订阅", 3, 1_750_000_000),
+            "机场 订阅 archived:false fork:false is:public in:name,description,readme"
+        );
+    }
+
+    #[test]
+    fn persian_search_lens_uses_public_repository_filters() {
+        assert_eq!(search_query_set_for_run(Some(104), 0), 4);
+        assert_eq!(
+            build_search_query("کانفیگ v2ray", 4, 1_750_000_000),
+            "کانفیگ v2ray archived:false fork:false is:public in:name,description,readme"
         );
     }
 
