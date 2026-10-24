@@ -99,6 +99,7 @@ def main() -> int:
             raise ValueError("GITHUB_ENV is required.")
 
         print("[INFO] [LightGBM] Resolving latest stable release")
+        token = os.environ.get("GH_TOKEN", "")
         response = request_bytes(
             API_URL,
             {
@@ -106,7 +107,7 @@ def main() -> int:
                 "X-GitHub-Api-Version": "2022-11-28",
                 "User-Agent": "ProxyRift",
             },
-            os.environ.get("GH_TOKEN", ""),
+            token,
         )
         try:
             release_document = json.loads(response)
@@ -122,6 +123,7 @@ def main() -> int:
         content = request_bytes(
             asset_url,
             {"Accept": "application/octet-stream", "User-Agent": "ProxyRift"},
+            token,
         )
         write_verified_asset(content, destination, expected_sha256)
 
