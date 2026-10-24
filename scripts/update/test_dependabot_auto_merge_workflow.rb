@@ -78,7 +78,7 @@ abort "Auto-merge must validate the author and branch from the same GitHub API P
     !body.include?("--json author --jq") &&
     !body.include?("--json headRefName --jq")
 abort "Runtime pins must be restricted to the trusted core-pin updater PR" unless
-  body.include?(".python-version|.ruby-version") &&
+  body.include?(".python-version|.ruby-version|rust-toolchain.toml") &&
     body.include?('elif [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]')
 
 
@@ -104,7 +104,7 @@ abort "Core-pin squash merges must include the current PR title and PR number in
     body.include?('if gh pr merge "${pr}" "${merge_args[@]}"; then') &&
     body.include?('PR #${pr} has no title; refusing to merge without a commit subject.')
 abort "Core-pin updater must only modify its three managed pin files" unless
-  body.include?('.github/actions/prepare-update/action.yml|.python-version|.ruby-version')
+  body.include?('.github/actions/prepare-update/action.yml|.python-version|.ruby-version|rust-toolchain.toml')
 abort "Unconfigured requirements-file updates must not be auto-merged" if body.include?('requirements*.txt')
 gate_path = "scripts/update/verify_dependabot_auto_merge_checks.sh"
 gate = File.read(gate_path, encoding: "UTF-8")
