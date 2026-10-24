@@ -60,6 +60,17 @@ jobs:
           ruby --version
           ruby -e 'abort "Ruby version does not match .ruby-version" unless RUBY_VERSION == File.read(".ruby-version").strip'
 
+      - name: Validate Ruby source syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          for script in scripts/update/*.rb; do
+            ruby -c "$script"
+          done
+
+      - name: Test Ruby Clash output validator
+        run: ruby scripts/update/test_validate_clash_output.rb
+
       - name: Read pinned Rust toolchain
         id: rust-toolchain
         shell: bash
