@@ -70,6 +70,13 @@ abort "Core-pin updater must include the Ruby runtime pin" unless
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == ".ruby-version" }
 abort "Core-pin updater must include the Rust runtime pin" unless
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == "rust-toolchain.toml" }
+
+dependabot_config = YAML.load_file(".github/dependabot.yml")
+dependabot_ecosystems = dependabot_config.fetch("updates").map { |entry| entry.fetch("package-ecosystem") }
+abort "Cargo dependency updates must remain enabled in Dependabot" unless
+  dependabot_ecosystems.include?("cargo")
+abort "Rust toolchain updates must have one owner: the coordinated runtime-pin updater" if
+  dependabot_ecosystems.include?("rust-toolchain")
 abort "Updater workflow must set up its pinned Python runtime" unless
   workflow.dig("jobs", "update-pins", "steps").any? do |entry|
     entry["uses"] == "actions/setup-python@v7" &&
