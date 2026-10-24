@@ -79,7 +79,10 @@ def main() -> int:
             all_file = subscriptions / "all.txt"
             if deferred_file.is_file() and deferred_file.stat().st_size and all_file.is_file():
                 additions = deferred_additions(deferred_file, next_file, all_file)
-                before = count_lines(all_file)
+                before = sum(
+                    1 for line in all_file.read_text(encoding="utf-8", errors="replace").splitlines()
+                    if line.strip() and not line.startswith("#")
+                )
                 capacity = 2000 - before
                 if capacity > 0:
                     limited = additions[:capacity]
