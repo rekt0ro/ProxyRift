@@ -83,11 +83,12 @@ abort "Validation workflow must use the pinned Python runtime" unless
   end
 abort "Validation workflow must use the pinned Rust toolchain" unless
   validation_workflow.dig("jobs", "validate", "steps").any? do |entry|
-    entry["uses"] == "dtolnay/rust-toolchain@stable" &&
-      entry.dig("with", "toolchain") == "${{ steps.rust-toolchain.outputs.version }}"
+    entry["uses"] == "actions-rust-lang/setup-rust-toolchain@v2"
   end
 abort "Both push and pull-request filters must include .python-version" unless
   File.read(".github/workflows/validate.yml").scan(/^\s*- "\.python-version"\s*$/).length == 2
+abort "Both push and pull-request filters must include rust-toolchain.toml" unless
+  File.read(".github/workflows/validate.yml").scan(/^\s*- "rust-toolchain.toml"\s*$/).length == 2
 abort "Validation core-pin loader is missing" unless
   File.file?("scripts/update/load_validation_core_pins.rb")
 
