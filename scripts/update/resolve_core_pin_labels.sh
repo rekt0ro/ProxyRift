@@ -10,6 +10,9 @@ fi
 if ! git diff --quiet -- .ruby-version; then
   toolchain_labels+=("ruby")
 fi
+if ! git diff --quiet -- rust-toolchain.toml; then
+  toolchain_labels+=("rust")
+fi
 
 pin_diff="$(git diff --unified=0 -- .github/actions/prepare-update/action.yml)"
 if grep -Eq '^[+-][[:space:]]*XRAY_(VERSION|SHA256|ASSET)_PIN:' <<< "${pin_diff}"; then
