@@ -98,8 +98,8 @@ jobs:
             puts "Validated #{paths.length} workflow/action YAML files."
           '
 
-      - name: Validate core-pin updater Python syntax
-        run: python3 -m py_compile scripts/update/update_core_pins.py scripts/update/pin_ruby_version.py scripts/update/test_update_core_pins.py
+      - name: Validate Python script syntax
+        run: python3 -m py_compile scripts/update/*.py
 
       - name: Test core-pin updater
         run: python3 scripts/update/test_update_core_pins.py

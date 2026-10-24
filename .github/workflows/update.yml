@@ -68,7 +68,7 @@ jobs:
 
       - name: "Build Light subscription"
         id: build_light
-        run: bash scripts/update/build_light_subscription.sh
+        run: python3 scripts/update/build_light_subscription.py
 
 
       - name: "Generate subscriptions"
@@ -78,10 +78,10 @@ jobs:
 
       - name: "Prepare published outputs"
         id: prepare_outputs
-        run: bash scripts/update/prepare_published_outputs.sh
+        run: python3 scripts/update/prepare_published_outputs.py
       - name: "Publish generated changes"
         id: publish
-        run: bash scripts/update/publish_generated_changes.sh
+        run: python3 scripts/update/publish_generated_changes.py
 
       - name: Write run summary and archive reports
         if: always()
@@ -104,7 +104,7 @@ jobs:
         if: always() && steps.build_light.outcome == 'success' && steps.prepare_outputs.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/update/publish_light_state.sh
+        run: python3 scripts/update/publish_light_state.py
 
   cleanup:
     if: always()
