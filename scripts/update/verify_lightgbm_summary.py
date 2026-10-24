@@ -58,15 +58,14 @@ def verify(summary_path: Path, score_path: Path, stats_path: Path) -> None:
         expected.append(f"| Temporal validation split | {format_count(train_rows)} training rows / {format_count(holdout_rows)} holdout rows |")
     else:
         expected.append("| Temporal validation split | Not available — validation data requirements were not met |")
-    expected.extend([
-        (
-            f"| Evaluation | {format_evaluation(report.get('reason', 'not_evaluated'), model_mae, baseline_mae, "
-            f"improvement, speed_lift, nested_value(score, 'model_report.speed_samples'), "
-            f"nested_value(score, 'model_report.unique_candidates'), nested_value(score, 'model_report.unique_timestamps'), "
-            f"train_rows, holdout_rows, minimum_lift)} |"
-        ),
-        f"| Decision | {format_decision(report.get('accepted', False), report.get('reason', 'not_evaluated'), minimum_lift)} |",
-    ])
+    evaluation = format_evaluation(
+        report.get("reason", "not_evaluated"), model_mae, baseline_mae, improvement,
+        speed_lift, nested_value(score, "model_report.speed_samples"),
+        nested_value(score, "model_report.unique_candidates"), nested_value(score, "model_report.unique_timestamps"),
+        train_rows, holdout_rows, minimum_lift,
+    )
+    decision = format_decision(report.get("accepted", False), report.get("reason", "not_evaluated"), minimum_lift)
+    expected.extend([f"| Evaluation | {evaluation} |", f"| Decision | {decision} |"])
     lines = summary_path.read_text(encoding="utf-8").splitlines()
     for row in expected:
         if row not in lines:
