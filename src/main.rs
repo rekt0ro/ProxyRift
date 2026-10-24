@@ -2680,7 +2680,9 @@ mod tests {
                 .count(),
             super::MAX_ALL_PER_HOST
         );
-        assert!(selected.iter().any(|config| config.contains("@other.example.com:")));
+        assert!(selected
+            .iter()
+            .any(|config| config.contains("@other.example.com:")));
     }
 
     #[test]
@@ -2688,9 +2690,7 @@ mod tests {
         let working = (1..=super::MAX_ALL_PER_IP_NETWORK + 1)
             .map(|last_octet| {
                 (
-                    format!(
-                        "vless://uuid@198.51.100.{last_octet}:443?variant={last_octet}"
-                    ),
+                    format!("vless://uuid@198.51.100.{last_octet}:443?variant={last_octet}"),
                     last_octet as u64,
                 )
             })
@@ -2710,7 +2710,9 @@ mod tests {
                 .count(),
             super::MAX_ALL_PER_IP_NETWORK
         );
-        assert!(selected.iter().any(|config| config.contains("@203.0.113.1:")));
+        assert!(selected
+            .iter()
+            .any(|config| config.contains("@203.0.113.1:")));
     }
 
     #[test]
@@ -3160,9 +3162,10 @@ fn select_all_candidates(
 
         let endpoint_key = endpoint(config);
         let diversity_keys = endpoint_diversity_keys(config);
-        if endpoint_key.as_ref().is_some_and(|ep| {
-            endpoint_counts.get(ep).copied().unwrap_or(0) >= MAX_ALL_PER_ENDPOINT
-        }) {
+        if endpoint_key
+            .as_ref()
+            .is_some_and(|ep| endpoint_counts.get(ep).copied().unwrap_or(0) >= MAX_ALL_PER_ENDPOINT)
+        {
             continue;
         }
 
@@ -3202,7 +3205,10 @@ fn endpoint_diversity_keys(config: &str) -> Option<(String, Option<String>)> {
     let network = match host.parse::<IpAddr>() {
         Ok(IpAddr::V4(address)) => {
             let octets = address.octets();
-            Some(format!("ipv4:{:03}.{:03}.{:03}.0/24", octets[0], octets[1], octets[2]))
+            Some(format!(
+                "ipv4:{:03}.{:03}.{:03}.0/24",
+                octets[0], octets[1], octets[2]
+            ))
         }
         Ok(IpAddr::V6(address)) => Some(format!("ipv6:{:012x}/48", u128::from(address) >> 80)),
         Err(_) => None,
