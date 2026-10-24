@@ -478,11 +478,14 @@ def write_atomically(path, content):
                 pass
 
 
-def build_updates(releases, python_version, ruby_version):
+def build_updates(releases, python_version, ruby_version, rust_version):
     if not isinstance(python_version, str) or PLAIN_VERSION_PATTERN.fullmatch(python_version) is None:
         raise ValueError(f"Invalid stable Python version: {python_version!r}")
     if not isinstance(ruby_version, str) or PLAIN_VERSION_PATTERN.fullmatch(ruby_version) is None:
         raise ValueError(f"Invalid supported Ruby version: {ruby_version!r}")
+    if not isinstance(rust_version, str) or re.fullmatch(r"1\.[0-9]+\.[0-9]+", rust_version) is None:
+        raise ValueError(f"Invalid stable Rust version: {rust_version!r}")
+
     xray_version = stable_version(releases["xray"], "Xray")
     singbox_version = stable_version(releases["singbox"], "sing-box")
     mihomo_version = stable_version(releases["mihomo"], "Mihomo")
@@ -506,7 +509,7 @@ def build_updates(releases, python_version, ruby_version):
         ),
         "MIHOMO_ASSET_PIN": mihomo_asset,
     }
-    return python_version, ruby_version, action_values
+    return python_version, ruby_version, rust_version, action_values
 
 
 def main():
@@ -525,16 +528,20 @@ def main():
     }
     python_version = fetch_latest_python_version()
     ruby_version = fetch_latest_supported_ruby_version()
-    python_version, ruby_version, action_values = build_updates(
-        releases, python_version, ruby_version
+    rust_version = fetch_latest_stable_version()
+    python_version, ruby_version, rust_version, action_values = build_updates(
+        releases, python_version, ruby_version, rust_version
     )
 
     action_path = ROOT / ".github/actions/prepare-update/action.yml"
     python_path = ROOT / ".python-version"
     ruby_path = ROOT / ".ruby-version"
+    rust_path = ROOT / "rust-toolchain.toml"
 
     action_source = action_path.read_text(encoding="utf-8")
     action_content = replace_pins(action_source, action_values, action_path)
+    rust_source = rust_path.read_text(encoding="utf-8")
+    rust_content = replace_rust_channel(rust_source, rust_version, rust_path)
     current_python = python_path.read_text(encoding="utf-8")
     if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_python) is None:
         raise ValueError(f"{python_path} must contain exactly one stable X.Y.Z version")
@@ -545,6 +552,7 @@ def main():
     previous_versions = {
         "Python": current_python.strip(),
         "Ruby": current_ruby.strip(),
+        "Rust": resolve_pinned_version(rust_source),
         "Xray-core": pinned_value(action_source, "XRAY_VERSION_PIN", action_path),
         "sing-box": pinned_value(action_source, "SINGBOX_VERSION_PIN", action_path),
         "Mihomo": pinned_value(action_source, "MIHOMO_VERSION_PIN", action_path),
@@ -552,6 +560,7 @@ def main():
     current_versions = {
         "Python": python_version,
         "Ruby": ruby_version,
+        "Rust": rust_version,
         "Xray-core": action_values["XRAY_VERSION_PIN"],
         "sing-box": action_values["SINGBOX_VERSION_PIN"],
         "Mihomo": action_values["MIHOMO_VERSION_PIN"],
@@ -583,10 +592,11 @@ def main():
     )
     write_atomically(action_path, action_content)
     write_atomically(python_path, f"{python_version}\n")
+    write_atomically(rust_path, rust_content)
     write_pr_metadata(pr_title, pr_body)
 
     print(
-        f"Resolved Python {python_version}, Ruby {ruby_version}, "
+        f"Resolved Python {python_version}, Ruby {ruby_version}, Rust {rust_version}, "
         f"Xray {action_values['XRAY_VERSION_PIN']}, "
         f"sing-box {action_values['SINGBOX_VERSION_PIN']}, "
         f"and Mihomo {action_values['MIHOMO_VERSION_PIN']}; "
