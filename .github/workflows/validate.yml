@@ -99,7 +99,7 @@ jobs:
           '
 
       - name: Validate Python script syntax
-        run: python3 -m py_compile scripts/update/*.py
+        run: python3 -m py_compile scripts/*.py scripts/update/*.py
 
       - name: Test core-pin updater
         run: python3 scripts/update/test_update_core_pins.py
@@ -197,10 +197,16 @@ jobs:
       - name: Test LightGBM report verification and artifact sanitization
         run: python3 scripts/update/test_lightgbm_report.py
 
+      - name: Test LightGBM release metadata and checksum validation
+        run: python3 scripts/test_install_lightgbm.py
+
+      - name: Test stable Rust version parsing
+        run: python3 scripts/update/test_resolve_stable_rust.py
+
       - name: Install native LightGBM runtime
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/install_lightgbm.sh
+        run: python3 scripts/install_lightgbm.py
 
       - name: Format check
         run: cargo fmt --all -- --check
