@@ -85,6 +85,10 @@ jobs:
                 color="701516"
                 description="Updates to the pinned Ruby runtime"
                 ;;
+              rust)
+                color="dea584"
+                description="Updates to the pinned Rust runtime"
+                ;;
               xray)
                 color="c6538c"
                 description="Updates to Xray-core release pins"
@@ -126,6 +130,7 @@ jobs:
             .github/actions/prepare-update/action.yml
             .python-version
             .ruby-version
+            rust-toolchain.toml
           commit-message: ${{ steps.resolve-pins.outputs.pr_title }}
           title: ${{ steps.resolve-pins.outputs.pr_title }}
           body-path: ${{ runner.temp }}/core-pin-pr-body.md
@@ -163,7 +168,7 @@ jobs:
             return 1
           }
 
-          managed_labels=(dependencies toolchain python ruby xray sing-box mihomo)
+          managed_labels=(dependencies toolchain python ruby rust xray sing-box mihomo)
           for label in "${managed_labels[@]}"; do
             if contains_label "$label" "${selected_labels[@]}"; then
               if ! contains_label "$label" "${current_labels[@]}"; then

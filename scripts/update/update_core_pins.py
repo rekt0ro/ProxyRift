@@ -17,6 +17,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
+from resolve_stable_rust import fetch_latest_stable_version, resolve_pinned_version
+
 ROOT = Path(__file__).resolve().parents[2]
 VERSION_PATTERN = re.compile(r"v([0-9]+\.[0-9]+\.[0-9]+)\Z")
 PLAIN_VERSION_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
@@ -248,6 +250,7 @@ def asset_sha256(release, asset_name, project):
 
 RELEASE_REPOSITORIES = {
     "Ruby": "ruby/ruby",
+    "Rust": "rust-lang/rust",
     "Xray-core": "XTLS/Xray-core",
     "sing-box": "SagerNet/sing-box",
     "Mihomo": "MetaCubeX/mihomo",
@@ -304,7 +307,8 @@ def release_notes_url(component, version, release):
     if component == "Python":
         return python_release_url(version)
     repository = RELEASE_REPOSITORIES[component]
-    return f"https://github.com/{repository}/releases/tag/v{version}"
+    tag = version if component == "Rust" else f"v{version}"
+    return f"https://github.com/{repository}/releases/tag/{tag}"
 
 
 def release_note_excerpt(body, limit=2400):
@@ -321,17 +325,20 @@ def release_note_excerpt(body, limit=2400):
 
 
 def build_pr_description(previous_versions, current_versions, release_metadata):
-    components = ("Python", "Ruby", "Xray-core", "sing-box", "Mihomo")
+    components = ("Python", "Ruby", "Rust", "Xray-core", "sing-box", "Mihomo")
     changed = [
         (name, previous_versions[name], current_versions[name])
         for name in components
-        if previous_versions[name] != current_versions[name]
+        if name in previous_versions
+        and name in current_versions
+        and previous_versions[name] != current_versions[name]
     ]
     if len(changed) == 1:
         name, old, new = changed[0]
         component_slug = {
             "Python": "python",
             "Ruby": "ruby",
+            "Rust": "rust",
             "Xray-core": "xray-core",
             "sing-box": "sing-box",
             "Mihomo": "mihomo",
@@ -339,7 +346,7 @@ def build_pr_description(previous_versions, current_versions, release_metadata):
         title = f"Bump {component_slug} from {old} to {new}"
     elif changed:
         names = {name for name, _, _ in changed}
-        toolchain = {"Python", "Ruby"}
+        toolchain = {"Python", "Ruby", "Rust"}
         cores = {"Xray-core", "sing-box", "Mihomo"}
         if names <= toolchain:
             group = "toolchain"
@@ -366,7 +373,9 @@ def build_pr_description(previous_versions, current_versions, release_metadata):
             changelog = f"[Release notes]({notes_url}) · [Previous release]({old_link})"
         else:
             repository = RELEASE_REPOSITORIES[name]
-            compare_url = f"https://github.com/{repository}/compare/v{old}...v{new}"
+            old_tag = old if name == "Rust" else f"v{old}"
+            new_tag = new if name == "Rust" else f"v{new}"
+            compare_url = f"https://github.com/{repository}/compare/{old_tag}...{new_tag}"
             changelog = (
                 f"[Release notes]({notes_url}) · "
                 f"[Full changelog]({compare_url})"
@@ -408,6 +417,21 @@ def write_pr_metadata(title, body):
     if output_path:
         with open(output_path, "a", encoding="utf-8") as output:
             output.write(f"pr_title={title}\n")
+
+
+def replace_rust_channel(content, version, path):
+    if not isinstance(version, str) or re.fullmatch(r"1\.[0-9]+\.[0-9]+", version) is None:
+        raise ValueError(f"Invalid stable Rust version: {version!r}")
+    pattern = re.compile(
+        r'(?m)^([ \t]*channel[ \t]*=[ \t]*)"[^"\r\n]*"([ \t]*(?:#.*)?)$'
+    )
+    updated, count = pattern.subn(
+        lambda match: f'{match.group(1)}"{version}"{match.group(2)}',
+        content,
+    )
+    if count != 1:
+        raise ValueError(f"Expected exactly one toolchain channel in {path}, found {count}")
+    return updated
 
 
 def replace_pins(content, values, path):
@@ -454,11 +478,14 @@ def write_atomically(path, content):
                 pass
 
 
-def build_updates(releases, python_version, ruby_version):
+def build_updates(releases, python_version, ruby_version, rust_version):
     if not isinstance(python_version, str) or PLAIN_VERSION_PATTERN.fullmatch(python_version) is None:
         raise ValueError(f"Invalid stable Python version: {python_version!r}")
     if not isinstance(ruby_version, str) or PLAIN_VERSION_PATTERN.fullmatch(ruby_version) is None:
         raise ValueError(f"Invalid supported Ruby version: {ruby_version!r}")
+    if not isinstance(rust_version, str) or re.fullmatch(r"1\.[0-9]+\.[0-9]+", rust_version) is None:
+        raise ValueError(f"Invalid stable Rust version: {rust_version!r}")
+
     xray_version = stable_version(releases["xray"], "Xray")
     singbox_version = stable_version(releases["singbox"], "sing-box")
     mihomo_version = stable_version(releases["mihomo"], "Mihomo")
@@ -482,7 +509,7 @@ def build_updates(releases, python_version, ruby_version):
         ),
         "MIHOMO_ASSET_PIN": mihomo_asset,
     }
-    return python_version, ruby_version, action_values
+    return python_version, ruby_version, rust_version, action_values
 
 
 def main():
@@ -501,16 +528,20 @@ def main():
     }
     python_version = fetch_latest_python_version()
     ruby_version = fetch_latest_supported_ruby_version()
-    python_version, ruby_version, action_values = build_updates(
-        releases, python_version, ruby_version
+    rust_version = fetch_latest_stable_version()
+    python_version, ruby_version, rust_version, action_values = build_updates(
+        releases, python_version, ruby_version, rust_version
     )
 
     action_path = ROOT / ".github/actions/prepare-update/action.yml"
     python_path = ROOT / ".python-version"
     ruby_path = ROOT / ".ruby-version"
+    rust_path = ROOT / "rust-toolchain.toml"
 
     action_source = action_path.read_text(encoding="utf-8")
     action_content = replace_pins(action_source, action_values, action_path)
+    rust_source = rust_path.read_text(encoding="utf-8")
+    rust_content = replace_rust_channel(rust_source, rust_version, rust_path)
     current_python = python_path.read_text(encoding="utf-8")
     if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+\n?", current_python) is None:
         raise ValueError(f"{python_path} must contain exactly one stable X.Y.Z version")
@@ -521,6 +552,7 @@ def main():
     previous_versions = {
         "Python": current_python.strip(),
         "Ruby": current_ruby.strip(),
+        "Rust": resolve_pinned_version(rust_source),
         "Xray-core": pinned_value(action_source, "XRAY_VERSION_PIN", action_path),
         "sing-box": pinned_value(action_source, "SINGBOX_VERSION_PIN", action_path),
         "Mihomo": pinned_value(action_source, "MIHOMO_VERSION_PIN", action_path),
@@ -528,6 +560,7 @@ def main():
     current_versions = {
         "Python": python_version,
         "Ruby": ruby_version,
+        "Rust": rust_version,
         "Xray-core": action_values["XRAY_VERSION_PIN"],
         "sing-box": action_values["SINGBOX_VERSION_PIN"],
         "Mihomo": action_values["MIHOMO_VERSION_PIN"],
@@ -559,10 +592,11 @@ def main():
     )
     write_atomically(action_path, action_content)
     write_atomically(python_path, f"{python_version}\n")
+    write_atomically(rust_path, rust_content)
     write_pr_metadata(pr_title, pr_body)
 
     print(
-        f"Resolved Python {python_version}, Ruby {ruby_version}, "
+        f"Resolved Python {python_version}, Ruby {ruby_version}, Rust {rust_version}, "
         f"Xray {action_values['XRAY_VERSION_PIN']}, "
         f"sing-box {action_values['SINGBOX_VERSION_PIN']}, "
         f"and Mihomo {action_values['MIHOMO_VERSION_PIN']}; "

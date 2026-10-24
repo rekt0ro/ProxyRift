@@ -18,6 +18,7 @@ from update_core_pins import (
     latest_python_version,
     latest_supported_ruby_version,
     replace_pins,
+    replace_rust_channel,
     stable_version,
     write_atomically,
 )
@@ -258,15 +259,18 @@ class CorePinUpdaterTests(unittest.TestCase):
                 [("mihomo-linux-amd64-v3.4.5.gz", "sha256:" + "3" * 64)],
             ),
         }
-        python_version, ruby_version, action = build_updates(releases, "3.15.1", "4.0.7")
+        python_version, ruby_version, rust_version, action = build_updates(
+            releases, "3.15.1", "4.0.7", "1.99.1"
+        )
         self.assertEqual(python_version, "3.15.1")
         self.assertEqual(ruby_version, "4.0.7")
+        self.assertEqual(rust_version, "1.99.1")
         self.assertEqual(action["SINGBOX_ASSET_PIN"], "sing-box-2.3.4-linux-amd64.tar.gz")
         self.assertEqual(action["MIHOMO_SHA256_PIN"], "3" * 64)
         with self.assertRaises(ValueError):
-            build_updates(releases, "3.15.1rc1", "4.0.7")
+            build_updates(releases, "3.15.1rc1", "4.0.7", "1.99.1")
         with self.assertRaises(ValueError):
-            build_updates(releases, "3.15.1", "4.1.0-preview1")
+            build_updates(releases, "3.15.1", "4.1.0-preview1", "1.99.1")
 
     def test_atomic_write_preserves_file_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -291,6 +295,78 @@ class CorePinUpdaterTests(unittest.TestCase):
             with self.subTest(source=source):
                 with self.assertRaises(ValueError):
                     replace_pins(source, {"pin": "3"}, "sample.yml")
+
+
+    def test_rejects_invalid_rust_versions(self):
+        releases = {
+            "xray": release("v1.2.3", [("Xray-linux-64.zip", "sha256:" + "1" * 64)]),
+            "singbox": release(
+                "v2.3.4",
+                [("sing-box-2.3.4-linux-amd64.tar.gz", "sha256:" + "2" * 64)],
+            ),
+            "mihomo": release(
+                "v3.4.5",
+                [("mihomo-linux-amd64-v3.4.5.gz", "sha256:" + "3" * 64)],
+            ),
+        }
+        with self.assertRaises(ValueError):
+            build_updates(releases, "3.15.1", "4.0.7", "2.0.0")
+        with self.assertRaises(ValueError):
+            build_updates(releases, "3.15.1", "4.0.7", "1.99.1-rc1")
+
+    def test_replaces_rust_toolchain_channel_and_preserves_components(self):
+        source = (
+            '[toolchain]\n'
+            'channel = "1.99.0"\n'
+            'profile = "minimal"\n'
+            'components = ["clippy", "rustfmt"]\n'
+        )
+        self.assertEqual(
+            replace_rust_channel(
+                source, "1.99.1", "rust-toolchain.toml"
+            ),
+            source.replace('channel = "1.99.0"', 'channel = "1.99.1"'),
+        )
+
+    def test_rejects_missing_or_duplicate_rust_toolchain_channels(self):
+        with self.assertRaisesRegex(ValueError, "Expected exactly one toolchain channel"):
+            replace_rust_channel('[toolchain]\nprofile = "minimal"\n', "1.99.1", "rust-toolchain.toml")
+        with self.assertRaisesRegex(ValueError, "Expected exactly one toolchain channel"):
+            replace_rust_channel(
+                '[toolchain]\nchannel = "1.99.0"\nchannel = "1.99.1"\n',
+                "1.99.2",
+                "rust-toolchain.toml",
+            )
+
+    def test_rust_update_has_official_release_and_compare_links(self):
+        previous = {
+            "Python": "3.15.1",
+            "Ruby": "4.0.9",
+            "Rust": "1.99.0",
+            "Xray-core": "26.10.20",
+            "sing-box": "1.14.4",
+            "Mihomo": "1.19.33",
+        }
+        current = dict(previous, **{"Rust": "1.99.1"})
+        title, body = build_pr_description(previous, current, {})
+        self.assertEqual(title, "Bump rust from 1.99.0 to 1.99.1")
+        self.assertIn("https://github.com/rust-lang/rust/releases/tag/1.99.1", body)
+        self.assertIn("https://github.com/rust-lang/rust/compare/1.99.0...1.99.1", body)
+
+    def test_rust_python_and_ruby_updates_share_toolchain_group(self):
+        previous = {
+            "Python": "3.15.0",
+            "Ruby": "4.0.8",
+            "Rust": "1.99.0",
+            "Xray-core": "26.10.20",
+            "sing-box": "1.14.4",
+            "Mihomo": "1.19.33",
+        }
+        current = dict(previous, **{"Python": "3.15.1", "Ruby": "4.0.9", "Rust": "1.99.1"})
+        title, body = build_pr_description(previous, current, {})
+        self.assertEqual(title, "Bump the toolchain group with 3 updates")
+        mark = chr(96)
+        self.assertIn(f"| Rust | {mark}1.99.0{mark} | {mark}1.99.1{mark} |", body)
 
 
 if __name__ == "__main__":

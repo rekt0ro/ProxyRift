@@ -53,7 +53,7 @@ abort "Core-pin PR labels must be synchronized to the exact calculated labels" u
   label_sync && label_sync["run"].is_a?(String) &&
     label_sync["if"] == "steps.cpr.outputs.pull-request-number != ''" &&
     label_sync.dig("env", "SELECTED_LABELS") == "${{ steps.labels.outputs.value }}" &&
-    label_sync["run"].include?("managed_labels=(dependencies toolchain python ruby xray sing-box mihomo)") &&
+    label_sync["run"].include?("managed_labels=(dependencies toolchain python ruby rust xray sing-box mihomo)") &&
     label_sync["run"].include?("--add-label") &&
     label_sync["run"].include?("--remove-label") &&
     label_sync["run"].include?("gh pr view")
@@ -66,6 +66,17 @@ abort "Core-pin workflow must keep prior run IDs on one line for GITHUB_OUTPUT" 
 
 abort "Core-pin updater must include the Python runtime pin" unless
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == ".python-version" }
+abort "Core-pin updater must include the Ruby runtime pin" unless
+  create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == ".ruby-version" }
+abort "Core-pin updater must include the Rust runtime pin" unless
+  create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == "rust-toolchain.toml" }
+
+dependabot_config = YAML.load_file(".github/dependabot.yml")
+dependabot_ecosystems = dependabot_config.fetch("updates").map { |entry| entry.fetch("package-ecosystem") }
+abort "Cargo dependency updates must remain enabled in Dependabot" unless
+  dependabot_ecosystems.include?("cargo")
+abort "Rust toolchain updates must have one owner: the coordinated runtime-pin updater" if
+  dependabot_ecosystems.include?("rust-toolchain")
 abort "Updater workflow must set up its pinned Python runtime" unless
   workflow.dig("jobs", "update-pins", "steps").any? do |entry|
     entry["uses"] == "actions/setup-python@v7" &&
@@ -77,8 +88,14 @@ abort "Validation workflow must use the pinned Python runtime" unless
     entry["uses"] == "actions/setup-python@v7" &&
       entry.dig("with", "python-version-file") == ".python-version"
   end
+abort "Validation workflow must use the pinned Rust toolchain" unless
+  validation_workflow.dig("jobs", "validate", "steps").any? do |entry|
+    entry["uses"] == "actions-rust-lang/setup-rust-toolchain@v2"
+  end
 abort "Both push and pull-request filters must include .python-version" unless
   File.read(".github/workflows/validate.yml").scan(/^\s*- "\.python-version"\s*$/).length == 2
+abort "Both push and pull-request filters must include rust-toolchain.toml" unless
+  File.read(".github/workflows/validate.yml").scan(/^\s*- "rust-toolchain.toml"\s*$/).length == 2
 abort "Validation core-pin loader is missing" unless
   File.file?("scripts/update/load_validation_core_pins.rb")
 
@@ -114,6 +131,7 @@ resolve_labels = lambda do |changes|
     FileUtils.mkdir_p(File.join(directory, ".github/actions/prepare-update"))
     File.write(File.join(directory, ".python-version"), "3.14.0\n")
     File.write(File.join(directory, ".ruby-version"), "3.4.0\n")
+    File.write(File.join(directory, "rust-toolchain.toml"), "[toolchain]\nchannel = \"1.99.0\"\n")
     action_path = File.join(directory, ".github/actions/prepare-update/action.yml")
     File.write(action_path, baseline_action)
 
@@ -160,13 +178,18 @@ expected_scenarios = {
     { ".ruby-version" => "3.4.1\n", ".github/actions/prepare-update/action.yml" => ruby_and_singbox },
     %w[dependencies sing-box toolchain ruby]
   ],
+  "Rust only" => [
+    { "rust-toolchain.toml" => "[toolchain]\nchannel = \"1.99.1\"\n" },
+    %w[toolchain rust]
+  ],
   "all core and runtime pins" => [
     {
       ".python-version" => "3.14.1\n",
       ".ruby-version" => "3.4.1\n",
+      "rust-toolchain.toml" => "[toolchain]\nchannel = \"1.99.1\"\n",
       ".github/actions/prepare-update/action.yml" => all_cores
     },
-    %w[dependencies xray sing-box mihomo toolchain python ruby]
+    %w[dependencies xray sing-box mihomo toolchain python ruby rust]
   ]
 }
 expected_scenarios.each do |name, (changes, expected)|

@@ -15,6 +15,7 @@ on:
       - ".gitattributes"
       - ".ruby-version"
       - ".python-version"
+      - "rust-toolchain.toml"
       - "scripts/**"
   pull_request:
     paths:
@@ -28,6 +29,7 @@ on:
       - ".gitattributes"
       - ".ruby-version"
       - ".python-version"
+      - "rust-toolchain.toml"
       - "scripts/**"
   workflow_dispatch:
 
@@ -60,12 +62,36 @@ jobs:
           ruby --version
           ruby -e 'abort "Ruby version does not match .ruby-version" unless RUBY_VERSION == File.read(".ruby-version").strip'
 
+      - name: Validate Ruby source syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          for script in scripts/update/*.rb; do
+            ruby -c "$script"
+          done
+
+      - name: Test Ruby Clash output validator
+        run: ruby scripts/update/test_validate_clash_output.rb
+
+      - name: Read pinned Rust toolchain
+        id: rust-toolchain
+        shell: bash
+        run: |
+          version="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("rust-toolchain.toml").read_text(encoding="utf-8"))["toolchain"]["channel"])')"
+          [[ "$version" =~ ^1\.[0-9]+\.[0-9]+$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v2
 
       - name: Record Rust version
         id: rust-version
-        run: echo "version=$(rustc --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+        env:
+          RUST_TOOLCHAIN_VERSION: ${{ steps.rust-toolchain.outputs.version }}
+        run: |
+          actual_version="$(rustc --version | awk '{print $2}')"
+          test "$actual_version" = "$RUST_TOOLCHAIN_VERSION"
+          echo "version=$actual_version" >> "$GITHUB_OUTPUT"
 
       - name: Restore Rust registry cache
         id: cargo-registry-restore
@@ -86,7 +112,11 @@ jobs:
           key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
 
       - name: Shell syntax check
-        run: for script in scripts/*.sh scripts/update/*.sh; do bash -n "$script" || exit 1; done
+        run: |
+          for script in scripts/*.sh scripts/update/*.sh; do
+            [[ -f "$script" ]] || continue
+            bash -n "$script" || exit 1
+          done
 
       - name: Validate workflow and composite-action YAML
         run: |
@@ -99,10 +129,17 @@ jobs:
           '
 
       - name: Validate Python script syntax
-        run: python3 -m py_compile scripts/update/*.py
+        run: python3 -m py_compile scripts/*.py scripts/update/*.py
 
-      - name: Test core-pin updater
-        run: python3 scripts/update/test_update_core_pins.py
+      - name: Run all Python tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test_script in scripts/test_*.py scripts/update/test_*.py; do
+            [[ -f "$test_script" ]] || continue
+            echo "Running $test_script"
+            python3 "$test_script"
+          done
 
       - name: Validate core-pin workflow shell syntax
         run: ruby scripts/update/test_core_pin_workflow.rb
@@ -112,8 +149,6 @@ jobs:
 
       - name: Validate Dependabot auto-merge workflow
         run: ruby scripts/update/test_dependabot_auto_merge_workflow.rb
-      - name: Test publication quality gate
-        run: python3 scripts/update/test_publication_gate.py
       - name: Test Light validation timeout settings
         run: bash scripts/update/test_light_timeout_settings.sh
 
@@ -191,16 +226,10 @@ jobs:
       - name: Test Light learning-state-only publishing
         run: bash scripts/update/test_publish_light_state.sh
 
-      - name: Test update run summary formatting
-        run: python3 scripts/update/test_write_run_summary.py
-
-      - name: Test LightGBM report verification and artifact sanitization
-        run: python3 scripts/update/test_lightgbm_report.py
-
       - name: Install native LightGBM runtime
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/install_lightgbm.sh
+        run: python3 scripts/install_lightgbm.py
 
       - name: Format check
         run: cargo fmt --all -- --check
