@@ -53,10 +53,15 @@ runs:
         mkdir -p /tmp/proxyrift
         : > /tmp/proxyrift/compatibility-rejections.jsonl
   
+    - name: "Set up Python"
+      uses: actions/setup-python@v7
+      with:
+        python-version-file: .python-version
+
     - name: "Resolve stable Rust toolchain"
       id: rust-toolchain
       shell: bash
-      run: bash scripts/update/resolve_stable_rust.sh
+      run: python3 scripts/update/resolve_stable_rust.py
     - name: "Restore Rust toolchain cache"
       id: rust-toolchain-cache-restore
       uses: actions/cache/restore@v6
@@ -90,7 +95,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github_token }}
       shell: bash
-      run: bash scripts/install_lightgbm.sh
+      run: python3 scripts/install_lightgbm.py
   
     - name: "Resolve pinned validation cores"
       id: validation-cores
