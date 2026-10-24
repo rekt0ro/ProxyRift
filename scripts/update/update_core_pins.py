@@ -329,13 +329,16 @@ def build_pr_description(previous_versions, current_versions, release_metadata):
     changed = [
         (name, previous_versions[name], current_versions[name])
         for name in components
-        if previous_versions[name] != current_versions[name]
+        if name in previous_versions
+        and name in current_versions
+        and previous_versions[name] != current_versions[name]
     ]
     if len(changed) == 1:
         name, old, new = changed[0]
         component_slug = {
             "Python": "python",
             "Ruby": "ruby",
+            "Rust": "rust",
             "Xray-core": "xray-core",
             "sing-box": "sing-box",
             "Mihomo": "mihomo",
