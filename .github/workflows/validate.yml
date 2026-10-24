@@ -82,10 +82,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ steps.rust-toolchain.outputs.version }}
-          components: clippy, rustfmt
+        uses: actions-rust-lang/setup-rust-toolchain@v2
 
       - name: Record Rust version
         id: rust-version
