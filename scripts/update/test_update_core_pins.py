@@ -16,6 +16,7 @@ from update_core_pins import (
     build_pr_description,
     build_updates,
     latest_python_version,
+    latest_supported_python_version,
     latest_supported_ruby_version,
     replace_pins,
     replace_rust_channel,
@@ -214,6 +215,72 @@ class CorePinUpdaterTests(unittest.TestCase):
                 update_core_pins.fetch_latest_python_version(),
                 "3.15.1",
             )
+
+    def test_selects_latest_python_release_available_for_runner(self):
+        page = """
+        <a href="/downloads/release/python-3152/">Python 3.15.2</a>
+        <a href="/downloads/release/python-3151/">Python 3.15.1</a>
+        <a href="/downloads/release/python-3149/">Python 3.14.9</a>
+        """
+        manifest = [
+            {
+                "version": "3.15.2",
+                "stable": True,
+                "files": [
+                    {
+                        "platform": "linux",
+                        "download_url": "https://example.invalid/python-3.15.2-linux-24.04-x64.tar.gz",
+                    },
+                    {
+                        "platform": "linux",
+                        "download_url": "https://example.invalid/python-3.15.2-linux-26.04-arm64.tar.gz",
+                    },
+                ],
+            },
+            {
+                "version": "3.15.1",
+                "stable": True,
+                "files": [
+                    {
+                        "platform": "linux",
+                        "download_url": "https://example.invalid/python-3.15.1-linux-26.04-x64.tar.gz",
+                    },
+                ],
+            },
+            {
+                "version": "3.14.9",
+                "stable": True,
+                "files": [
+                    {
+                        "platform": "linux",
+                        "download_url": "https://example.invalid/python-3.14.9-linux-26.04-x64.tar.gz",
+                    },
+                ],
+            },
+        ]
+
+        self.assertEqual(
+            latest_supported_python_version(page, manifest, "26.04", "x64"),
+            "3.15.1",
+        )
+
+    def test_rejects_python_releases_without_a_matching_setup_python_build(self):
+        page = '<a href="/downloads/release/python-3152/">Python 3.15.2</a>'
+        manifest = [
+            {
+                "version": "3.15.2",
+                "stable": True,
+                "files": [
+                    {
+                        "platform": "linux",
+                        "download_url": "https://example.invalid/python-3.15.2-linux-24.04-x64.tar.gz",
+                    },
+                ],
+            },
+        ]
+
+        with self.assertRaisesRegex(ValueError, "No stable Python release"):
+            latest_supported_python_version(page, manifest, "26.04", "x64")
 
     def test_resolves_latest_python_stable_release_and_skips_pre_releases(self):
         page = """
