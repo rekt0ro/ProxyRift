@@ -819,7 +819,7 @@ fn push_shadowsocks_plugin(lines: &mut Vec<String>, url: &Url) -> Result<(), Str
             }
 
             push_field(lines, 4, "plugin", "obfs");
-            lines.push(" plugin-opts:".to_string());
+            lines.push("    plugin-opts:".to_string());
             push_field(lines, 6, "mode", &mode);
             if let Some(host) = host.filter(|value| !value.is_empty()) {
                 push_field(lines, 6, "host", &host);
@@ -873,7 +873,7 @@ fn push_shadowsocks_plugin(lines: &mut Vec<String>, url: &Url) -> Result<(), Str
             }
 
             push_field(lines, 4, "plugin", "v2ray-plugin");
-            lines.push(" plugin-opts:".to_string());
+            lines.push("    plugin-opts:".to_string());
             push_field(lines, 6, "mode", &mode);
             if let Some(tls) = tls {
                 push_raw_field(lines, 6, "tls", if tls { "true" } else { "false" });
@@ -1453,6 +1453,13 @@ mod tests {
         assert!(yaml.contains("mode: 'websocket'"));
         assert!(yaml.contains("tls: true"));
         assert!(yaml.contains("path: '/proxy'"));
+        assert_eq!(
+            yaml.lines()
+                .filter(|line| *line == "    plugin-opts:")
+                .count(),
+            2
+        );
+        assert!(!yaml.lines().any(|line| line == " plugin-opts:"));
     }
 
     #[test]
