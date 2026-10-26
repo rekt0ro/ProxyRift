@@ -31,9 +31,17 @@ second_build="$(sed -n 's/^build=//p' "$tmp/second")"
 first_registry="$(sed -n 's/^registry=//p' "$tmp/first")"
 second_registry="$(sed -n 's/^registry=//p' "$tmp/second")"
 
-[[ -n "$first_build" && -n "$second_build" ]]
+[[ "$first_build" == "Linux-X64-cargo-build-rust-1.99.0-lock-hash-source-a" ]]
+[[ "$second_build" == "Linux-X64-cargo-build-rust-1.99.0-lock-hash-source-b" ]]
 [[ "$first_build" != "$second_build" ]]
 [[ "$first_registry" == "$second_registry" ]]
+action_file="$repo_root/.github/actions/prepare-update/action.yml"
+workflow_file="$repo_root/.github/workflows/validate.yml"
+grep -Fq 'Restore legacy x64 Rust build cache' "$action_file"
+grep -Fq 'Restore legacy x64 Rust build cache' "$workflow_file"
+grep -Fq '${{ inputs.runner_os }}-${{ inputs.runner_arch }}-cargo-build-rust-${{ steps.rust-toolchain.outputs.version }}-${{ inputs.lock_hash }}-' "$action_file"
+grep -Fq '${{ runner.os }}-${{ runner.arch }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-' "$workflow_file"
+
 mihomo_key="$(sed -n 's/^mihomo=//p' "$tmp/first")"
 [[ "$mihomo_key" == "Linux-mihomo-1.19.32-mihomo-hash-verified" ]]
 

@@ -144,6 +144,18 @@ runs:
       with:
         path: target
         key: ${{ steps.keys.outputs.build }}
+        restore-keys: |
+          ${{ inputs.runner_os }}-${{ inputs.runner_arch }}-cargo-build-rust-${{ steps.rust-toolchain.outputs.version }}-${{ inputs.lock_hash }}-
+
+    - name: "Restore legacy x64 Rust build cache"
+      id: cargo-build-legacy-restore
+      if: inputs.runner_arch == 'X64' && steps.cargo-build-restore.outputs.cache-matched-key == ''
+      uses: actions/cache/restore@v6
+      with:
+        path: target
+        key: ${{ inputs.runner_os }}-legacy-cargo-build-rust-${{ steps.rust-toolchain.outputs.version }}-${{ inputs.lock_hash }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          ${{ inputs.runner_os }}-cargo-build-rust-${{ steps.rust-toolchain.outputs.version }}-${{ inputs.lock_hash }}-
   
     - name: "Restore Xray binary cache"
       id: xray-cache-restore

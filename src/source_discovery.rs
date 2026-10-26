@@ -15,6 +15,8 @@ const MAX_CUTOFF_AUDIT_REPOS: usize = 25;
 const MAX_TREE_SCANS: usize = 150;
 const MAX_TREE_FILES_PER_REPO: usize = 40;
 const MAX_ACTIVE_SOURCES: usize = 600;
+const SOURCE_CONTENT_STALE_SECS: u64 = 2 * 60 * 60;
+const MAX_STALE_SOURCE_PROBES_PER_RUN: usize = 100;
 const MAX_NEW_SOURCES: usize = 800;
 const MAX_NEW_SOURCES_PER_REPO: usize = 25;
 const MAX_KNOWN_REFRESH_SOURCES: usize = 800;
@@ -427,6 +429,22 @@ impl Registry {
             .expect("registry always contains sources")
     }
 
+    fn updated_at(&self) -> u64 {
+        self.root
+            .get("updated_at")
+            .and_then(Value::as_u64)
+            .unwrap_or_default()
+    }
+
+    fn content_is_stale(&self, record: &Value) -> bool {
+        record
+            .get("content_changed_at")
+            .and_then(Value::as_u64)
+            .is_some_and(|changed_at| {
+                self.updated_at().saturating_sub(changed_at) > SOURCE_CONTENT_STALE_SECS
+            })
+    }
+
     fn active_urls(
         &self,
         limit: usize,
@@ -448,6 +466,7 @@ impl Registry {
                 || excluded.contains(url)
                 || is_self_source(url)
                 || is_legacy_noise_source(url)
+                || self.content_is_stale(record)
             {
                 continue;
             }
@@ -534,6 +553,7 @@ impl Registry {
                 if excluded.contains(url)
                     || is_self_source(url)
                     || is_legacy_noise_source(url)
+                    || self.content_is_stale(record)
                     || !self.is_healthy_for_selection(record, url, recoverable)
                 {
                     return None;
@@ -724,6 +744,88 @@ impl Registry {
             CollectionOutcome::Failed
         };
         self.record_outcome(url, outcome, now);
+    }
+
+    fn record_content_fingerprint(&mut self, url: &str, fingerprint: &str, now: u64) -> bool {
+        let Some(object) = self
+            .sources_mut()
+            .get_mut(url)
+            .and_then(Value::as_object_mut)
+        else {
+            return false;
+        };
+
+        let previous = object
+            .get("content_fingerprint")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        let changed = previous
+            .as_deref()
+            .is_some_and(|previous| previous != fingerprint);
+
+        if previous.as_deref() != Some(fingerprint) {
+            object.insert(
+                "content_fingerprint".into(),
+                Value::String(fingerprint.to_string()),
+            );
+            object.insert("content_changed_at".into(), Value::from(now));
+        } else if object
+            .get("content_changed_at")
+            .and_then(Value::as_u64)
+            .is_none()
+        {
+            object.insert("content_changed_at".into(), Value::from(now));
+        }
+
+        changed
+    }
+
+    fn stale_probe_urls(&self, limit: usize, excluded: &HashSet<String>) -> Vec<String> {
+        if limit == 0 {
+            return Vec::new();
+        }
+
+        let mut stale = self
+            .sources()
+            .iter()
+            .filter_map(|(url, record)| {
+                if excluded.contains(url)
+                    || is_self_source(url)
+                    || is_legacy_noise_source(url)
+                    || record.get("permanently_failed").and_then(Value::as_bool) == Some(true)
+                    || !self.content_is_stale(record)
+                    || record
+                        .get("empty_streak")
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default()
+                        >= MAX_EMPTY_STREAK
+                    || source_quality_quarantined(record)
+                {
+                    return None;
+                }
+
+                let last_checked = record
+                    .get("last_checked")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default();
+                let changed_at = record
+                    .get("content_changed_at")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default();
+                Some((url.clone(), last_checked, changed_at))
+            })
+            .collect::<Vec<_>>();
+
+        stale.sort_by(|a, b| {
+            a.1.cmp(&b.1)
+                .then_with(|| a.2.cmp(&b.2))
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        stale
+            .into_iter()
+            .take(limit)
+            .map(|(url, _, _)| url)
+            .collect()
     }
 
     fn record_outcome(&mut self, url: &str, outcome: CollectionOutcome, now: u64) {
@@ -1370,6 +1472,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     let root = project_root()?;
     let registry_path = root.join("subscriptions").join("source-registry.json");
     let sources_path = root.join("sources.txt");
+    let probes_path = root.join("subscriptions").join(".stale-source-probes.txt");
     let now = unix_now();
 
     let mut registry = load_registry(&registry_path, now).await?;
@@ -1387,15 +1490,17 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     let mut repos = match search_repositories(&client, token.as_deref()).await {
         Ok(repos) => repos,
         Err(error) => {
-            if registry
-                .active_urls(MAX_ACTIVE_SOURCES, &HashSet::new(), &HashSet::new())
-                .is_empty()
-            {
+            let active = registry.active_urls(MAX_ACTIVE_SOURCES, &HashSet::new(), &HashSet::new());
+            let active_set = active.iter().cloned().collect::<HashSet<_>>();
+            let probes = registry.stale_probe_urls(MAX_STALE_SOURCE_PROBES_PER_RUN, &active_set);
+            if active.is_empty() && probes.is_empty() {
                 return Err(error);
             }
 
             println!(
-                "[WARN] [Discovery] GitHub search unavailable: {error}; using the persisted registry"
+                "[WARN] [Discovery] GitHub search unavailable: {error}; using {} persisted active sources and {} stale-content probes",
+                active.len(),
+                probes.len()
             );
             Vec::new()
         }
@@ -1438,16 +1543,22 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     log_github_core_rate_limit_headroom(&client, token.as_deref()).await;
 
     if discovered.is_empty() {
-        if let Some(active) = persisted_active_sources(&registry) {
-            println!(
-                "[WARN] [Discovery] No usable GitHub sources discovered; using {} persisted active sources",
-                active.len()
-            );
-            write_sources(&sources_path, &active).await?;
-            return Ok((0, active.len()));
+        let active = persisted_active_sources(&registry).unwrap_or_default();
+        let active_set = active.iter().cloned().collect::<HashSet<_>>();
+        let probes = registry.stale_probe_urls(MAX_STALE_SOURCE_PROBES_PER_RUN, &active_set);
+
+        if active.is_empty() && probes.is_empty() {
+            return Err("GitHub discovery produced no usable subscription sources".into());
         }
 
-        return Err("GitHub discovery produced no usable subscription sources".into());
+        println!(
+            "[WARN] [Discovery] No usable GitHub sources discovered; using {} persisted active sources and {} stale-content probes",
+            active.len(),
+            probes.len()
+        );
+        write_sources(&sources_path, &active).await?;
+        write_sources(&probes_path, &probes).await?;
+        return Ok((0, active.len()));
     }
 
     let existing_urls = registry.sources().keys().cloned().collect::<HashSet<_>>();
@@ -1467,15 +1578,24 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
         MAX_ACTIVE_SOURCES,
     );
 
-    let protected = ordered.iter().cloned().collect::<HashSet<_>>();
+    let mut protected = ordered.iter().cloned().collect::<HashSet<_>>();
+    let stale_probes = registry.stale_probe_urls(MAX_STALE_SOURCE_PROBES_PER_RUN, &protected);
+    protected.extend(stale_probes.iter().cloned());
     let retired = registry.prune(MAX_REGISTRY_SOURCES, &protected);
 
-    if ordered.is_empty() {
+    if ordered.is_empty() && stale_probes.is_empty() {
         return Err("GitHub discovery produced no usable subscription sources".into());
     }
 
     write_registry(&registry_path, &registry).await?;
     write_sources(&sources_path, &ordered).await?;
+    write_sources(&probes_path, &stale_probes).await?;
+    println!(
+        "[INFO] [Discovery] Source freshness | Active: {} | Stale-content probes: {} | Stale cutoff: {} seconds",
+        ordered.len(),
+        stale_probes.len(),
+        SOURCE_CONTENT_STALE_SECS
+    );
 
     let proven_set = registry
         .proven_urls(MAX_PROVEN_ACTIVE_SOURCES, &HashSet::new(), &HashSet::new())
@@ -1508,59 +1628,92 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
 }
 
 pub async fn record_collection_results(
-    results: &[(String, CollectionOutcome)],
-) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+    results: &[(String, CollectionOutcome, Option<String>)],
+) -> Result<HashSet<String>, Box<dyn std::error::Error + Send + Sync>> {
     if results.is_empty() {
-        return Ok(0);
+        return Ok(HashSet::new());
     }
 
     let root = project_root()?;
     let registry_path = root.join("subscriptions").join("source-registry.json");
     let sources_path = root.join("sources.txt");
+    let probes_path = root.join("subscriptions").join(".stale-source-probes.txt");
     let now = unix_now();
     let mut registry = load_registry(&registry_path, now).await?;
 
     let permanently_failed = results
         .iter()
-        .filter_map(|(url, outcome)| match outcome {
+        .filter_map(|(url, outcome, _)| match outcome {
             CollectionOutcome::PermanentlyFailed(_) => Some(url.clone()),
             _ => None,
         })
         .collect::<HashSet<_>>();
+    let mut changed_content = HashSet::new();
 
-    for (url, outcome) in results {
+    for (url, outcome, fingerprint) in results {
         registry.record_outcome(url, *outcome, now);
+        if let Some(fingerprint) = fingerprint {
+            if registry.record_content_fingerprint(url, fingerprint, now) {
+                changed_content.insert(url.clone());
+            }
+        }
     }
 
     let quarantined = registry.quarantined_sources();
     write_registry(&registry_path, &registry).await?;
 
     if !permanently_failed.is_empty() {
+        let mut active_removed = 0usize;
+        let mut probes_removed = 0usize;
+
         if let Ok(content) = fs::read_to_string(&sources_path).await {
-            let mut active_sources = Vec::new();
-            let mut removed = 0usize;
-
-            for line in content.lines() {
-                let url = line.trim();
-                if url.is_empty() {
-                    continue;
-                }
-
-                if permanently_failed.contains(url) {
-                    removed += 1;
-                } else {
-                    active_sources.push(url.to_string());
-                }
-            }
-
-            if removed > 0 {
+            let active_sources = content
+                .lines()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+                .filter(|url| {
+                    if permanently_failed.contains(*url) {
+                        active_removed += 1;
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>();
+            if active_removed > 0 {
                 write_sources(&sources_path, &active_sources).await?;
-                println!(
-                    "[INFO] [Discovery] Permanently dead sources retired | Removed {} | Active {}",
-                    removed,
-                    active_sources.len()
-                );
             }
+        }
+
+        if let Ok(content) = fs::read_to_string(&probes_path).await {
+            let probe_sources = content
+                .lines()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+                .filter(|url| {
+                    if permanently_failed.contains(*url) {
+                        probes_removed += 1;
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>();
+            if probes_removed > 0 {
+                write_sources(&probes_path, &probe_sources).await?;
+            }
+        }
+
+        let removed = active_removed + probes_removed;
+        if removed > 0 {
+            println!(
+                "[INFO] [Discovery] Permanently dead sources retired | Removed {} | Active {} | Stale probes {}",
+                removed,
+                fs::read_to_string(&sources_path).await.map(|value| value.lines().filter(|line| !line.trim().is_empty()).count()).unwrap_or_default(),
+                fs::read_to_string(&probes_path).await.map(|value| value.lines().filter(|line| !line.trim().is_empty()).count()).unwrap_or_default()
+            );
         }
     }
 
@@ -1569,13 +1722,13 @@ pub async fn record_collection_results(
         results.len(),
         results
             .iter()
-            .filter(|(_, outcome)| *outcome == CollectionOutcome::Failed)
+            .filter(|(_, outcome, _)| *outcome == CollectionOutcome::Failed)
             .count(),
         permanently_failed.len(),
         quarantined
     );
 
-    Ok(quarantined)
+    Ok(changed_content)
 }
 
 fn select_new_candidates(
@@ -2701,6 +2854,7 @@ fn persisted_active_sources(registry: &Registry) -> Option<Vec<String>> {
     let active = registry.active_urls(MAX_ACTIVE_SOURCES, &HashSet::new(), &HashSet::new());
     (!active.is_empty()).then_some(active)
 }
+
 fn select_known_refresh_candidates(
     discovered: &[Candidate],
     registry: &Registry,
@@ -4250,6 +4404,135 @@ mod tests {
                 "source-a".to_string(),
                 "source-b".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn content_unchanged_for_two_hours_stays_active_but_older_content_is_excluded() {
+        let now = super::SOURCE_CONTENT_STALE_SECS + 10_000;
+        let mut registry = Registry::new(now);
+        let candidate = Candidate {
+            url: "https://raw.githubusercontent.com/example/repo/main/subscriptions/all.txt"
+                .to_string(),
+            repo: "example/repo".to_string(),
+            repo_rank: 0,
+            priority: super::README_CANDIDATE_PRIORITY,
+        };
+        registry.add_candidate(&candidate, now);
+        registry.record_content_fingerprint(
+            &candidate.url,
+            "fingerprint-v1",
+            now - super::SOURCE_CONTENT_STALE_SECS,
+        );
+
+        assert_eq!(
+            registry.active_urls(1, &HashSet::new(), &HashSet::new()),
+            vec![candidate.url.clone()]
+        );
+
+        registry
+            .sources_mut()
+            .get_mut(&candidate.url)
+            .and_then(Value::as_object_mut)
+            .expect("source record exists")
+            .insert(
+                "content_changed_at".into(),
+                Value::from(now - super::SOURCE_CONTENT_STALE_SECS - 1),
+            );
+
+        assert!(registry
+            .active_urls(1, &HashSet::new(), &HashSet::new())
+            .is_empty());
+    }
+
+    #[test]
+    fn stale_probe_selection_prefers_oldest_content_and_skips_active_sources() {
+        let now = super::SOURCE_CONTENT_STALE_SECS + 20_000;
+        let mut registry = Registry::new(now);
+        for (url, changed_at) in [
+            (
+                "source-oldest",
+                now - super::SOURCE_CONTENT_STALE_SECS - 10_000,
+            ),
+            (
+                "source-newer",
+                now - super::SOURCE_CONTENT_STALE_SECS - 5_000,
+            ),
+            ("source-fresh", now - 10),
+        ] {
+            let candidate = Candidate {
+                url: url.to_string(),
+                repo: "example/repo".to_string(),
+                repo_rank: 0,
+                priority: super::README_CANDIDATE_PRIORITY,
+            };
+            registry.add_candidate(&candidate, now);
+            registry.record_content_fingerprint(url, "baseline", changed_at);
+            registry
+                .sources_mut()
+                .get_mut(url)
+                .and_then(Value::as_object_mut)
+                .expect("source record exists")
+                .insert("content_changed_at".into(), Value::from(changed_at));
+        }
+
+        assert_eq!(
+            registry.stale_probe_urls(1, &HashSet::from(["source-fresh".to_string()])),
+            vec!["source-oldest".to_string()]
+        );
+    }
+
+    #[test]
+    fn stale_probe_selection_rotates_to_the_least_recently_checked_source() {
+        let now = super::SOURCE_CONTENT_STALE_SECS + 20_000;
+        let mut registry = Registry::new(now);
+        for (url, last_checked) in [("source-recent", now - 10), ("source-neglected", now - 100)] {
+            let candidate = Candidate {
+                url: url.to_string(),
+                repo: "example/repo".to_string(),
+                repo_rank: 0,
+                priority: super::README_CANDIDATE_PRIORITY,
+            };
+            registry.add_candidate(&candidate, now);
+            registry.record_content_fingerprint(
+                url,
+                "same-content",
+                now - super::SOURCE_CONTENT_STALE_SECS - 1,
+            );
+            registry
+                .sources_mut()
+                .get_mut(url)
+                .and_then(Value::as_object_mut)
+                .expect("source record exists")
+                .insert("last_checked".into(), Value::from(last_checked));
+        }
+
+        assert_eq!(
+            registry.stale_probe_urls(1, &HashSet::new()),
+            vec!["source-neglected".to_string()]
+        );
+    }
+
+    #[test]
+    fn content_fingerprint_changes_refresh_staleness_timestamp_only_on_change() {
+        let mut registry = Registry::new(10_000);
+        let candidate = Candidate {
+            url: "source-content".to_string(),
+            repo: "example/repo".to_string(),
+            repo_rank: 0,
+            priority: super::README_CANDIDATE_PRIORITY,
+        };
+        registry.add_candidate(&candidate, 1);
+        assert!(!registry.record_content_fingerprint(&candidate.url, "same", 100));
+        assert!(!registry.record_content_fingerprint(&candidate.url, "same", 200));
+        assert_eq!(
+            registry.sources()[&candidate.url]["content_changed_at"],
+            100u64
+        );
+        assert!(registry.record_content_fingerprint(&candidate.url, "changed", 300));
+        assert_eq!(
+            registry.sources()[&candidate.url]["content_changed_at"],
+            300u64
         );
     }
 
