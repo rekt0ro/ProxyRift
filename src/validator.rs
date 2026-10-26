@@ -5604,7 +5604,7 @@ mod tests {
     use super::*;
     use base64::engine::general_purpose::STANDARD;
     use reqwest::header::{HeaderMap, HeaderValue};
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
     #[test]
@@ -5670,6 +5670,16 @@ mod tests {
 
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let bytes_read = socket.read(&mut buffer).await.unwrap();
+                assert!(bytes_read > 0);
+                request.extend_from_slice(&buffer[..bytes_read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
             let response = b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n";
             socket.write_all(response).await.unwrap();
             socket.write_all(b"abcd").await.unwrap();
