@@ -3610,19 +3610,16 @@ async fn test_http_handshakes(
             &singbox_candidates,
             HTTP_HANDSHAKE_TARGET
         ),
-        validate_xray_http_candidates(
-            &xray_binary,
-            &xray_candidates,
-            HTTP_HANDSHAKE_TARGET
-        )
+        validate_xray_http_candidates(&xray_binary, &xray_candidates, HTTP_HANDSHAKE_TARGET)
     );
 
     let mut singbox_results = singbox_results?;
     let mut xray_results = xray_results?;
     let primary_rate_limits = proxyrift::validator::target_rate_limit_events(HTTP_HANDSHAKE_TARGET)
         .saturating_sub(rate_limits_before);
-    let primary_target_limited = proxyrift::validator::target_is_rate_limited(HTTP_HANDSHAKE_TARGET)
-        || primary_rate_limits >= 3;
+    let primary_target_limited =
+        proxyrift::validator::target_is_rate_limited(HTTP_HANDSHAKE_TARGET)
+            || primary_rate_limits >= 3;
 
     if primary_target_limited {
         let singbox_retry = singbox_candidates

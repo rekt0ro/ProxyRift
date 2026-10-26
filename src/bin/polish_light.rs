@@ -3506,8 +3506,8 @@ async fn validate_light_precheck(
     let mut singbox_metadata = singbox_result?;
     let mut xray_metadata = xray_result?;
     let primary_rate_limits = target_rate_limit_events(target).saturating_sub(rate_limits_before);
-    let primary_target_limited = proxyrift::validator::target_is_rate_limited(target)
-        || primary_rate_limits >= 3;
+    let primary_target_limited =
+        proxyrift::validator::target_is_rate_limited(target) || primary_rate_limits >= 3;
 
     if primary_target_limited {
         let singbox_retry = singbox_validation_candidates

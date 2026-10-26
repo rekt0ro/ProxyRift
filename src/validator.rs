@@ -3768,10 +3768,8 @@ fn xray_log_tail(log_path: &Path) -> String {
     }
 
     let uuid_pattern = XRAY_UUID_PATTERN.get_or_init(|| {
-        regex::Regex::new(
-            r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
-        )
-        .expect("valid Xray log redaction pattern")
+        regex::Regex::new(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
+            .expect("valid Xray log redaction pattern")
     });
     let secret_pattern = XRAY_SECRET_PATTERN.get_or_init(|| {
         regex::Regex::new(
