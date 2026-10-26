@@ -5942,9 +5942,10 @@ mod tests {
 
     #[test]
     fn xray_rejects_public_unencrypted_vless_before_starting_core() {
-        let config =
-            parse_config("vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none")
-                .expect("plaintext VLESS should parse for compatible backends");
+        let config = parse_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none",
+        )
+        .expect("plaintext VLESS should parse for compatible backends");
         let (supported, rejected) = xray_compatibility_filter(vec![(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none"
                 .to_string(),
@@ -5953,7 +5954,9 @@ mod tests {
 
         assert!(supported.is_empty());
         assert_eq!(rejected.len(), 1);
-        assert!(rejected[0].1.contains("without TLS/REALITY or VLESS encryption"));
+        assert!(rejected[0]
+            .1
+            .contains("without TLS/REALITY or VLESS encryption"));
     }
 
     #[test]
