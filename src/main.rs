@@ -278,10 +278,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let root = project_root()?;
     let sources_path = root.join("sources.txt");
     let output_dir = root.join("subscriptions");
+    let stale_probes_path = output_dir.join(".stale-source-probes.txt");
     fs::create_dir_all(&output_dir).await?;
 
-    let sources = load_sources(&sources_path).await?;
-    println!("[INFO] Loaded {} sources", sources.len());
+    let active_sources = load_sources(&sources_path).await?;
+    let active_set = active_sources.iter().cloned().collect::<HashSet<_>>();
+    let stale_probe_sources = load_sources_if_exists(&stale_probes_path)
+        .await?
+        .into_iter()
+        .filter(|url| !active_set.contains(url))
+        .collect::<Vec<_>>();
+    let probe_only_sources = stale_probe_sources.iter().cloned().collect::<HashSet<_>>();
+    let mut sources = active_sources.clone();
+    sources.extend(stale_probe_sources.iter().cloned());
+    println!(
+        "[INFO] Loaded {} active sources | {} stale-content probes (probe results are ignored unless the feed changed)",
+        active_sources.len(),
+        stale_probe_sources.len()
+    );
 
     macro_rules! source_detail {
         ($($arg:tt)*) => {
@@ -305,7 +319,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         source_detail!(
                             "[WARN] Source #{source_number} has an invalid or unsupported URL."
                         );
-                        return (source_index, Vec::new(), CollectionOutcome::Failed);
+                        return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                     }
                 };
 
@@ -316,7 +330,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         source_detail!(
                             "[WARN] Source #{source_number} rejected by safety policy: {reason}."
                         );
-                        return (source_index, Vec::new(), CollectionOutcome::Failed);
+                        return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                     }
                 };
 
@@ -333,14 +347,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                         "[WARN] Source #{source_number} exceeded the {}-redirect limit.",
                                         MAX_SOURCE_REDIRECTS
                                     );
-                                    return (source_index, Vec::new(), CollectionOutcome::Failed);
+                                    return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                 }
 
                                 let Some(location) = response.headers().get(LOCATION) else {
                                     source_detail!(
                                         "[WARN] Source #{source_number} returned HTTP status {status} without a Location header."
                                     );
-                                    return (source_index, Vec::new(), CollectionOutcome::Failed);
+                                    return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                 };
 
                                 let location = match location.to_str() {
@@ -350,7 +364,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                         source_detail!(
                                             "[WARN] Source #{source_number} returned an invalid redirect Location header."
                                         );
-                                        return (source_index, Vec::new(), CollectionOutcome::Failed);
+                                        return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                     }
                                 };
 
@@ -365,7 +379,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                                 source_detail!(
                                                     "[WARN] Source #{source_number} redirect rejected by safety policy: {reason}."
                                                 );
-                                                return (source_index, Vec::new(), CollectionOutcome::Failed);
+                                                return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                             }
                                         };
 
@@ -378,7 +392,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                         source_detail!(
                                             "[WARN] Source #{source_number} redirect rejected by safety policy: {reason}."
                                         );
-                                        return (source_index, Vec::new(), CollectionOutcome::Failed);
+                                        return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                     }
                                 }
                             }
@@ -407,14 +421,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 } else {
                                     CollectionOutcome::Failed
                                 };
-                                return (source_index, Vec::new(), outcome);
+                                return (source_index, Vec::new(), outcome, None);
                             }
 
                             if response
                                 .content_length()
                                 .is_some_and(|length| length > MAX_SOURCE_BYTES as u64)
                             {
-                                return (source_index, Vec::new(), CollectionOutcome::Failed);
+                                return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                             }
 
                             match read_source_body(response).await {
@@ -423,20 +437,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                     let configs = extract_configs(&text);
                                     let config_count = configs.len();
 
+                                    let fingerprint = source_content_fingerprint(&configs);
                                     return (
                                         source_index,
                                         configs,
                                         CollectionOutcome::Success(config_count),
+                                        Some(fingerprint),
                                     );
                                 }
 
                                 Err(SourceBodyError::TooLarge) => {
-                                    return (source_index, Vec::new(), CollectionOutcome::Failed);
+                                    return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                 }
 
                                 Err(SourceBodyError::Read) => {
                                     source_detail!("[INFO] Failed to read source #{source_number}.");
-                                    return (source_index, Vec::new(), CollectionOutcome::Failed);
+                                    return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                 }
                             }
                         }
@@ -455,7 +471,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             source_detail!(
                                 "[WARN] Failed to download source #{source_number}: {error}"
                             );
-                            return (source_index, Vec::new(), CollectionOutcome::Failed);
+                            return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                         }
                     }
                 }
@@ -464,11 +480,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         })
         .buffer_unordered(DOWNLOAD_CONCURRENCY.min(sources.len()).max(1));
 
-    let mut source_health = Vec::<(String, CollectionOutcome)>::with_capacity(sources.len());
+    let mut source_health =
+        Vec::<(String, CollectionOutcome, Option<String>)>::with_capacity(sources.len());
+    let mut fetched_configs = Vec::<(usize, Vec<String>)>::with_capacity(sources.len());
 
-    while let Some((source_index, configs, outcome)) = source_results.next().await {
+    while let Some((source_index, configs, outcome, fingerprint)) = source_results.next().await {
         let source_url = sources[source_index].clone();
-        source_health.push((source_url.clone(), outcome));
+        source_health.push((source_url, outcome, fingerprint));
+        fetched_configs.push((source_index, configs));
+    }
+
+    let changed_content_sources =
+        proxyrift::source_discovery::record_collection_results(&source_health).await?;
+    let mut stale_probes_unchanged = 0usize;
+    let mut stale_probes_reactivated = 0usize;
+
+    for (source_index, configs) in fetched_configs {
+        let source_url = sources[source_index].clone();
+        if probe_only_sources.contains(&source_url) {
+            if !changed_content_sources.contains(&source_url) {
+                stale_probes_unchanged += 1;
+                continue;
+            }
+            stale_probes_reactivated += 1;
+        }
 
         for config in configs {
             source_configs
@@ -478,7 +513,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
 
-    proxyrift::source_discovery::record_collection_results(&source_health).await?;
+    if !stale_probe_sources.is_empty() {
+        println!(
+            "[INFO] [Sources] Stale-content probe results | Checked: {} | Still unchanged: {} | Content changed, re-enabled for collection: {}",
+            stale_probe_sources.len(),
+            stale_probes_unchanged,
+            stale_probes_reactivated
+        );
+    }
 
     let mut warnings = source_http_warnings
         .lock()
@@ -487,7 +529,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let http_status_failures = warnings.len();
     let failed_sources = source_health
         .iter()
-        .filter(|(_, outcome)| {
+        .filter(|(_, outcome, _)| {
             matches!(
                 outcome,
                 CollectionOutcome::Failed | CollectionOutcome::PermanentlyFailed(_)
@@ -1098,6 +1140,43 @@ async fn load_sources(
         .map(ToOwned::to_owned)
         .collect())
 }
+async fn load_sources_if_exists(
+    path: &Path,
+) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    match fs::read_to_string(path).await {
+        Ok(content) => {
+            let mut seen = HashSet::new();
+            Ok(content
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .filter(|line| seen.insert(*line))
+                .map(ToOwned::to_owned)
+                .collect())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn source_content_fingerprint(configs: &[String]) -> String {
+    let mut canonical = configs.iter().map(String::as_str).collect::<Vec<_>>();
+    canonical.sort_unstable();
+    canonical.dedup();
+
+    let mut hasher = Blake2b::<U32>::new();
+    for config in canonical {
+        hasher.update(config.as_bytes());
+        hasher.update([0u8]);
+    }
+
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 
 fn config_pattern() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
