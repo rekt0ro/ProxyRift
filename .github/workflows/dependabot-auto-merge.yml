@@ -173,8 +173,6 @@ jobs:
               checks="${checks:-[]}"
 
               if [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]; then
-                # Legacy GITHUB_TOKEN-created PRs have an action_required pull_request CI row.
-                # Replace it with the workflow_dispatch run for this exact head SHA.
                 checks="$(jq '[.[] | select(.workflow != "CI")]' <<< "${checks}")"
                 pr_head_sha="$(jq -r '.head.sha // empty' <<< "${pr_data}")"
                 dispatch_runs="$(gh run list \
