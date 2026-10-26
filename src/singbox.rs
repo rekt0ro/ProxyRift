@@ -2,11 +2,11 @@ use crate::validator::{
     adaptive_batch_size, config_label, healthy_targets, is_throughput_target,
     read_response_body_at_least, read_response_body_at_least_with_max_idle,
     read_response_body_limited_to, record_target_rate_limit, response_limit_for_target,
-    target_is_rate_limited, uses_udp_transport, ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
-    MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS,
-    STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS,
-    STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
-    SUSTAINED_THROUGHPUT_TIMEOUT,
+    target_is_rate_limited, uses_udp_transport, ProxyMetrics, ValidationPolicy,
+    GOOGLE_GENERATE_204_TARGET, MIN_RESPONSE_BYTES, MIN_SUCCESSFUL_ATTEMPTS,
+    MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS, STRICT_INTER_ATTEMPT_DELAY,
+    STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS, STRICT_MIN_SUCCESSFUL_TARGETS,
+    STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS, SUSTAINED_THROUGHPUT_TIMEOUT,
 };
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
@@ -1291,7 +1291,7 @@ fn client_for_port(
 }
 
 fn valid_probe_status(url: &str, status: u16) -> bool {
-    url != TARGET || status == 204
+    (url != TARGET && url != GOOGLE_GENERATE_204_TARGET) || status == 204
 }
 
 fn valid_probe_body(url: &str, body: &[u8]) -> bool {
@@ -1311,6 +1311,10 @@ async fn request_url(
     url: &str,
     minimum_body_bytes: Option<usize>,
 ) -> Result<crate::validator::ProbeSample, String> {
+    if target_is_rate_limited(url) {
+        return Err("target cooling down after repeated HTTP 429 responses".to_string());
+    }
+
     let started = std::time::Instant::now();
     let minimum_body_bytes = minimum_body_bytes
         .map(|minimum| crate::validator::minimum_probe_body_bytes_for_target(url, minimum));
@@ -2792,6 +2796,8 @@ mod tests {
         assert_eq!(TARGET, "http://cp.cloudflare.com/");
         assert!(valid_probe_status(TARGET, 204));
         assert!(!valid_probe_status(TARGET, 200));
+        assert!(valid_probe_status(GOOGLE_GENERATE_204_TARGET, 204));
+        assert!(!valid_probe_status(GOOGLE_GENERATE_204_TARGET, 200));
         assert!(valid_probe_status("https://example.com/", 200));
     }
 

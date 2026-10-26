@@ -81,6 +81,7 @@ const LIGHT_TRAINING_PATH: &str = "subscriptions/light-training.jsonl";
 const LIGHT_TRAINING_STATS_PATH: &str = "subscriptions/light-training-stats.json";
 const LIGHT_SUBSCRIPTION_PATH: &str = "subscriptions/light.txt";
 const LIGHT_CANDIDATE_LEDGER_PATH: &str = "subscriptions/light-candidate-ledger.json";
+const LIGHT_PRECHECK_FALLBACK_TARGET: &str = proxyrift::validator::GOOGLE_GENERATE_204_TARGET;
 const REVALIDATION_WINDOW_SECS: u64 = 24 * 60 * 60;
 const REVALIDATED_CANDIDATE_PERCENT: usize = 20;
 const MAX_CANDIDATE_LEDGER_ENTRIES: usize = 10_000;
@@ -3466,6 +3467,7 @@ async fn validate_light_precheck(
 
     let request_timeout = std::time::Duration::try_from_secs_f64(settings.timeout_seconds)
         .map_err(|_| "invalid precheck timeout: value overflows Duration".to_string())?;
+    let rate_limits_before = target_rate_limit_events(target);
 
     let singbox_future = async {
         if singbox_validation_candidates.is_empty() {
@@ -3501,8 +3503,69 @@ async fn validate_light_precheck(
     };
 
     let (singbox_result, xray_result) = tokio::join!(singbox_future, xray_future);
-    let singbox_metadata = singbox_result?;
+    let mut singbox_metadata = singbox_result?;
     let mut xray_metadata = xray_result?;
+    let primary_rate_limits = target_rate_limit_events(target).saturating_sub(rate_limits_before);
+    let primary_target_limited =
+        proxyrift::validator::target_is_rate_limited(target) || primary_rate_limits >= 3;
+
+    if primary_target_limited {
+        let singbox_retry = singbox_validation_candidates
+            .iter()
+            .filter(|config| !singbox_metadata.contains_key(*config))
+            .cloned()
+            .collect::<Vec<_>>();
+        let xray_retry = xray_candidates
+            .iter()
+            .filter(|config| !xray_metadata.contains_key(*config))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if !singbox_retry.is_empty() || !xray_retry.is_empty() {
+            println!(
+                "[INFO] [Light HTTP precheck] Primary target cooling down | New HTTP 429s: {} | Retrying {} candidates with Google | Target: {}",
+                primary_rate_limits,
+                singbox_retry.len() + xray_retry.len(),
+                LIGHT_PRECHECK_FALLBACK_TARGET
+            );
+
+            let singbox_fallback_future = async {
+                if singbox_retry.is_empty() {
+                    Ok(HashMap::new())
+                } else {
+                    validate_singbox_target_once(
+                        singbox,
+                        &singbox_retry,
+                        LIGHT_PRECHECK_FALLBACK_TARGET,
+                        settings.workers.clamp(1, 40),
+                        request_timeout,
+                        settings.timeout_seconds * 1000.0,
+                    )
+                    .await
+                }
+            };
+            let xray_fallback_future = async {
+                if xray_retry.is_empty() {
+                    Ok(HashMap::new())
+                } else {
+                    validate_candidates_with_target_once(
+                        xray,
+                        &xray_retry,
+                        LIGHT_PRECHECK_FALLBACK_TARGET,
+                        settings.workers.max(1),
+                        settings.batch_size,
+                        settings.timeout_seconds,
+                        settings.timeout_seconds * 1000.0,
+                    )
+                    .await
+                }
+            };
+            let (singbox_fallback, xray_fallback) =
+                tokio::join!(singbox_fallback_future, xray_fallback_future);
+            singbox_metadata.extend(singbox_fallback?);
+            xray_metadata.extend(xray_fallback?);
+        }
+    }
 
     let fallback_retry = fallback_candidates
         .into_iter()
@@ -3510,15 +3573,20 @@ async fn validate_light_precheck(
         .collect::<Vec<_>>();
 
     if !fallback_retry.is_empty() {
+        let fallback_target = if primary_target_limited {
+            LIGHT_PRECHECK_FALLBACK_TARGET
+        } else {
+            target
+        };
         println!(
             "[INFO] [Light HTTP precheck] Retrying {} fallback candidates with Xray | Target: {}",
             fallback_retry.len(),
-            target
+            fallback_target
         );
         let fallback_xray = validate_candidates_with_target_once(
             xray,
             &fallback_retry,
-            target,
+            fallback_target,
             settings.workers.max(1),
             settings.batch_size,
             settings.timeout_seconds,
@@ -3777,7 +3845,7 @@ async fn main() -> Result<(), String> {
     let (discovery_candidates, scheduled_repeat_count) =
         interleave_repeat_candidates(&ranked_discovery_candidates, &repeat_candidate_fingerprints);
     println!(
-        "[INFO] [Light] Start | Candidates: {} | New/expired: {} | Rechecks: {} | Cohorts: {} ({} configs; {} families) | Reusable Cloudflare checks: {} | Ranking: {} | Exploration: {}%",
+        "[INFO] [Light] Start | Candidates: {} | New/expired: {} | Rechecks: {} | Cohorts: {} ({} configs; {} families) | Reusable HTTP prechecks: {} | Ranking: {} | Exploration: {}%",
         discovery_candidates.len(),
         discovery_candidates.len().saturating_sub(scheduled_repeat_count),
         scheduled_repeat_count,
@@ -3942,7 +4010,7 @@ async fn main() -> Result<(), String> {
 
         let reused_prechecks = target_metadata.len();
         println!(
-            "[INFO] [Light] Wave {wave} | Candidates: {} | Cloudflare checks: {} new + {} reused | Xray-only skipped: {} | Cursor: {}/{} | Transfer-ready: {} | Publishable: {}",
+            "[INFO] [Light] Wave {wave} | Candidates: {} | HTTP prechecks: {} new + {} reused | Xray-only skipped: {} | Cursor: {}/{} | Transfer-ready: {} | Publishable: {}",
             chunk.len(),
             unprevalidated_chunk.len(),
             reused_prechecks,
@@ -4057,7 +4125,7 @@ async fn main() -> Result<(), String> {
                         .map(|(host, port)| format!("{host}:{port}"))
                         .unwrap_or_else(|| "unknown endpoint".to_string());
                     format!(
-                        "missing successful Cloudflare HTTP precheck metrics for Light candidate {candidate_endpoint}"
+                        "missing successful HTTP precheck metrics for Light candidate {candidate_endpoint}"
                     )
                 })?;
                 *final_attempts.entry(config.clone()).or_default() += 1;
@@ -4094,7 +4162,7 @@ async fn main() -> Result<(), String> {
         .len();
 
         println!(
-            "[INFO] [Light] Wave {wave} complete | Cloudflare passed: +{} | Pool: {} | Reachability: {} | Selectable: {}",
+            "[INFO] [Light] Wave {wave} complete | HTTP precheck passed: +{} | Pool: {} | Reachability: {} | Selectable: {}",
             chunk_verified_count,
             global_verified.len(),
             final_metadata.len(),
@@ -4104,7 +4172,7 @@ async fn main() -> Result<(), String> {
         if strict_selected.len() >= selection_limit {
             if !strict_pool_ready_logged {
                 println!(
-                    "[INFO] [Light] Cloudflare-prechecked pool reached {} | Starting stability and transfer validation",
+                    "[INFO] [Light] HTTP-prechecked pool reached {} | Starting stability and transfer validation",
                     selection_limit
                 );
                 strict_pool_ready_logged = true;
@@ -4177,7 +4245,7 @@ async fn main() -> Result<(), String> {
             if last_funnel_snapshot != Some(funnel_snapshot) {
                 proxyrift::emit_log_if!(
                     !proxyrift::compact_logs_enabled();
-                    "[INFO] [Light adaptive funnel] Cloudflare HTTP gate: {} | 1 MiB: {}/{} | 9 MiB sustained: {}/{} | Sub-light-ready: {}/{}",
+                    "[INFO] [Light adaptive funnel] HTTP precheck gate: {} | 1 MiB: {}/{} | 9 MiB sustained: {}/{} | Sub-light-ready: {}/{}",
                     final_metadata.len(),
                     stability_verified.len(),
                     stability_tested.len(),
@@ -4553,7 +4621,7 @@ async fn main() -> Result<(), String> {
         run_timestamp,
     )?;
     println!(
-        "[INFO] [Light] Validation result | Selected: {}/{} | New: {} | Revalidated: {} | Fresh families: {} | Cloudflare: {} | 1 MiB stability: {}/{} | 9 MiB sustained: {}/{}",
+        "[INFO] [Light] Validation result | Selected: {}/{} | New: {} | Revalidated: {} | Fresh families: {} | HTTP precheck: {} | 1 MiB stability: {}/{} | 9 MiB sustained: {}/{}",
         selected.len(),
         selection_limit,
         selected_new_count,
