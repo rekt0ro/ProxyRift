@@ -3544,6 +3544,36 @@ fn unique_parsed(candidates: &[String]) -> (Vec<ParsedConfig>, Vec<RejectedConfi
     (parsed, rejected)
 }
 
+fn xray_rejects_unencrypted_vless(value: &Value) -> bool {
+    if !value
+        .get("protocol")
+        .and_then(Value::as_str)
+        .is_some_and(|protocol| protocol.eq_ignore_ascii_case("vless"))
+    {
+        return false;
+    }
+
+    let security = value
+        .get("streamSettings")
+        .and_then(|settings| settings.get("security"))
+        .and_then(Value::as_str)
+        .unwrap_or("none");
+    if !security.is_empty() && !security.eq_ignore_ascii_case("none") {
+        return false;
+    }
+
+    let encryption = value
+        .get("settings")
+        .and_then(|settings| settings.get("vnext"))
+        .and_then(|vnext| vnext.get(0))
+        .and_then(|server| server.get("users"))
+        .and_then(|users| users.get(0))
+        .and_then(|user| user.get("encryption"))
+        .and_then(Value::as_str)
+        .unwrap_or("none");
+    encryption.is_empty() || encryption.eq_ignore_ascii_case("none")
+}
+
 fn xray_compatibility_filter(
     parsed: Vec<ParsedConfig>,
 ) -> (Vec<ParsedConfig>, Vec<RejectedConfig>) {
@@ -3566,6 +3596,11 @@ fn xray_compatibility_filter(
             rejected.push((
                 config,
                 "V2Ray QUIC transport must use the sing-box-compatible backend".to_string(),
+            ));
+        } else if xray_rejects_unencrypted_vless(&value) {
+            rejected.push((
+                config,
+                "Xray rejects public VLESS without TLS/REALITY or VLESS encryption; use sing-box when supported".to_string(),
             ));
         } else {
             supported.push((config, value));
@@ -4606,72 +4641,30 @@ fn target_status_is_healthy(status: u16) -> bool {
     (200..300).contains(&status) && status != 429
 }
 
-type LoggedTargetOrders = HashSet<(Vec<String>, Vec<String>)>;
-
-fn should_log_target_order(pool: &[String], hosts: &[String]) -> bool {
-    static LOGGED_HOST_ORDERS: OnceLock<Mutex<LoggedTargetOrders>> = OnceLock::new();
-    let mut pool_key = pool.to_vec();
-    pool_key.sort_unstable();
-    pool_key.dedup();
-    let mut logged = LOGGED_HOST_ORDERS
-        .get_or_init(|| Mutex::new(HashSet::new()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    logged.insert((pool_key, hosts.to_vec()))
-}
-
 pub(crate) async fn healthy_targets(targets: &[Url], minimum: usize) -> Vec<Url> {
     if targets.is_empty() {
         return Vec::new();
     }
 
-    let pool_key = targets
-        .iter()
-        .map(|target| {
-            target
-                .host_str()
-                .unwrap_or(target.as_str())
-                .to_ascii_lowercase()
-        })
-        .collect::<Vec<_>>();
     let mut available = targets
         .iter()
         .filter(|target| !target_is_rate_limited(target.as_str()))
         .cloned()
         .collect::<Vec<_>>();
     sort_targets_by_performance(&mut available);
-    if !available.is_empty() {
-        let host_names = available
+    if !available.is_empty() && !crate::compact_logs_enabled() {
+        let host_order = available
             .iter()
             .map(|target| {
-                target
-                    .host_str()
-                    .unwrap_or(target.as_str())
-                    .to_ascii_lowercase()
+                format!(
+                    "{} [{}]",
+                    target.host_str().unwrap_or(target.as_str()),
+                    target_performance_diagnostics(target.as_str())
+                )
             })
-            .collect::<Vec<_>>();
-
-        if crate::compact_logs_enabled() {
-            if should_log_target_order(&pool_key, &host_names) {
-                println!(
-                    "[INFO] [Targets] Active validation hosts | {}",
-                    host_names.join(" -> ")
-                );
-            }
-        } else {
-            let host_order = available
-                .iter()
-                .map(|target| {
-                    format!(
-                        "{} [{}]",
-                        target.host_str().unwrap_or(target.as_str()),
-                        target_performance_diagnostics(target.as_str())
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(" -> ");
-            println!("[INFO] [Targets] Adaptive host order | {host_order}");
-        }
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        println!("[INFO] [Targets] Adaptive host order | {host_order}");
     }
 
     if available.is_empty() {
@@ -5945,6 +5938,38 @@ mod tests {
         let pinned = pin_xray_entries(&entries, &mut cache).await;
 
         assert!(pinned.is_empty());
+    }
+
+    #[test]
+    fn xray_rejects_public_unencrypted_vless_before_starting_core() {
+        let config =
+            parse_config("vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none")
+                .expect("plaintext VLESS should parse for compatible backends");
+        let (supported, rejected) = xray_compatibility_filter(vec![(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none"
+                .to_string(),
+            config,
+        )]);
+
+        assert!(supported.is_empty());
+        assert_eq!(rejected.len(), 1);
+        assert!(rejected[0].1.contains("without TLS/REALITY or VLESS encryption"));
+    }
+
+    #[test]
+    fn xray_keeps_vless_with_protocol_encryption_without_tls() {
+        let config = parse_config(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&encryption=mlkem768x25519plus",
+        )
+        .expect("VLESS protocol encryption should parse");
+        let (supported, rejected) = xray_compatibility_filter(vec![(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=none&encryption=mlkem768x25519plus"
+                .to_string(),
+            config,
+        )]);
+
+        assert_eq!(supported.len(), 1);
+        assert!(rejected.is_empty());
     }
 
     #[test]

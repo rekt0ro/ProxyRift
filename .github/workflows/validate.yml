@@ -109,7 +109,19 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-
+
+      - name: Restore legacy x64 Rust build cache
+        id: cargo-build-legacy-restore
+        if: runner.arch == 'X64' && steps.cargo-build-restore.outputs.cache-matched-key == ''
+        uses: actions/cache/restore@v6
+        with:
+          path: target
+          key: ${{ runner.os }}-legacy-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-
 
       - name: Shell syntax check
         run: |
@@ -259,4 +271,4 @@ jobs:
         continue-on-error: true
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-rust-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', '**/*.rs') }}
