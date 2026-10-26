@@ -23,7 +23,7 @@ use std::env;
 use std::process::Command;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use url::Url;
@@ -1688,6 +1688,16 @@ fn transfer_target_normalized_load(state: &TransferTargetState) -> f64 {
     state.tested as f64 / weight
 }
 
+fn initial_transfer_target_states(quarantined_targets: &HashSet<String>) -> Vec<TransferTargetState> {
+    proxyrift::validator::STRICT_THROUGHPUT_TARGETS
+        .iter()
+        .map(|target| TransferTargetState {
+            quarantined: quarantined_targets.contains(*target),
+            ..TransferTargetState::default()
+        })
+        .collect()
+}
+
 fn select_transfer_target(states: &[TransferTargetState]) -> Option<usize> {
     let eligible = states
         .iter()
@@ -2031,10 +2041,15 @@ async fn run_transfer_gate_consumer(
     transfer_tested_count: Arc<AtomicUsize>,
     transfer_passed_count: Arc<AtomicUsize>,
     transfer_done: Arc<AtomicBool>,
+    quarantined_targets: Arc<Mutex<HashSet<String>>>,
 ) -> Result<usize, String> {
     let target_count = proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len();
     let mut target_concurrency = vec![TransferConcurrencyState::default(); target_count];
-    let mut target_states = vec![TransferTargetState::default(); target_count];
+    let previously_quarantined = quarantined_targets
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    let mut target_states = initial_transfer_target_states(&previously_quarantined);
     let mut target_tested_candidates =
         vec![HashSet::<String>::new(); proxyrift::validator::STRICT_THROUGHPUT_TARGETS.len()];
     let mut pending = VecDeque::<String>::new();
@@ -2142,6 +2157,18 @@ async fn run_transfer_gate_consumer(
             let target = proxyrift::validator::STRICT_THROUGHPUT_TARGETS[index];
             if target_is_rate_limited(target) {
                 state.quarantined = true;
+            }
+        }
+        {
+            let mut run_quarantine = quarantined_targets
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            for (index, state) in target_states.iter().enumerate() {
+                if state.quarantined {
+                    run_quarantine.insert(
+                        proxyrift::validator::STRICT_THROUGHPUT_TARGETS[index].to_string(),
+                    );
+                }
             }
         }
 
@@ -2324,6 +2351,10 @@ async fn run_transfer_gate_consumer(
                 target_states[target_index].quarantined = true;
             }
             if target_states[target_index].quarantined && !target_state_before.quarantined {
+                quarantined_targets
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .insert(target.to_string());
                 let alternative_target_available = target_states
                     .iter()
                     .enumerate()
@@ -2482,6 +2513,7 @@ struct TransferGateRequest {
     repeat_candidate_fingerprints: HashSet<String>,
     recent_families: HashSet<String>,
     publication_target_reached: Arc<AtomicBool>,
+    quarantined_targets: Arc<Mutex<HashSet<String>>>,
     selection_limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
@@ -2510,6 +2542,7 @@ fn spawn_transfer_gate(request: TransferGateRequest) -> TransferGateTask {
             &request.repeat_candidate_fingerprints,
             &request.recent_families,
             request.publication_target_reached.clone(),
+            request.quarantined_targets.clone(),
             request.selection_limit,
             request.max_per_endpoint,
             request.max_per_family,
@@ -2553,6 +2586,7 @@ async fn fill_transfer_gate(
     repeat_candidate_fingerprints: &HashSet<String>,
     recent_families: &HashSet<String>,
     publication_target_reached: Arc<AtomicBool>,
+    quarantined_targets: Arc<Mutex<HashSet<String>>>,
     selection_limit: usize,
     max_per_endpoint: usize,
     max_per_family: usize,
@@ -2610,6 +2644,7 @@ async fn fill_transfer_gate(
         transfer_tested_count,
         transfer_passed_count,
         transfer_done.clone(),
+        quarantined_targets.clone(),
     );
 
     let (stability_result, transfer_result) = tokio::join!(stability_future, transfer_future);
@@ -3862,6 +3897,7 @@ async fn main() -> Result<(), String> {
     let mut strict_pool_ready_logged = false;
     let mut downstream_gate: Option<TransferGateTask> = None;
     let mut downstream_gate_candidate_count = 0usize;
+    let quarantined_transfer_targets = Arc::new(Mutex::new(HashSet::<String>::new()));
     let mut discovery_batch_floor = DISCOVERY_BATCH_MIN;
     let mut last_funnel_snapshot = None;
     let publication_target_reached = Arc::new(AtomicBool::new(false));
@@ -4193,6 +4229,7 @@ async fn main() -> Result<(), String> {
                     repeat_candidate_fingerprints: repeat_candidate_fingerprints.clone(),
                     recent_families: recent_families.clone(),
                     publication_target_reached: publication_target_reached.clone(),
+                    quarantined_targets: quarantined_transfer_targets.clone(),
                     selection_limit,
                     max_per_endpoint,
                     max_per_family,
@@ -4400,6 +4437,7 @@ async fn main() -> Result<(), String> {
         &repeat_candidate_fingerprints,
         &recent_families,
         publication_target_reached.clone(),
+        quarantined_transfer_targets.clone(),
         selection_limit,
         max_per_endpoint,
         max_per_family,
@@ -5075,7 +5113,7 @@ mod tests {
 
         let targets = proxyrift::validator::STRICT_THROUGHPUT_TARGETS;
         assert!(targets.contains(&proxyrift::validator::STRICT_THROUGHPUT_TARGET));
-        assert!(targets.contains(&proxyrift::validator::LINODE_SPEEDTEST_100MB_TARGET));
+        assert!(targets.contains(&proxyrift::validator::WOBCOM_SPEEDTEST_100MB_TARGET));
         assert!(targets.contains(&proxyrift::validator::TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
         assert!(targets.contains(&proxyrift::validator::CACHEFLY_SPEEDTEST_100MB_TARGET));
         assert_eq!(
@@ -5087,6 +5125,21 @@ mod tests {
                 || target.contains("hetzner.com")
                 || target.contains("tele2.net")
         }));
+    }
+
+
+    #[test]
+    fn quarantined_transfer_targets_stay_excluded_when_gate_restarts() {
+        let target = proxyrift::validator::WOBCOM_SPEEDTEST_100MB_TARGET;
+        let quarantined = HashSet::from([target.to_string()]);
+        let states = initial_transfer_target_states(&quarantined);
+        let index = proxyrift::validator::STRICT_THROUGHPUT_TARGETS
+            .iter()
+            .position(|candidate| *candidate == target)
+            .expect("Wobcom endpoint is part of the transfer target pool");
+
+        assert!(states[index].quarantined);
+        assert_ne!(select_transfer_target(&states), Some(index));
     }
 
     #[test]
