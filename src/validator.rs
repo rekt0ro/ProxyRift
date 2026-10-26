@@ -3745,7 +3745,7 @@ fn start_xray(
         .map_err(|error| error.to_string())
 }
 
-fn xray_log_tail(log_path: &Path) -> String {
+fn xray_log_tail(log_path: &std::path::Path) -> String {
     static XRAY_UUID_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
     static XRAY_SECRET_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
 
