@@ -18,20 +18,19 @@ use url::{Host, Url};
 pub const PRIMARY_TARGET: &str = "http://cp.cloudflare.com/";
 pub const GOOGLE_GENERATE_204_TARGET: &str = "https://www.google.com/generate_204";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speedtest2.serverius.net/files/100mb.bin";
-pub const LINODE_SPEEDTEST_100MB_TARGET: &str =
-    "https://speedtest.newark.linode.com/100MB-newark.bin";
+pub const WOBCOM_SPEEDTEST_100MB_TARGET: &str = "https://speedtest.wobcom.de/sparsefiles/100M";
 pub const TRUEFILESIZE_SPEEDTEST_100MB_TARGET: &str =
     "https://cdn.truefilesize.com/test/test-10mb.bin";
 pub const CACHEFLY_SPEEDTEST_100MB_TARGET: &str = "https://cachefly.cachefly.net/100mb.test";
 pub const STRICT_THROUGHPUT_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
-    LINODE_SPEEDTEST_100MB_TARGET,
+    WOBCOM_SPEEDTEST_100MB_TARGET,
     TRUEFILESIZE_SPEEDTEST_100MB_TARGET,
     CACHEFLY_SPEEDTEST_100MB_TARGET,
 ];
 pub const LIGHT_TRANSFER_STABILITY_TARGETS: &[&str] = &[
     STRICT_THROUGHPUT_TARGET,
-    LINODE_SPEEDTEST_100MB_TARGET,
+    WOBCOM_SPEEDTEST_100MB_TARGET,
     TRUEFILESIZE_SPEEDTEST_100MB_TARGET,
     CACHEFLY_SPEEDTEST_100MB_TARGET,
 ];
@@ -5702,6 +5701,10 @@ mod tests {
     #[test]
     fn transfer_targets_have_four_independent_external_download_hosts() {
         assert_eq!(STRICT_THROUGHPUT_TARGETS.len(), 4);
+        assert_eq!(
+            WOBCOM_SPEEDTEST_100MB_TARGET,
+            "https://speedtest.wobcom.de/sparsefiles/100M"
+        );
         assert_eq!(LIGHT_TRANSFER_STABILITY_TARGETS.len(), 4);
 
         let hosts = STRICT_THROUGHPUT_TARGETS
@@ -5710,7 +5713,7 @@ mod tests {
             .collect::<HashSet<_>>();
         assert_eq!(hosts.len(), 4);
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&STRICT_THROUGHPUT_TARGET));
-        assert!(STRICT_THROUGHPUT_TARGETS.contains(&LINODE_SPEEDTEST_100MB_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&WOBCOM_SPEEDTEST_100MB_TARGET));
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&CACHEFLY_SPEEDTEST_100MB_TARGET));
         assert!(!STRICT_THROUGHPUT_TARGETS
@@ -6142,7 +6145,7 @@ mod tests {
         assert_eq!(LIGHT_TRANSFER_STABILITY_TARGETS.len(), 4);
         assert_eq!(LIGHT_TRANSFER_MINIMUM_TARGETS, 1);
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&STRICT_THROUGHPUT_TARGET));
-        assert!(STRICT_THROUGHPUT_TARGETS.contains(&LINODE_SPEEDTEST_100MB_TARGET));
+        assert!(STRICT_THROUGHPUT_TARGETS.contains(&WOBCOM_SPEEDTEST_100MB_TARGET));
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&TRUEFILESIZE_SPEEDTEST_100MB_TARGET));
         assert!(STRICT_THROUGHPUT_TARGETS.contains(&CACHEFLY_SPEEDTEST_100MB_TARGET));
         for target in STRICT_THROUGHPUT_TARGETS {
