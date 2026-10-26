@@ -4396,20 +4396,20 @@ mod tests {
 
     #[test]
     fn content_unchanged_for_two_hours_stays_active_but_older_content_is_excluded() {
-        let now = SOURCE_CONTENT_STALE_SECS + 10_000;
+        let now = super::SOURCE_CONTENT_STALE_SECS + 10_000;
         let mut registry = Registry::new(now);
         let candidate = Candidate {
             url: "https://raw.githubusercontent.com/example/repo/main/subscriptions/all.txt"
                 .to_string(),
             repo: "example/repo".to_string(),
             repo_rank: 0,
-            priority: README_CANDIDATE_PRIORITY,
+            priority: super::README_CANDIDATE_PRIORITY,
         };
         registry.add_candidate(&candidate, now);
         registry.record_content_fingerprint(
             &candidate.url,
             "fingerprint-v1",
-            now - SOURCE_CONTENT_STALE_SECS,
+            now - super::SOURCE_CONTENT_STALE_SECS,
         );
 
         assert_eq!(
@@ -4424,7 +4424,7 @@ mod tests {
             .expect("source record exists")
             .insert(
                 "content_changed_at".into(),
-                Value::from(now - SOURCE_CONTENT_STALE_SECS - 1),
+                Value::from(now - super::SOURCE_CONTENT_STALE_SECS - 1),
             );
 
         assert!(registry
@@ -4434,18 +4434,18 @@ mod tests {
 
     #[test]
     fn stale_probe_selection_prefers_oldest_content_and_skips_active_sources() {
-        let now = SOURCE_CONTENT_STALE_SECS + 20_000;
+        let now = super::SOURCE_CONTENT_STALE_SECS + 20_000;
         let mut registry = Registry::new(now);
         for (url, changed_at) in [
-            ("source-oldest", now - SOURCE_CONTENT_STALE_SECS - 10_000),
-            ("source-newer", now - SOURCE_CONTENT_STALE_SECS - 5_000),
+            ("source-oldest", now - super::SOURCE_CONTENT_STALE_SECS - 10_000),
+            ("source-newer", now - super::SOURCE_CONTENT_STALE_SECS - 5_000),
             ("source-fresh", now - 10),
         ] {
             let candidate = Candidate {
                 url: url.to_string(),
                 repo: "example/repo".to_string(),
                 repo_rank: 0,
-                priority: README_CANDIDATE_PRIORITY,
+                priority: super::README_CANDIDATE_PRIORITY,
             };
             registry.add_candidate(&candidate, now);
             registry.record_content_fingerprint(url, "baseline", changed_at);
@@ -4470,7 +4470,7 @@ mod tests {
             url: "source-content".to_string(),
             repo: "example/repo".to_string(),
             repo_rank: 0,
-            priority: README_CANDIDATE_PRIORITY,
+            priority: super::README_CANDIDATE_PRIORITY,
         };
         registry.add_candidate(&candidate, 1);
         assert!(!registry.record_content_fingerprint(&candidate.url, "same", 100));
