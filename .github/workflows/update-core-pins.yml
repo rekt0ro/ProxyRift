@@ -36,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${CORE_PIN_UPDATE_TOKEN}" ]]; then
-            echo "::error::Configure repository secret CORE_PIN_UPDATE_TOKEN with a fine-grained PAT owned by the repository owner. Grant Contents and Pull requests read/write access. PRs created with GITHUB_TOKEN require manual workflow approval."
+            echo "::error::Configure repository secret CORE_PIN_UPDATE_TOKEN with a fine-grained PAT owned by the repository owner. Grant Contents, Pull requests, and Issues read/write access. PRs created with GITHUB_TOKEN require manual workflow approval."
             exit 1
           fi
 
