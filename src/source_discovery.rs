@@ -813,11 +813,7 @@ impl Registry {
             .collect::<Vec<_>>();
 
         stale.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
-        stale
-            .into_iter()
-            .take(limit)
-            .map(|(url, _)| url)
-            .collect()
+        stale.into_iter().take(limit).map(|(url, _)| url).collect()
     }
 
     fn record_outcome(&mut self, url: &str, outcome: CollectionOutcome, now: u64) {
@@ -1482,16 +1478,9 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     let mut repos = match search_repositories(&client, token.as_deref()).await {
         Ok(repos) => repos,
         Err(error) => {
-            let active = registry.active_urls(
-                MAX_ACTIVE_SOURCES,
-                &HashSet::new(),
-                &HashSet::new(),
-            );
+            let active = registry.active_urls(MAX_ACTIVE_SOURCES, &HashSet::new(), &HashSet::new());
             let active_set = active.iter().cloned().collect::<HashSet<_>>();
-            let probes = registry.stale_probe_urls(
-                MAX_STALE_SOURCE_PROBES_PER_RUN,
-                &active_set,
-            );
+            let probes = registry.stale_probe_urls(MAX_STALE_SOURCE_PROBES_PER_RUN, &active_set);
             if active.is_empty() && probes.is_empty() {
                 return Err(error);
             }
@@ -1544,10 +1533,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     if discovered.is_empty() {
         let active = persisted_active_sources(&registry).unwrap_or_default();
         let active_set = active.iter().cloned().collect::<HashSet<_>>();
-        let probes = registry.stale_probe_urls(
-            MAX_STALE_SOURCE_PROBES_PER_RUN,
-            &active_set,
-        );
+        let probes = registry.stale_probe_urls(MAX_STALE_SOURCE_PROBES_PER_RUN, &active_set);
 
         if active.is_empty() && probes.is_empty() {
             return Err("GitHub discovery produced no usable subscription sources".into());
@@ -1582,10 +1568,7 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
 
     let protected = ordered.iter().cloned().collect::<HashSet<_>>();
     let retired = registry.prune(MAX_REGISTRY_SOURCES, &protected);
-    let stale_probes = registry.stale_probe_urls(
-        MAX_STALE_SOURCE_PROBES_PER_RUN,
-        &protected,
-    );
+    let stale_probes = registry.stale_probe_urls(MAX_STALE_SOURCE_PROBES_PER_RUN, &protected);
 
     if ordered.is_empty() && stale_probes.is_empty() {
         return Err("GitHub discovery produced no usable subscription sources".into());
@@ -4416,7 +4399,8 @@ mod tests {
         let now = SOURCE_CONTENT_STALE_SECS + 10_000;
         let mut registry = Registry::new(now);
         let candidate = Candidate {
-            url: "https://raw.githubusercontent.com/example/repo/main/subscriptions/all.txt".to_string(),
+            url: "https://raw.githubusercontent.com/example/repo/main/subscriptions/all.txt"
+                .to_string(),
             repo: "example/repo".to_string(),
             repo_rank: 0,
             priority: README_CANDIDATE_PRIORITY,

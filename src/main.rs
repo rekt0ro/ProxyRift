@@ -1177,7 +1177,6 @@ fn source_content_fingerprint(configs: &[String]) -> String {
         .collect()
 }
 
-
 fn config_pattern() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
 
