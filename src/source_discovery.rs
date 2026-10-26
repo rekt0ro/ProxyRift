@@ -804,16 +804,24 @@ impl Registry {
                     return None;
                 }
 
+                let last_checked = record
+                    .get("last_checked")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default();
                 let changed_at = record
                     .get("content_changed_at")
                     .and_then(Value::as_u64)
                     .unwrap_or_default();
-                Some((url.clone(), changed_at))
+                Some((url.clone(), last_checked, changed_at))
             })
             .collect::<Vec<_>>();
 
-        stale.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
-        stale.into_iter().take(limit).map(|(url, _)| url).collect()
+        stale.sort_by(|a, b| {
+            a.1.cmp(&b.1)
+                .then_with(|| a.2.cmp(&b.2))
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        stale.into_iter().take(limit).map(|(url, _, _)| url).collect()
     }
 
     fn record_outcome(&mut self, url: &str, outcome: CollectionOutcome, now: u64) {
@@ -4466,6 +4474,37 @@ mod tests {
         assert_eq!(
             registry.stale_probe_urls(1, &HashSet::from(["source-fresh".to_string()])),
             vec!["source-oldest".to_string()]
+        );
+    }
+
+    #[test]
+    fn stale_probe_selection_rotates_to_the_least_recently_checked_source() {
+        let now = super::SOURCE_CONTENT_STALE_SECS + 20_000;
+        let mut registry = Registry::new(now);
+        for (url, last_checked) in [("source-recent", now - 10), ("source-neglected", now - 100)] {
+            let candidate = Candidate {
+                url: url.to_string(),
+                repo: "example/repo".to_string(),
+                repo_rank: 0,
+                priority: super::README_CANDIDATE_PRIORITY,
+            };
+            registry.add_candidate(&candidate, now);
+            registry.record_content_fingerprint(
+                url,
+                "same-content",
+                now - super::SOURCE_CONTENT_STALE_SECS - 1,
+            );
+            registry
+                .sources_mut()
+                .get_mut(url)
+                .and_then(Value::as_object_mut)
+                .expect("source record exists")
+                .insert("last_checked".into(), Value::from(last_checked));
+        }
+
+        assert_eq!(
+            registry.stale_probe_urls(1, &HashSet::new()),
+            vec!["source-neglected".to_string()]
         );
     }
 
