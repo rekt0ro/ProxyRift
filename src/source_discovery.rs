@@ -1578,9 +1578,10 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
         MAX_ACTIVE_SOURCES,
     );
 
-    let protected = ordered.iter().cloned().collect::<HashSet<_>>();
-    let retired = registry.prune(MAX_REGISTRY_SOURCES, &protected);
+    let mut protected = ordered.iter().cloned().collect::<HashSet<_>>();
     let stale_probes = registry.stale_probe_urls(MAX_STALE_SOURCE_PROBES_PER_RUN, &protected);
+    protected.extend(stale_probes.iter().cloned());
+    let retired = registry.prune(MAX_REGISTRY_SOURCES, &protected);
 
     if ordered.is_empty() && stale_probes.is_empty() {
         return Err("GitHub discovery produced no usable subscription sources".into());
