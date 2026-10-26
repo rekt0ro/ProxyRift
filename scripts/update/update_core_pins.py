@@ -4,6 +4,7 @@
 import gzip
 import json
 import os
+import platform
 import re
 import stat
 import subprocess
@@ -24,6 +25,7 @@ VERSION_PATTERN = re.compile(r"v([0-9]+\.[0-9]+\.[0-9]+)\Z")
 PLAIN_VERSION_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
 DIGEST_PATTERN = re.compile(r"sha256:([0-9a-fA-F]{64})\Z")
 PYTHON_DOWNLOADS_URL = "https://www.python.org/downloads/"
+PYTHON_SETUP_MANIFEST_URL = "https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json"
 RUBY_SETUP_MANIFEST_URL = "https://raw.githubusercontent.com/ruby/setup-ruby/master/ruby-builder-versions.json"
 
 
@@ -57,21 +59,26 @@ class PythonReleasePageParser(HTMLParser):
         self._anchor_text = None
 
 
-def latest_python_version(html):
-    """Return the first stable release listed on python.org's version-sorted page."""
+def stable_python_versions(html):
+    """Return stable Python releases in python.org's version-sorted order."""
     parser = PythonReleasePageParser()
     parser.feed(html)
     parser.close()
     if not parser.versions:
         raise ValueError("Could not find a stable Python X.Y.Z release on python.org")
-    version = parser.versions[0]
-    if PLAIN_VERSION_PATTERN.fullmatch(version) is None:
-        raise ValueError(f"Invalid stable Python version: {version!r}")
-    return version
+    for version in parser.versions:
+        if PLAIN_VERSION_PATTERN.fullmatch(version) is None:
+            raise ValueError(f"Invalid stable Python version: {version!r}")
+    return parser.versions
 
 
-def fetch_latest_python_version():
-    """Fetch Python's latest stable release from its official downloads page."""
+def latest_python_version(html):
+    """Return the first stable release listed on python.org's version-sorted page."""
+    return stable_python_versions(html)[0]
+
+
+def fetch_python_downloads_html():
+    """Fetch and decode python.org's stable-release listing."""
     request = Request(
         PYTHON_DOWNLOADS_URL,
         headers={
@@ -91,7 +98,8 @@ def fetch_latest_python_version():
             ):
                 payload = gzip.decompress(payload)
             html = payload.decode("utf-8")
-            return latest_python_version(html)
+            stable_python_versions(html)
+            return html
         except HTTPError as error:
             if error.code not in (403, 429) and 400 <= error.code < 500:
                 raise RuntimeError(
@@ -115,9 +123,139 @@ def fetch_latest_python_version():
     raise AssertionError("Retry loop exited unexpectedly")
 
 
+def fetch_latest_python_version():
+    """Fetch Python's latest stable release from its official downloads page."""
+    return latest_python_version(fetch_python_downloads_html())
+
+
 MAX_ATTEMPTS = 5
 REQUEST_TIMEOUT_SECONDS = 15
 RETRY_DELAY_SECONDS = 2
+
+
+def latest_supported_python_version(html, manifest, ubuntu_version, architecture):
+    """Choose the newest python.org stable release installable by setup-python here."""
+    stable_versions = stable_python_versions(html)
+    if not isinstance(manifest, list):
+        raise ValueError("actions/setup-python manifest must be a list")
+    if re.fullmatch(r"[0-9]+\.[0-9]+", ubuntu_version) is None:
+        raise ValueError(f"Invalid Ubuntu runner version: {ubuntu_version!r}")
+    if architecture not in {"x64", "arm64"}:
+        raise ValueError(f"Unsupported runner architecture: {architecture!r}")
+
+    available_versions = set()
+    for entry in manifest:
+        if not isinstance(entry, dict) or entry.get("stable") is not True:
+            continue
+        version = entry.get("version")
+        if not isinstance(version, str) or PLAIN_VERSION_PATTERN.fullmatch(version) is None:
+            continue
+        files = entry.get("files")
+        if not isinstance(files, list):
+            continue
+        expected_filename = f"python-{version}-linux-{ubuntu_version}-{architecture}.tar.gz"
+        if any(
+            isinstance(item, dict)
+            and item.get("platform") == "linux"
+            and isinstance(item.get("download_url"), str)
+            and urlparse(item["download_url"]).path.rsplit("/", 1)[-1] == expected_filename
+            for item in files
+        ):
+            available_versions.add(version)
+
+    for version in stable_versions:
+        if version in available_versions:
+            if version != stable_versions[0]:
+                print(
+                    f"[INFO] Python {stable_versions[0]} is not available in "
+                    f"actions/setup-python for Ubuntu {ubuntu_version} {architecture}; "
+                    f"using the latest available stable release, {version}.",
+                    file=sys.stderr,
+                )
+            return version
+
+    raise ValueError(
+        "No stable Python release listed by python.org is available in "
+        f"actions/setup-python for Ubuntu {ubuntu_version} {architecture}"
+    )
+
+
+def fetch_python_setup_manifest():
+    """Fetch the official actions/setup-python manifest with bounded retries."""
+    request = Request(
+        PYTHON_SETUP_MANIFEST_URL,
+        headers={
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+            "User-Agent": "ProxyRift core-pin updater",
+        },
+    )
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                manifest = json.load(response)
+            if not isinstance(manifest, list):
+                raise ValueError("actions/setup-python manifest must be a list")
+            return manifest
+        except HTTPError as error:
+            if error.code not in (403, 429) and 400 <= error.code < 500:
+                raise RuntimeError(
+                    f"actions/setup-python manifest returned HTTP {error.code}"
+                ) from error
+            cause = error
+        except (URLError, TimeoutError, json.JSONDecodeError, ValueError, OSError) as error:
+            cause = error
+
+        if attempt == MAX_ATTEMPTS:
+            raise RuntimeError(
+                f"Unable to fetch actions/setup-python manifest after "
+                f"{MAX_ATTEMPTS} attempts: {cause}"
+            ) from cause
+        print(
+            f"[WARN] setup-python manifest lookup failed on attempt "
+            f"{attempt}/{MAX_ATTEMPTS}: {cause}; retrying.",
+            file=sys.stderr,
+        )
+        time.sleep(RETRY_DELAY_SECONDS)
+
+    raise AssertionError("Retry loop exited unexpectedly")
+
+
+def current_python_setup_target():
+    """Return the active Ubuntu version and setup-python architecture label."""
+    try:
+        os_release = platform.freedesktop_os_release()
+    except (AttributeError, OSError) as error:
+        raise RuntimeError(f"Unable to read the Ubuntu runner version: {error}") from error
+    if os_release.get("ID") != "ubuntu":
+        raise RuntimeError("The core-pin updater must run on Ubuntu to resolve Python pins")
+    ubuntu_version = os_release.get("VERSION_ID", "")
+    if re.fullmatch(r"[0-9]+\.[0-9]+", ubuntu_version) is None:
+        raise RuntimeError(f"Invalid Ubuntu runner version: {ubuntu_version!r}")
+
+    machine = platform.machine().lower()
+    architecture = {
+        "x86_64": "x64",
+        "amd64": "x64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+    }.get(machine)
+    if architecture is None:
+        raise RuntimeError(f"Unsupported runner architecture: {machine!r}")
+    return ubuntu_version, architecture
+
+
+def fetch_latest_supported_python_version():
+    """Resolve the newest stable Python release that setup-python can install."""
+    html = fetch_python_downloads_html()
+    manifest = fetch_python_setup_manifest()
+    ubuntu_version, architecture = current_python_setup_target()
+    return latest_supported_python_version(
+        html,
+        manifest,
+        ubuntu_version,
+        architecture,
+    )
 
 
 def latest_supported_ruby_version(manifest):
@@ -526,7 +664,7 @@ def main():
         name: fetch_release(repository, token)
         for name, repository in repositories.items()
     }
-    python_version = fetch_latest_python_version()
+    python_version = fetch_latest_supported_python_version()
     ruby_version = fetch_latest_supported_ruby_version()
     rust_version = fetch_latest_stable_version()
     python_version, ruby_version, rust_version, action_values = build_updates(
