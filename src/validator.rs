@@ -6012,12 +6012,12 @@ mod tests {
     #[test]
     fn xray_keeps_httpupgrade_transport_supported() {
         let config = parse_config(
-            "vless://00000000-0000-0000-0000-000000000001@example.com:80?type=httpupgrade",
+            "vless://00000000-0000-0000-0000-000000000001@example.com:80?security=tls&type=httpupgrade",
         )
         .expect("HTTPUpgrade should remain supported");
 
         let (supported, rejected) = xray_compatibility_filter(vec![(
-            "vless://00000000-0000-0000-0000-000000000001@example.com:80?type=httpupgrade"
+            "vless://00000000-0000-0000-0000-000000000001@example.com:80?security=tls&type=httpupgrade"
                 .to_string(),
             config,
         )]);
