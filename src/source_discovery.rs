@@ -821,7 +821,11 @@ impl Registry {
                 .then_with(|| a.2.cmp(&b.2))
                 .then_with(|| a.0.cmp(&b.0))
         });
-        stale.into_iter().take(limit).map(|(url, _, _)| url).collect()
+        stale
+            .into_iter()
+            .take(limit)
+            .map(|(url, _, _)| url)
+            .collect()
     }
 
     fn record_outcome(&mut self, url: &str, outcome: CollectionOutcome, now: u64) {
