@@ -2,11 +2,11 @@ use crate::validator::{
     adaptive_batch_size, config_label, healthy_targets, is_throughput_target,
     read_response_body_at_least, read_response_body_at_least_with_max_idle,
     read_response_body_limited_to, record_target_rate_limit, response_limit_for_target,
-    target_is_rate_limited, uses_udp_transport, ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
-    MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, GOOGLE_GENERATE_204_TARGET, PRIMARY_TARGET,
-    STABILITY_ATTEMPTS,
-    STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS,
-    STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
+    target_is_rate_limited, uses_udp_transport, ProxyMetrics, ValidationPolicy,
+    GOOGLE_GENERATE_204_TARGET, MIN_RESPONSE_BYTES, MIN_SUCCESSFUL_ATTEMPTS,
+    MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS, STRICT_INTER_ATTEMPT_DELAY,
+    STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS, STRICT_MIN_SUCCESSFUL_TARGETS,
+    STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
     SUSTAINED_THROUGHPUT_TIMEOUT,
 };
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};

@@ -6059,8 +6059,8 @@ mod tests {
 
         let other = Url::parse("https://example.com/").expect("example target should parse");
         assert!(valid_probe_status(&other, 200));
-        let google = Url::parse(GOOGLE_GENERATE_204_TARGET)
-            .expect("Google fallback target should parse");
+        let google =
+            Url::parse(GOOGLE_GENERATE_204_TARGET).expect("Google fallback target should parse");
         assert!(valid_probe_status(&google, 204));
         assert!(!valid_probe_status(&google, 200));
         assert!(valid_probe_body(&google, &[]));
