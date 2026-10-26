@@ -1688,7 +1688,9 @@ fn transfer_target_normalized_load(state: &TransferTargetState) -> f64 {
     state.tested as f64 / weight
 }
 
-fn initial_transfer_target_states(quarantined_targets: &HashSet<String>) -> Vec<TransferTargetState> {
+fn initial_transfer_target_states(
+    quarantined_targets: &HashSet<String>,
+) -> Vec<TransferTargetState> {
     proxyrift::validator::STRICT_THROUGHPUT_TARGETS
         .iter()
         .map(|target| TransferTargetState {
@@ -2165,9 +2167,8 @@ async fn run_transfer_gate_consumer(
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             for (index, state) in target_states.iter().enumerate() {
                 if state.quarantined {
-                    run_quarantine.insert(
-                        proxyrift::validator::STRICT_THROUGHPUT_TARGETS[index].to_string(),
-                    );
+                    run_quarantine
+                        .insert(proxyrift::validator::STRICT_THROUGHPUT_TARGETS[index].to_string());
                 }
             }
         }
@@ -5126,7 +5127,6 @@ mod tests {
                 || target.contains("tele2.net")
         }));
     }
-
 
     #[test]
     fn quarantined_transfer_targets_stay_excluded_when_gate_restarts() {

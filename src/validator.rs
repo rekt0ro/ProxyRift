@@ -18,8 +18,7 @@ use url::{Host, Url};
 pub const PRIMARY_TARGET: &str = "http://cp.cloudflare.com/";
 pub const GOOGLE_GENERATE_204_TARGET: &str = "https://www.google.com/generate_204";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speedtest2.serverius.net/files/100mb.bin";
-pub const WOBCOM_SPEEDTEST_100MB_TARGET: &str =
-    "https://speedtest.wobcom.de/sparsefiles/100M";
+pub const WOBCOM_SPEEDTEST_100MB_TARGET: &str = "https://speedtest.wobcom.de/sparsefiles/100M";
 pub const TRUEFILESIZE_SPEEDTEST_100MB_TARGET: &str =
     "https://cdn.truefilesize.com/test/test-10mb.bin";
 pub const CACHEFLY_SPEEDTEST_100MB_TARGET: &str = "https://cachefly.cachefly.net/100mb.test";
