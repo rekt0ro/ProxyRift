@@ -30,6 +30,7 @@ cleanup_prefix() {
 cleanup_prefix "${RUNNER_OS_NAME}-${RUNNER_ARCH_NAME}-rust-toolchain-" "$RUST_TOOLCHAIN_KEY"
 cleanup_prefix "${RUNNER_OS_NAME}-cargo-registry-" "$REGISTRY_KEY"
 cleanup_prefix "${RUNNER_OS_NAME}-cargo-build-rust-" "$BUILD_KEY"
+cleanup_prefix "${RUNNER_OS_NAME}-${RUNNER_ARCH_NAME}-cargo-build-rust-" "$BUILD_KEY"
 cleanup_prefix "${RUNNER_OS_NAME}-xray-" "$XRAY_KEY"
 cleanup_prefix "${RUNNER_OS_NAME}-sing-box-" "$SINGBOX_KEY"
 cleanup_prefix "${RUNNER_OS_NAME}-mihomo-" "$MIHOMO_KEY"
