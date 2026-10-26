@@ -4437,8 +4437,14 @@ mod tests {
         let now = super::SOURCE_CONTENT_STALE_SECS + 20_000;
         let mut registry = Registry::new(now);
         for (url, changed_at) in [
-            ("source-oldest", now - super::SOURCE_CONTENT_STALE_SECS - 10_000),
-            ("source-newer", now - super::SOURCE_CONTENT_STALE_SECS - 5_000),
+            (
+                "source-oldest",
+                now - super::SOURCE_CONTENT_STALE_SECS - 10_000,
+            ),
+            (
+                "source-newer",
+                now - super::SOURCE_CONTENT_STALE_SECS - 5_000,
+            ),
             ("source-fresh", now - 10),
         ] {
             let candidate = Candidate {
