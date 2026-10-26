@@ -16,6 +16,7 @@ use tokio::time::{sleep, timeout};
 use url::{Host, Url};
 
 pub const PRIMARY_TARGET: &str = "http://cp.cloudflare.com/";
+pub const GOOGLE_GENERATE_204_TARGET: &str = "https://www.google.com/generate_204";
 pub const STRICT_THROUGHPUT_TARGET: &str = "https://speedtest2.serverius.net/files/100mb.bin";
 pub const LINODE_SPEEDTEST_100MB_TARGET: &str =
     "https://speedtest.newark.linode.com/100MB-newark.bin";
@@ -3866,7 +3867,7 @@ fn client_for_port(
 }
 
 fn valid_probe_status(url: &Url, status: u16) -> bool {
-    url.as_str() != PRIMARY_TARGET || status == 204
+    (url.as_str() != PRIMARY_TARGET && url.as_str() != GOOGLE_GENERATE_204_TARGET) || status == 204
 }
 
 pub(crate) fn throughput_bytes_for_target(url: &str) -> Option<usize> {
@@ -6058,9 +6059,10 @@ mod tests {
 
         let other = Url::parse("https://example.com/").expect("example target should parse");
         assert!(valid_probe_status(&other, 200));
-        let google = Url::parse("https://www.google.com/generate_204")
+        let google = Url::parse(GOOGLE_GENERATE_204_TARGET)
             .expect("Google fallback target should parse");
         assert!(valid_probe_status(&google, 204));
+        assert!(!valid_probe_status(&google, 200));
         assert!(valid_probe_body(&google, &[]));
     }
 

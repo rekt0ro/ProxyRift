@@ -3,7 +3,8 @@ use crate::validator::{
     read_response_body_at_least, read_response_body_at_least_with_max_idle,
     read_response_body_limited_to, record_target_rate_limit, response_limit_for_target,
     target_is_rate_limited, uses_udp_transport, ProxyMetrics, ValidationPolicy, MIN_RESPONSE_BYTES,
-    MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, PRIMARY_TARGET, STABILITY_ATTEMPTS,
+    MIN_SUCCESSFUL_ATTEMPTS, MIN_SUCCESSFUL_TARGETS, GOOGLE_GENERATE_204_TARGET, PRIMARY_TARGET,
+    STABILITY_ATTEMPTS,
     STRICT_INTER_ATTEMPT_DELAY, STRICT_LATE_SUCCESS_STREAK, STRICT_MIN_SUCCESSFUL_ATTEMPTS,
     STRICT_MIN_SUCCESSFUL_TARGETS, STRICT_RECONNECT_AFTER_ATTEMPTS, STRICT_STABILITY_ATTEMPTS,
     SUSTAINED_THROUGHPUT_TIMEOUT,
@@ -1291,7 +1292,7 @@ fn client_for_port(
 }
 
 fn valid_probe_status(url: &str, status: u16) -> bool {
-    url != TARGET || status == 204
+    (url != TARGET && url != GOOGLE_GENERATE_204_TARGET) || status == 204
 }
 
 fn valid_probe_body(url: &str, body: &[u8]) -> bool {
@@ -2796,6 +2797,8 @@ mod tests {
         assert_eq!(TARGET, "http://cp.cloudflare.com/");
         assert!(valid_probe_status(TARGET, 204));
         assert!(!valid_probe_status(TARGET, 200));
+        assert!(valid_probe_status(GOOGLE_GENERATE_204_TARGET, 204));
+        assert!(!valid_probe_status(GOOGLE_GENERATE_204_TARGET, 200));
         assert!(valid_probe_status("https://example.com/", 200));
     }
 
