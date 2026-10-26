@@ -67,8 +67,8 @@ pub const RATE_LIMIT_MAX_WAIT: Duration = Duration::from_secs(300);
 const RATE_LIMIT_JITTER_BASE_MS: u64 = 150;
 const RATE_LIMIT_JITTER_STEP_MS: u64 = 100;
 const TARGET_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(30);
-const TARGET_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(5 * 60);
-const TARGET_RATE_LIMIT_THRESHOLD: u8 = 3;
+const TARGET_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(90);
+const TARGET_RATE_LIMIT_THRESHOLD: u8 = 8;
 const TARGET_POOL_PROBE_CHUNK_SIZE: usize = 8;
 const TARGET_POOL_MAX_PROBE_CHUNK_SIZE: usize = 32;
 const TARGET_POOL_FAST_SCORE_THRESHOLD: f64 = 0.78;
@@ -3744,6 +3744,47 @@ fn start_xray(
         .map_err(|error| error.to_string())
 }
 
+fn xray_log_tail(log_path: &Path) -> String {
+    static XRAY_UUID_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
+    static XRAY_SECRET_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
+
+    let contents = std::fs::read_to_string(log_path).unwrap_or_default();
+    let tail = contents
+        .chars()
+        .rev()
+        .take(1200)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    let compact = tail
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if compact.is_empty() {
+        return "<no diagnostic output captured>".to_string();
+    }
+
+    let uuid_pattern = XRAY_UUID_PATTERN.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        )
+        .expect("valid Xray log redaction pattern")
+    });
+    let secret_pattern = XRAY_SECRET_PATTERN.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)\b(password|uuid|token|secret|authorization|private[_-]?key)\s*[:=]\s*([^\s,;]+)",
+        )
+        .expect("valid Xray secret redaction pattern")
+    });
+    let redacted_ids = uuid_pattern.replace_all(&compact, "<redacted-id>");
+    secret_pattern
+        .replace_all(redacted_ids.as_ref(), "$1=<redacted>")
+        .into_owned()
+}
+
 async fn ports_ready(child: &mut Child, ports: &[u16]) -> bool {
     let deadline = tokio::time::Instant::now() + CORE_START_TIMEOUT;
     let mut pending = ports.to_vec();
@@ -3950,7 +3991,7 @@ async fn probe_request_with_minimum_mode(
     minimum_body_bytes: Option<usize>,
     target_pool_mode: bool,
 ) -> Result<ProbeSample, ProbeError> {
-    if target_pool_mode && target_is_rate_limited(url.as_str()) {
+    if target_is_rate_limited(url.as_str()) {
         return Err(ProbeError::TargetCoolingDown);
     }
 
@@ -4047,7 +4088,7 @@ async fn probe_request_sustained_mode(
     max_idle_gap: Duration,
     target_pool_mode: bool,
 ) -> Result<ProbeSample, ProbeError> {
-    if target_pool_mode && target_is_rate_limited(url.as_str()) {
+    if target_is_rate_limited(url.as_str()) {
         return Err(ProbeError::TargetCoolingDown);
     }
 
@@ -4348,6 +4389,17 @@ async fn check_batch(
         };
 
         if !ports_ready(&mut child, &local_ports).await {
+            let failure_state = match child.try_wait().ok().flatten() {
+                Some(status) => format!(
+                    "process exited before listeners were ready (success={}, code={:?})",
+                    status.success(),
+                    status.code()
+                ),
+                None => format!(
+                    "listeners were not ready within {}s",
+                    CORE_START_TIMEOUT.as_secs()
+                ),
+            };
             core_failures += 1;
             let _ = child.kill();
             let _ = child.wait();
@@ -4382,7 +4434,11 @@ async fn check_batch(
 
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] [Xray] Core failure budget exhausted | Stopping further batch splits"
+                    "[WARN] [Xray] Core failure budget exhausted | Failures: {} | Batch configs: {} | State: {} | Xray log tail: {}",
+                    core_failures,
+                    batch_entries.len(),
+                    failure_state,
+                    xray_log_tail(&log_path)
                 );
                 let _ = fs::remove_dir_all(&work);
                 break;
@@ -4429,11 +4485,18 @@ async fn check_batch(
                 .collect::<Vec<_>>()
                 .await;
 
-            if child
-                .try_wait()
-                .map_err(|error| error.to_string())?
-                .is_some()
-            {
+            let core_status = child.try_wait().map_err(|error| error.to_string())?;
+            if core_status.is_some() {
+                let failure_state = core_status
+                    .as_ref()
+                    .map(|status| {
+                        format!(
+                            "process exited during probing (success={}, code={:?})",
+                            status.success(),
+                            status.code()
+                        )
+                    })
+                    .unwrap_or_else(|| "process exited during probing".to_string());
                 core_failures += 1;
                 if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
                     let mid = batch_entries.len() / 2;
@@ -4445,13 +4508,18 @@ async fn check_batch(
                         config_label(&batch_entries[0].0)
                     );
                 }
-                let _ = fs::remove_dir_all(&work);
                 if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                     println!(
-                        "[WARN] [Xray] Core failure budget exhausted | Stopping further batch splits"
+                        "[WARN] [Xray] Core failure budget exhausted | Failures: {} | Batch configs: {} | State: {} | Xray log tail: {}",
+                    core_failures,
+                    batch_entries.len(),
+                    failure_state,
+                    xray_log_tail(&log_path)
                     );
+                    let _ = fs::remove_dir_all(&work);
                     break;
                 }
+                let _ = fs::remove_dir_all(&work);
                 continue;
             }
 
@@ -5160,6 +5228,17 @@ async fn check_batch_targets(
         };
 
         if !ports_ready(&mut child, &local_ports).await {
+            let failure_state = match child.try_wait().ok().flatten() {
+                Some(status) => format!(
+                    "process exited before listeners were ready (success={}, code={:?})",
+                    status.success(),
+                    status.code()
+                ),
+                None => format!(
+                    "listeners were not ready within {}s",
+                    CORE_START_TIMEOUT.as_secs()
+                ),
+            };
             core_failures += 1;
             let _ = child.kill();
             let _ = child.wait();
@@ -5190,13 +5269,18 @@ async fn check_batch_targets(
                 }
             }
 
-            let _ = fs::remove_dir_all(&work);
             if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                 println!(
-                    "[WARN] [Xray] Core failure budget exhausted | Stopping further batch splits"
+                    "[WARN] [Xray] Core failure budget exhausted | Failures: {} | Batch configs: {} | State: {} | Xray log tail: {}",
+                    core_failures,
+                    batch_entries.len(),
+                    failure_state,
+                    xray_log_tail(&log_path)
                 );
+                let _ = fs::remove_dir_all(&work);
                 break;
             }
+            let _ = fs::remove_dir_all(&work);
             continue;
         }
 
@@ -5217,7 +5301,18 @@ async fn check_batch_targets(
             let pooled =
                 validate_clients_with_target_pool(&clients, targets, workers, policy).await;
 
-            if child.try_wait().ok().flatten().is_some() {
+            let core_status = child.try_wait().ok().flatten();
+            if core_status.is_some() {
+                let failure_state = core_status
+                    .as_ref()
+                    .map(|status| {
+                        format!(
+                            "process exited during pooled validation (success={}, code={:?})",
+                            status.success(),
+                            status.code()
+                        )
+                    })
+                    .unwrap_or_else(|| "process exited during pooled validation".to_string());
                 core_failures += 1;
                 if batch_entries.len() > 1 && core_failures < MAX_CORE_FAILURES_PER_VALIDATION {
                     let mid = batch_entries.len() / 2;
@@ -5232,13 +5327,18 @@ async fn check_batch_targets(
 
                 let _ = child.kill();
                 let _ = child.wait();
-                let _ = fs::remove_dir_all(&work);
                 if core_failures >= MAX_CORE_FAILURES_PER_VALIDATION {
                     println!(
-                        "[WARN] [Xray] Core failure budget exhausted | Stopping further batch splits"
+                        "[WARN] [Xray] Core failure budget exhausted | Failures: {} | Batch configs: {} | State: {} | Xray log tail: {}",
+                    core_failures,
+                    batch_entries.len(),
+                    failure_state,
+                    xray_log_tail(&log_path)
                     );
+                    let _ = fs::remove_dir_all(&work);
                     break;
                 }
+                let _ = fs::remove_dir_all(&work);
                 continue;
             }
 
@@ -5937,15 +6037,17 @@ mod tests {
         let target = format!("https://rate-limit-circuit-{suffix}.invalid/10mb.bin");
         let unrelated = "https://unrelated-rate-limit-circuit.invalid/10mb.bin";
 
-        assert!(!target_is_rate_limited(&target));
-        record_target_rate_limit(&target);
-        assert!(!target_is_rate_limited(&target));
-        record_target_rate_limit(&target);
-        assert!(!target_is_rate_limited(&target));
+        for _ in 0..TARGET_RATE_LIMIT_THRESHOLD.saturating_sub(1) {
+            record_target_rate_limit(&target);
+            assert!(!target_is_rate_limited(&target));
+        }
         record_target_rate_limit(&target);
 
         assert!(target_is_rate_limited(&target));
-        assert_eq!(target_rate_limit_events(&target), 3);
+        assert_eq!(
+            target_rate_limit_events(&target),
+            u64::from(TARGET_RATE_LIMIT_THRESHOLD)
+        );
         assert!(!target_is_rate_limited(unrelated));
     }
 
@@ -5958,6 +6060,10 @@ mod tests {
 
         let other = Url::parse("https://example.com/").expect("example target should parse");
         assert!(valid_probe_status(&other, 200));
+        let google = Url::parse("https://www.google.com/generate_204")
+            .expect("Google fallback target should parse");
+        assert!(valid_probe_status(&google, 204));
+        assert!(valid_probe_body(&google, &[]));
     }
 
     #[test]

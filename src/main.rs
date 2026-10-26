@@ -52,6 +52,7 @@ const MAX_ALL_PER_ENDPOINT: usize = 5;
 const MAX_ALL_PER_HOST: usize = 10;
 const MAX_ALL_PER_IP_NETWORK: usize = 40;
 const HTTP_HANDSHAKE_TARGET: &str = proxyrift::validator::PRIMARY_TARGET;
+const HTTP_HANDSHAKE_FALLBACK_TARGET: &str = "https://www.google.com/generate_204";
 const HTTP_HANDSHAKE_TIMEOUT_SECS: u64 = 3;
 const HTTP_HANDSHAKE_MAX_LATENCY_MS: f64 = (HTTP_HANDSHAKE_TIMEOUT_SECS * 1000) as f64;
 const HTTP_HANDSHAKE_WORKERS: usize = 64;
@@ -3460,6 +3461,7 @@ fn validation_binary_available(binary: &str) -> bool {
 async fn validate_singbox_http_candidates(
     binary: &str,
     candidates: &[String],
+    target: &str,
 ) -> Result<HashMap<String, ProxyMetrics>, String> {
     let mut verified = HashMap::new();
     let mut pending = candidates
@@ -3472,7 +3474,7 @@ async fn validate_singbox_http_candidates(
         match proxyrift::singbox::validate_candidates_with_target_once(
             binary,
             &batch,
-            HTTP_HANDSHAKE_TARGET,
+            target,
             HTTP_HANDSHAKE_WORKERS,
             Duration::from_secs(HTTP_HANDSHAKE_TIMEOUT_SECS),
             HTTP_HANDSHAKE_MAX_LATENCY_MS,
@@ -3513,6 +3515,7 @@ async fn validate_singbox_http_candidates(
 async fn validate_xray_http_candidates(
     binary: &str,
     candidates: &[String],
+    target: &str,
 ) -> Result<HashMap<String, ProxyMetrics>, String> {
     let mut verified = HashMap::new();
     let mut pending = candidates
@@ -3525,7 +3528,7 @@ async fn validate_xray_http_candidates(
         match proxyrift::validator::validate_candidates_with_target_once(
             binary,
             &batch,
-            HTTP_HANDSHAKE_TARGET,
+            target,
             HTTP_HANDSHAKE_WORKERS,
             HTTP_HANDSHAKE_BATCH_SIZE,
             HTTP_HANDSHAKE_TIMEOUT_SECS as f64,
@@ -3600,23 +3603,79 @@ async fn test_http_handshakes(
         return Err("Xray is required for HTTP-handshake candidate screening".to_string());
     }
 
+    let rate_limits_before = proxyrift::validator::target_rate_limit_events(HTTP_HANDSHAKE_TARGET);
     let (singbox_results, xray_results) = tokio::join!(
-        validate_singbox_http_candidates(&singbox_binary, &singbox_candidates),
-        validate_xray_http_candidates(&xray_binary, &xray_candidates)
+        validate_singbox_http_candidates(
+            &singbox_binary,
+            &singbox_candidates,
+            HTTP_HANDSHAKE_TARGET
+        ),
+        validate_xray_http_candidates(
+            &xray_binary,
+            &xray_candidates,
+            HTTP_HANDSHAKE_TARGET
+        )
     );
 
-    let singbox_results = singbox_results?;
+    let mut singbox_results = singbox_results?;
     let mut xray_results = xray_results?;
+    let primary_rate_limits = proxyrift::validator::target_rate_limit_events(HTTP_HANDSHAKE_TARGET)
+        .saturating_sub(rate_limits_before);
+    let primary_target_limited = proxyrift::validator::target_is_rate_limited(HTTP_HANDSHAKE_TARGET)
+        || primary_rate_limits >= 3;
+
+    if primary_target_limited {
+        let singbox_retry = singbox_candidates
+            .iter()
+            .filter(|config| !singbox_results.contains_key(*config))
+            .cloned()
+            .collect::<Vec<_>>();
+        let xray_retry = xray_candidates
+            .iter()
+            .filter(|config| !xray_results.contains_key(*config))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !singbox_retry.is_empty() || !xray_retry.is_empty() {
+            println!(
+                "[INFO] [HTTP handshake fallback] Primary target cooling down | New HTTP 429s: {} | Retrying {} candidates with Google",
+                primary_rate_limits,
+                singbox_retry.len() + xray_retry.len()
+            );
+            let (singbox_fallback, xray_fallback) = tokio::join!(
+                validate_singbox_http_candidates(
+                    &singbox_binary,
+                    &singbox_retry,
+                    HTTP_HANDSHAKE_FALLBACK_TARGET
+                ),
+                validate_xray_http_candidates(
+                    &xray_binary,
+                    &xray_retry,
+                    HTTP_HANDSHAKE_FALLBACK_TARGET
+                )
+            );
+            singbox_results.extend(singbox_fallback?);
+            xray_results.extend(xray_fallback?);
+        }
+    }
+
     let fallback_retry = fallback_candidates
         .into_iter()
         .filter(|config| !singbox_results.contains_key(config))
         .collect::<Vec<_>>();
     if !fallback_retry.is_empty() {
+        let fallback_target = if primary_target_limited {
+            HTTP_HANDSHAKE_FALLBACK_TARGET
+        } else {
+            HTTP_HANDSHAKE_TARGET
+        };
         println!(
-            "[INFO] [HTTP handshake fallback] Retrying {} candidates with Xray",
-            fallback_retry.len()
+            "[INFO] [HTTP handshake fallback] Retrying {} candidates with Xray | Target: {}",
+            fallback_retry.len(),
+            fallback_target
         );
-        xray_results.extend(validate_xray_http_candidates(&xray_binary, &fallback_retry).await?);
+        xray_results.extend(
+            validate_xray_http_candidates(&xray_binary, &fallback_retry, fallback_target).await?,
+        );
     }
 
     let singbox_passed_keys = singbox_results

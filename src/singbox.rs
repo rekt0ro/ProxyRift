@@ -1311,6 +1311,10 @@ async fn request_url(
     url: &str,
     minimum_body_bytes: Option<usize>,
 ) -> Result<crate::validator::ProbeSample, String> {
+    if target_is_rate_limited(url) {
+        return Err("target cooling down after repeated HTTP 429 responses".to_string());
+    }
+
     let started = std::time::Instant::now();
     let minimum_body_bytes = minimum_body_bytes
         .map(|minimum| crate::validator::minimum_probe_body_bytes_for_target(url, minimum));
