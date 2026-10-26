@@ -43,6 +43,15 @@ abort "Core-pin updater must emit a PR title and changelog body from resolved ve
     step["run"].include?("python3 scripts/update/update_core_pins.py")
 
 steps = workflow.dig("jobs", "update-pins", "steps")
+legacy_replacement = steps.find { |entry| entry["name"] == "Replace legacy bot-authored core-pin PR" }
+abort "Legacy bot PR replacement must run before creating the new owner-authored PR" unless
+  legacy_replacement &&
+    steps.index(legacy_replacement) < steps.index(create_pr) &&
+    legacy_replacement.dig("env", "GH_TOKEN") == "${{ secrets.CORE_PIN_UPDATE_TOKEN }}" &&
+    legacy_replacement["run"].include?("github-actions[bot]") &&
+    legacy_replacement["run"].include?("gh pr close") &&
+    legacy_replacement["run"].include?("git/refs/heads/automation/update-core-pins") &&
+    legacy_replacement["run"].include?(".github/actions/prepare-update/action.yml|.python-version|.ruby-version|rust-toolchain.toml")
 label_setup = steps.find { |entry| entry["name"] == "Ensure selected update labels exist" }
 label_step = steps.find { |entry| entry["name"] == "Determine labels for changed pins" }
 label_sync = steps.find { |entry| entry["name"] == "Synchronize core-pin PR labels" }
@@ -111,6 +120,7 @@ abort "Validation core-pin loader is missing" unless
 
 {
   "token guard" => token_guard.fetch("run"),
+  "legacy PR replacement" => legacy_replacement.fetch("run"),
   "core-pin updater" => step.fetch("run"),
   "label creation" => label_setup.fetch("run"),
   "label calculation step" => label_step.fetch("run"),

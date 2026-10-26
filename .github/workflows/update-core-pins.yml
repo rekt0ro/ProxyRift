@@ -127,6 +127,57 @@ jobs:
               -f "description=${description}" >/dev/null
           done <<< "$LABELS"
 
+      - name: Replace legacy bot-authored core-pin PR
+        env:
+          GH_TOKEN: ${{ secrets.CORE_PIN_UPDATE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          legacy_pr="$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --head "${GITHUB_REPOSITORY_OWNER}:automation/update-core-pins" \
+            --state open \
+            --json number,author \
+            --jq '.[] | select(.author.login == "github-actions[bot]") | .number' | head -n 1)"
+
+          if [[ -z "$legacy_pr" ]]; then
+            echo "No legacy bot-authored core-pin PR needs replacement."
+            exit 0
+          fi
+
+          mapfile -t changed_files < <(
+            gh pr view "$legacy_pr" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json files \
+              --jq '.files[].path'
+          )
+
+          if [[ "${#changed_files[@]}" -eq 0 ]]; then
+            echo "Legacy core-pin PR #$legacy_pr has no changed files; refusing to replace it." >&2
+            exit 1
+          fi
+
+          for path in "${changed_files[@]}"; do
+            case "$path" in
+              .github/actions/prepare-update/action.yml|.python-version|.ruby-version|rust-toolchain.toml)
+                ;;
+              *)
+                echo "Legacy core-pin PR #$legacy_pr changes an unapproved file: $path" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "Replacing legacy bot-authored core-pin PR #$legacy_pr with an owner-token-authored PR."
+          gh pr close "$legacy_pr" \
+            --repo "$GITHUB_REPOSITORY" \
+            --comment "Replacing this generated PR with an owner-token-authored PR so normal pull_request CI can run without manual workflow approval."
+
+          if ! gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/automation/update-core-pins" >/dev/null 2>&1; then
+            echo "::warning::The legacy branch could not be deleted after closing the PR; the updater will try to reuse it."
+          fi
+
       - name: Create or update core-pin pull request
         id: cpr
         uses: peter-evans/create-pull-request@v8
