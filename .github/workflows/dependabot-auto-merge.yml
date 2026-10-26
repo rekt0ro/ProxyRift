@@ -35,7 +35,10 @@ jobs:
           )
         ) ||
         (
-          github.event.pull_request.user.login == 'github-actions[bot]' &&
+          (
+            github.event.pull_request.user.login == 'github-actions[bot]' ||
+            github.event.pull_request.user.login == 'rekt0ro'
+          ) &&
           github.event.pull_request.head.ref == 'automation/update-core-pins'
         )
       )
@@ -48,7 +51,7 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
-      - name: Merge ready Dependabot tooling updates
+      - name: Merge ready automated dependency and core-pin updates
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -70,7 +73,10 @@ jobs:
                     )
                   )
                   or (
-                    .user.login == "github-actions[bot]"
+                    (
+                      .user.login == "github-actions[bot]"
+                      or .user.login == "rekt0ro"
+                    )
                     and .head.ref == "automation/update-core-pins"
                   )
                 ) and .draft == false)
@@ -139,7 +145,7 @@ jobs:
                     echo "PR #${pr} has an unrecognized Dependabot update branch: ${head_ref}"
                     ;;
                 esac
-              elif [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]; then
+              elif [[ ( "${pr_author}" == "github-actions[bot]" || "${pr_author}" == "rekt0ro" ) && "${head_ref}" == "automation/update-core-pins" ]]; then
                 case "${path}" in
                   .github/actions/prepare-update/action.yml|.python-version|.ruby-version|rust-toolchain.toml)
                     ;;
@@ -167,6 +173,7 @@ jobs:
               checks="${checks:-[]}"
 
               if [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]; then
+                checks="$(jq '[.[] | select(.workflow != "CI")]' <<< "${checks}")"
                 pr_head_sha="$(jq -r '.head.sha // empty' <<< "${pr_data}")"
                 dispatch_runs="$(gh run list \
                   --repo "${GITHUB_REPOSITORY}" \
@@ -220,7 +227,7 @@ jobs:
               --squash
               --delete-branch
             )
-            if [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]; then
+            if [[ ( "${pr_author}" == "github-actions[bot]" || "${pr_author}" == "rekt0ro" ) && "${head_ref}" == "automation/update-core-pins" ]]; then
               pr_title="$(jq -r '.title // empty' <<< "${pr_data}")"
               if [ -z "${pr_title}" ]; then
                 echo "PR #${pr} has no title; refusing to merge without a commit subject."

@@ -15,7 +15,8 @@ abort "PR-triggered auto-merge must ignore unrelated human PRs" unless
     merge_job_condition.include?("dependabot/github_actions/") &&
     merge_job_condition.include?("dependabot/cargo/") &&
     merge_job_condition.include?("automation/update-core-pins") &&
-    merge_job_condition.include?("github-actions[bot]")
+    merge_job_condition.include?("github-actions[bot]") &&
+    merge_job_condition.include?("rekt0ro")
 
 checkout = steps.find { |step| step["name"] == "Checkout trusted merge-gate scripts" }
 abort "Auto-merge workflow must checkout trusted scripts from the default branch" unless
@@ -24,9 +25,9 @@ abort "Auto-merge workflow must checkout trusted scripts from the default branch
     checkout.dig("with", "ref") == "${{ github.event.repository.default_branch }}" &&
     checkout.dig("with", "persist-credentials") == false
 
-merge = steps.find { |step| step["name"] == "Merge ready Dependabot tooling updates" }
+merge = steps.find { |step| step["name"] == "Merge ready automated dependency and core-pin updates" }
 abort "Auto-merge workflow step is missing" unless merge && merge["run"].is_a?(String)
-abort "Core-pin auto-merge must use the successful workflow_dispatch run for the exact PR head SHA" unless
+abort "Legacy bot PRs must use a successful workflow_dispatch run for the exact PR head SHA" unless
   merge["run"].include?("--event workflow_dispatch") &&
     merge["run"].include?("--json headSha,status,conclusion") &&
     merge["run"].include?(".headSha == $sha and .status == \"completed\" and .conclusion == \"success\"") &&
@@ -34,6 +35,7 @@ abort "Core-pin auto-merge must use the successful workflow_dispatch run for the
     merge["run"].include?('"name": "validate"') &&
     merge["run"].include?('"workflow": "CI"') &&
     merge["run"].include?('"bucket": "pass"') &&
+    merge["run"].include?('select(.workflow != "CI")') &&
     merge["run"].include?("jq -s 'add'")
 abort "Auto-merge workflow must request named CI checks" unless
   merge["run"].include?("--json name,workflow,bucket")
@@ -79,13 +81,14 @@ abort "Auto-merge must validate the author and branch from the same GitHub API P
     !body.include?("--json headRefName --jq")
 abort "Runtime pins must be restricted to the trusted core-pin updater PR" unless
   body.include?(".python-version|.ruby-version|rust-toolchain.toml") &&
-    body.include?('elif [[ "${pr_author}" == "github-actions[bot]" && "${head_ref}" == "automation/update-core-pins" ]]')
+    body.include?('elif [[ ( "${pr_author}" == "github-actions[bot]" || "${pr_author}" == "rekt0ro" ) && "${head_ref}" == "automation/update-core-pins" ]]')
 
 
 dependabot_branch_rules =
   body.include?('(.head.ref | startswith("dependabot/github_actions/"))') &&
     body.include?('(.head.ref | startswith("dependabot/cargo/"))') &&
-    body.include?('"automation/update-core-pins"')
+    body.include?('"automation/update-core-pins"') &&
+    body.include?('"rekt0ro"')
 abort "Auto-merge may only select configured Dependabot ecosystems or the core-pin update branch" unless
   dependabot_branch_rules
 
@@ -100,6 +103,7 @@ abort "Cargo updates must only modify Cargo manifests/lockfiles" unless
 
 abort "Core-pin squash merges must include the current PR title and PR number in the commit subject" unless
   body.include?('merge_args+=(--subject "${pr_title} (#${pr})")') &&
+    body.include?("--delete-branch") &&
     body.include?(%q{pr_title="$(jq -r '.title // empty' <<< "${pr_data}")"}) &&
     body.include?('if gh pr merge "${pr}" "${merge_args[@]}"; then') &&
     body.include?('PR #${pr} has no title; refusing to merge without a commit subject.')

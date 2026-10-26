@@ -23,8 +23,17 @@ end
 abort "Core-pin updater must not stage workflow files without workflow permission" if
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip.start_with?(".github/workflows/") }
 
-abort "Core-pin PR creation must support a token that does not require workflow approval" unless
-  create_pr.dig("with", "token") == "${{ secrets.CORE_PIN_UPDATE_TOKEN || github.token }}"
+token_guard = workflow.dig("jobs", "update-pins", "steps").find do |entry|
+  entry["name"] == "Require a token for approval-free pull request CI"
+end
+abort "Core-pin updates must require the dedicated approval-free PR token" unless
+  token_guard &&
+    token_guard.dig("env", "CORE_PIN_UPDATE_TOKEN") == "${{ secrets.CORE_PIN_UPDATE_TOKEN }}" &&
+    token_guard["run"].include?("Configure repository secret CORE_PIN_UPDATE_TOKEN") &&
+    token_guard["run"].include?("manual workflow approval") &&
+    create_pr.dig("with", "token") == "${{ secrets.CORE_PIN_UPDATE_TOKEN }}" &&
+    create_pr.dig("with", "delete-branch") == true &&
+    create_pr.dig("with", "branch") == "automation/update-core-pins"
 abort "Core-pin updater must emit a PR title and changelog body from resolved versions" unless
   step["id"] == "resolve-pins" &&
     step.dig("env", "CORE_PIN_PR_BODY_PATH") == "${{ runner.temp }}/core-pin-pr-body.md" &&
@@ -34,6 +43,15 @@ abort "Core-pin updater must emit a PR title and changelog body from resolved ve
     step["run"].include?("python3 scripts/update/update_core_pins.py")
 
 steps = workflow.dig("jobs", "update-pins", "steps")
+legacy_replacement = steps.find { |entry| entry["name"] == "Replace legacy bot-authored core-pin PR" }
+abort "Legacy bot PR replacement must run before creating the new owner-authored PR" unless
+  legacy_replacement &&
+    steps.index(legacy_replacement) < steps.index(create_pr) &&
+    legacy_replacement.dig("env", "GH_TOKEN") == "${{ secrets.CORE_PIN_UPDATE_TOKEN }}" &&
+    legacy_replacement["run"].include?("github-actions[bot]") &&
+    legacy_replacement["run"].include?("gh pr close") &&
+    legacy_replacement["run"].include?("git/refs/heads/automation/update-core-pins") &&
+    legacy_replacement["run"].include?(".github/actions/prepare-update/action.yml|.python-version|.ruby-version|rust-toolchain.toml")
 label_setup = steps.find { |entry| entry["name"] == "Ensure selected update labels exist" }
 label_step = steps.find { |entry| entry["name"] == "Determine labels for changed pins" }
 label_sync = steps.find { |entry| entry["name"] == "Synchronize core-pin PR labels" }
@@ -58,11 +76,12 @@ abort "Core-pin PR labels must be synchronized to the exact calculated labels" u
     label_sync["run"].include?("--remove-label") &&
     label_sync["run"].include?("gh pr view")
 
-dispatch_step = steps.find { |entry| entry["name"] == "Dispatch validation CI for the generated PR" }
-abort "Core-pin workflow must keep prior run IDs on one line for GITHUB_OUTPUT" unless
-  dispatch_step && dispatch_step["run"].is_a?(String) &&
-    dispatch_step["run"].include?("--json databaseId | jq -c '[.[].databaseId]'") &&
-    dispatch_step["run"].include?('echo "prior-run-ids=$prior_run_ids" >> "$GITHUB_OUTPUT"')
+abort "Core-pin updater must rely on native PR CI, not duplicate workflow_dispatch runs" if
+  steps.any? do |entry|
+    ["Dispatch validation CI for the generated PR",
+     "Wait for Rust CI to finish",
+     "Request auto-merge evaluation"].include?(entry["name"])
+  end
 
 abort "Core-pin updater must include the Python runtime pin" unless
   create_pr.dig("with", "add-paths").lines.any? { |line| line.strip == ".python-version" }
@@ -100,6 +119,8 @@ abort "Validation core-pin loader is missing" unless
   File.file?("scripts/update/load_validation_core_pins.rb")
 
 {
+  "token guard" => token_guard.fetch("run"),
+  "legacy PR replacement" => legacy_replacement.fetch("run"),
   "core-pin updater" => step.fetch("run"),
   "label creation" => label_setup.fetch("run"),
   "label calculation step" => label_step.fetch("run"),
