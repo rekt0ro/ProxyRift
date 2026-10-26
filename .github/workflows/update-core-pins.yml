@@ -10,8 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  actions: write
-  contents: write
+  contents: read
   pull-requests: write
   issues: write
 
@@ -20,8 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      actions: write
-      contents: write
+      contents: read
       pull-requests: write
       issues: write
 
@@ -30,6 +28,17 @@ jobs:
         uses: actions/checkout@v7
         with:
           show-progress: false
+
+      - name: Require a token for approval-free pull request CI
+        env:
+          CORE_PIN_UPDATE_TOKEN: ${{ secrets.CORE_PIN_UPDATE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CORE_PIN_UPDATE_TOKEN}" ]]; then
+            echo "::error::Configure repository secret CORE_PIN_UPDATE_TOKEN with a fine-grained PAT owned by the repository owner. Grant Contents and Pull requests read/write access. PRs created with GITHUB_TOKEN require manual workflow approval."
+            exit 1
+          fi
 
       - name: Set up pinned Python
         uses: actions/setup-python@v7
@@ -122,7 +131,7 @@ jobs:
         id: cpr
         uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ secrets.CORE_PIN_UPDATE_TOKEN || github.token }}
+          token: ${{ secrets.CORE_PIN_UPDATE_TOKEN }}
           base: main
           branch: automation/update-core-pins
           delete-branch: true
@@ -178,99 +187,3 @@ jobs:
               gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "$label"
             fi
           done
-
-      - name: Dispatch validation CI for the generated PR
-        id: dispatch-ci
-        if: steps.cpr.outputs.pull-request-number != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          head_sha="$(gh pr view "$PR_NUMBER" \
-            --repo "$GITHUB_REPOSITORY" \
-            --json headRefOid \
-            --jq '.headRefOid')"
-
-          prior_run_ids="$(gh run list \
-            --repo "$GITHUB_REPOSITORY" \
-            --workflow validate.yml \
-            --branch automation/update-core-pins \
-            --event workflow_dispatch \
-            --limit 50 \
-            --json databaseId | jq -c '[.[].databaseId]')"
-
-          echo "head-sha=$head_sha" >> "$GITHUB_OUTPUT"
-          echo "prior-run-ids=$prior_run_ids" >> "$GITHUB_OUTPUT"
-
-          gh workflow run validate.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref automation/update-core-pins
-
-      - name: Wait for Rust CI to finish
-        if: steps.cpr.outputs.pull-request-number != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EXPECTED_HEAD_SHA: ${{ steps.dispatch-ci.outputs.head-sha }}
-          PRIOR_RUN_IDS: ${{ steps.dispatch-ci.outputs.prior-run-ids }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          deadline=$((SECONDS + 3300))
-          ci_conclusion=""
-
-          while (( SECONDS < deadline )); do
-            runs="$(gh run list \
-              --repo "$GITHUB_REPOSITORY" \
-              --workflow validate.yml \
-              --branch automation/update-core-pins \
-              --event workflow_dispatch \
-              --limit 50 \
-              --json databaseId,headSha,status,conclusion)"
-
-            run_id="$(jq -r \
-              --arg sha "$EXPECTED_HEAD_SHA" \
-              --argjson prior "$PRIOR_RUN_IDS" '
-                [
-                  .[]
-                  | select(.headSha == $sha)
-                  | select(.databaseId as $id | ($prior | index($id)) == null)
-                ]
-                | first
-                | .databaseId // empty
-              ' <<< "$runs")"
-
-            if [[ -n "$run_id" ]]; then
-              run_details="$(gh run view "$run_id" \
-                --repo "$GITHUB_REPOSITORY" \
-                --json status,conclusion)"
-              status="$(jq -r '.status' <<< "$run_details")"
-              conclusion="$(jq -r '.conclusion // empty' <<< "$run_details")"
-
-              if [[ "$status" == "completed" ]]; then
-                ci_conclusion="$conclusion"
-                break
-              fi
-            fi
-
-            sleep 15
-          done
-
-          if [[ "$ci_conclusion" != "success" ]]; then
-            echo "Validation CI did not succeed; leaving the core update PR open for inspection." >&2
-            exit 1
-          fi
-
-          echo "Validation CI passed for $EXPECTED_HEAD_SHA."
-
-      - name: Request auto-merge evaluation
-        if: steps.cpr.outputs.pull-request-number != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh workflow run dependabot-auto-merge.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref main
