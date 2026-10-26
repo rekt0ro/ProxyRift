@@ -27,9 +27,9 @@ if ! output="$(
 fi
 
 skipped="$(grep -Foc '[WARN] Skipping obsolete-cache cleanup' <<< "$output" || true)"
-if [[ "$skipped" -ne 6 ]]; then
+if [[ "$skipped" -ne 7 ]]; then
   printf '%s\n' "$output" >&2
-  echo "[ERROR] Expected all six cache prefixes to be safely skipped." >&2
+  echo "[ERROR] Expected all seven cache prefixes to be safely skipped." >&2
   exit 1
 fi
 if [[ -e "$tmp/gh.log" ]]; then
