@@ -63,7 +63,7 @@ chmod +x "$fetch_bin/git"
   exit 1
 }
 
-git -C "$work" log -1 --format=%s | grep -Fxq "Update subscriptions"
+git -C "$work" log -1 --format=%s | grep -Fxq "Update subscriptions and validation state"
 printf 'state-only-update\n' > "$work/subscriptions/source-registry.json"
 (
   cd "$work"
