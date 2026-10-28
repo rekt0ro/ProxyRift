@@ -143,7 +143,9 @@ mod tests {
         ));
         assert!(requires_singbox("socks4://example.com:1080"));
         assert!(requires_singbox("socks4a://example.com:1080"));
-        assert!(requires_singbox("tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443"));
+        assert!(requires_singbox(
+            "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443"
+        ));
         assert!(!requires_singbox("socks5://example.com:1080"));
         assert!(!requires_singbox(
             "vless://uuid@example.com:443?security=tls"

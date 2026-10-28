@@ -489,7 +489,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut stale_probe_configs = Vec::<(usize, Vec<String>)>::new();
     let mut stale_probe_config_count = 0usize;
 
-    while let Some((source_index, mut configs, outcome, fingerprint)) = source_results.next().await {
+    while let Some((source_index, mut configs, outcome, fingerprint)) = source_results.next().await
+    {
         let source_url = sources[source_index].clone();
         source_health.push((source_url.clone(), outcome, fingerprint));
 
@@ -535,7 +536,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             );
         }
     }
-
 
     if !stale_probe_sources.is_empty() {
         println!(
@@ -1308,7 +1308,6 @@ fn extract_configs(text: &str) -> Vec<String> {
     configs
 }
 
-
 fn add_source_config(
     source_configs: &mut HashMap<String, (String, HashSet<usize>)>,
     priorities: &mut BinaryHeap<([u8; 32], String)>,
@@ -1333,10 +1332,12 @@ fn add_source_config(
     priority.copy_from_slice(&digest[..]);
 
     if source_configs.len() >= limit {
-        let replace_worst = priorities.peek().is_some_and(|(worst_priority, worst_identity)| {
-            priority < *worst_priority
-                || (priority == *worst_priority && identity < *worst_identity)
-        });
+        let replace_worst = priorities
+            .peek()
+            .is_some_and(|(worst_priority, worst_identity)| {
+                priority < *worst_priority
+                    || (priority == *worst_priority && identity < *worst_identity)
+            });
         if !replace_worst {
             return;
         }
@@ -4598,10 +4599,11 @@ mod http_handshake_timeout_tests {
     }
 }
 
-
 #[cfg(test)]
 mod bounded_collection_tests {
-    use super::{add_source_config, extract_configs, source_content_fingerprint, MAX_CONFIGS_PER_SOURCE};
+    use super::{
+        add_source_config, extract_configs, source_content_fingerprint, MAX_CONFIGS_PER_SOURCE,
+    };
     use std::collections::{BinaryHeap, HashMap, HashSet};
 
     fn collect_pool(configs: &[String], limit: usize) -> HashMap<String, (String, HashSet<usize>)> {
@@ -4643,8 +4645,12 @@ mod bounded_collection_tests {
         let mut reversed = configs.clone();
         reversed.reverse();
 
-        let forward_keys = collect_pool(&configs, 20).into_keys().collect::<HashSet<_>>();
-        let reverse_keys = collect_pool(&reversed, 20).into_keys().collect::<HashSet<_>>();
+        let forward_keys = collect_pool(&configs, 20)
+            .into_keys()
+            .collect::<HashSet<_>>();
+        let reverse_keys = collect_pool(&reversed, 20)
+            .into_keys()
+            .collect::<HashSet<_>>();
 
         assert_eq!(forward_keys, reverse_keys);
         assert_eq!(forward_keys.len(), 20);
