@@ -27,7 +27,7 @@ fn requires_singbox(config: &str) -> bool {
     config.split_once("://").is_some_and(|(scheme, _)| {
         matches!(
             scheme.to_ascii_lowercase().as_str(),
-            "hysteria" | "socks4" | "socks4a"
+            "hysteria" | "socks4" | "socks4a" | "tuic"
         )
     })
 }
@@ -143,6 +143,9 @@ mod tests {
         ));
         assert!(requires_singbox("socks4://example.com:1080"));
         assert!(requires_singbox("socks4a://example.com:1080"));
+        assert!(requires_singbox(
+            "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443"
+        ));
         assert!(!requires_singbox("socks5://example.com:1080"));
         assert!(!requires_singbox(
             "vless://uuid@example.com:443?security=tls"
