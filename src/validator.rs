@@ -56,6 +56,12 @@ pub const STRICT_SECONDARY_ATTEMPTS: usize = 2;
 pub const STRICT_SECONDARY_MIN_SUCCESSFUL_ATTEMPTS: usize = 1;
 pub const MAX_LATENCY_MS: f64 = 800.0;
 const PUBLIC_DNS_TIMEOUT: Duration = Duration::from_secs(3);
+const PUBLIC_TCP_HOST_CACHE_TTL: Duration = Duration::from_secs(60);
+const MAX_PUBLIC_TCP_HOST_CACHE_ENTRIES: usize = 4096;
+
+type PublicTcpHostCache = HashMap<(String, u16), (Instant, IpAddr)>;
+
+static PUBLIC_TCP_HOST_CACHE: OnceLock<Mutex<PublicTcpHostCache>> = OnceLock::new();
 pub const CORE_START_TIMEOUT: Duration = Duration::from_secs(5);
 const TARGET_HEALTH_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_CORE_FAILURES_PER_VALIDATION: usize = 12;
@@ -921,6 +927,67 @@ fn normalize_transport(value: &str) -> String {
         .unwrap_or(normalized)
 }
 
+fn public_tcp_host_cache_key(host: &str, port: u16) -> (String, u16) {
+    (host.trim().trim_end_matches('.').to_ascii_lowercase(), port)
+}
+
+fn cached_public_tcp_host_in(
+    cache: &mut PublicTcpHostCache,
+    host: &str,
+    port: u16,
+    now: Instant,
+) -> Option<IpAddr> {
+    let key = public_tcp_host_cache_key(host, port);
+    match cache.get(&key).copied() {
+        Some((expires_at, address)) if expires_at > now && is_public_ip(&address) => {
+            Some(address)
+        }
+        Some(_) => {
+            cache.remove(&key);
+            None
+        }
+        None => None,
+    }
+}
+
+fn remember_public_tcp_host_in(
+    cache: &mut PublicTcpHostCache,
+    host: &str,
+    port: u16,
+    address: IpAddr,
+    now: Instant,
+) {
+    if !is_public_ip(&address) {
+        return;
+    }
+
+    cache.retain(|_, (expires_at, _)| *expires_at > now);
+    let key = public_tcp_host_cache_key(host, port);
+    if cache.len() >= MAX_PUBLIC_TCP_HOST_CACHE_ENTRIES && !cache.contains_key(&key) {
+        return;
+    }
+
+    cache.insert(key, (now + PUBLIC_TCP_HOST_CACHE_TTL, address));
+}
+
+fn cached_public_tcp_host(host: &str, port: u16) -> Option<IpAddr> {
+    let now = Instant::now();
+    let cache = PUBLIC_TCP_HOST_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cached_public_tcp_host_in(&mut cache, host, port, now)
+}
+
+fn remember_public_tcp_host(host: &str, port: u16, address: IpAddr) {
+    let now = Instant::now();
+    let cache = PUBLIC_TCP_HOST_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    remember_public_tcp_host_in(&mut cache, host, port, address, now);
+}
+
 pub fn is_public_ip(ip: &std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => {
@@ -934,6 +1001,7 @@ pub fn is_public_ip(ip: &std::net::IpAddr) -> bool {
                 || v4.octets()[0] == 0
                 || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64)
                 || (v4.octets()[0] == 192 && v4.octets()[1] == 0 && v4.octets()[2] == 0)
+                || (v4.octets()[0] == 192 && v4.octets()[1] == 88 && v4.octets()[2] == 99)
                 || (v4.octets()[0] == 198 && (v4.octets()[1] & 0xfe) == 18)
                 || v4.octets()[0] >= 240)
         }
@@ -954,6 +1022,7 @@ pub fn is_public_ip(ip: &std::net::IpAddr) -> bool {
                 || (segments[0] == 0x2001 && segments[1] == 0x0000)
                 || (segments[0] == 0x2001 && segments[1] == 0x0002)
                 || (segments[0] == 0x2001 && segments[1] == 0x0010)
+                || (segments[0] == 0x2001 && (segments[1] & 0xfff0) == 0x0020)
                 || (segments[0] == 0x2001 && segments[1] == 0x0db8)
                 || (segments[0] == 0x3fff && (segments[1] & 0xf000) == 0)
                 || (segments[0] & 0xfe00) == 0xfc00
@@ -963,6 +1032,10 @@ pub fn is_public_ip(ip: &std::net::IpAddr) -> bool {
 }
 
 pub async fn resolve_public_tcp_host(host: &str, port: u16) -> Option<std::net::IpAddr> {
+    if let Some(address) = cached_public_tcp_host(host, port) {
+        return Some(address);
+    }
+
     let addresses = timeout(PUBLIC_DNS_TIMEOUT, tokio::net::lookup_host((host, port)))
         .await
         .ok()?
@@ -984,7 +1057,9 @@ pub async fn resolve_public_tcp_host(host: &str, port: u16) -> Option<std::net::
     }
 
     if public.len() == 1 {
-        return public.into_iter().next();
+        let address = public.into_iter().next()?;
+        remember_public_tcp_host(host, port, address);
+        return Some(address);
     }
 
     let fallback = public[0];
@@ -1003,6 +1078,7 @@ pub async fn resolve_public_tcp_host(host: &str, port: u16) -> Option<std::net::
     futures::pin_mut!(probes);
 
     if let Ok(Some(ip)) = timeout(PUBLIC_DNS_TIMEOUT, probes.next()).await {
+        remember_public_tcp_host(host, port, ip);
         return Some(ip);
     }
 
@@ -6738,6 +6814,101 @@ mod tests {
     }
 
     #[test]
+    fn ipv4_public_filter_rejects_special_purpose_ranges() {
+        for address in ["192.88.99.1", "192.88.99.254"] {
+            let ip: IpAddr = address.parse().expect("valid IPv4 address");
+            assert!(!is_public_ip(&ip), "{address}");
+        }
+
+        for address in ["1.1.1.1", "93.184.216.34"] {
+            let ip: IpAddr = address.parse().expect("valid IPv4 address");
+            assert!(is_public_ip(&ip), "{address}");
+        }
+    }
+
+    #[test]
+    fn public_tcp_host_cache_normalizes_keys_and_expires_entries() {
+        let mut cache = PublicTcpHostCache::new();
+        let now = Instant::now();
+        let address: IpAddr = "93.184.216.34".parse().expect("valid public address");
+
+        remember_public_tcp_host_in(
+            &mut cache,
+            "Raw.GitHubusercontent.com.",
+            443,
+            address,
+            now,
+        );
+
+        assert_eq!(
+            cached_public_tcp_host_in(
+                &mut cache,
+                "raw.githubusercontent.com",
+                443,
+                now + Duration::from_secs(1),
+            ),
+            Some(address)
+        );
+
+        assert_eq!(
+            cached_public_tcp_host_in(
+                &mut cache,
+                "raw.githubusercontent.com",
+                443,
+                now + PUBLIC_TCP_HOST_CACHE_TTL,
+            ),
+            None
+        );
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn public_tcp_host_cache_rejects_non_public_addresses() {
+        let mut cache = PublicTcpHostCache::new();
+        let now = Instant::now();
+        let address: IpAddr = "127.0.0.1".parse().expect("valid loopback address");
+
+        remember_public_tcp_host_in(&mut cache, "localhost", 443, address, now);
+
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn public_tcp_host_cache_stays_bounded() {
+        let mut cache = PublicTcpHostCache::new();
+        let now = Instant::now();
+        let address: IpAddr = "93.184.216.34".parse().expect("valid public address");
+
+        for index in 0..MAX_PUBLIC_TCP_HOST_CACHE_ENTRIES {
+            remember_public_tcp_host_in(
+                &mut cache,
+                &format!("host-{index}.example"),
+                443,
+                address,
+                now,
+            );
+        }
+        remember_public_tcp_host_in(
+            &mut cache,
+            "one-more.example",
+            443,
+            address,
+            now,
+        );
+
+        assert_eq!(cache.len(), MAX_PUBLIC_TCP_HOST_CACHE_ENTRIES);
+        assert_eq!(
+            cached_public_tcp_host_in(
+                &mut cache,
+                "one-more.example",
+                443,
+                now,
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn ipv6_public_filter_rejects_reserved_and_special_purpose_ranges() {
         for address in [
             "100::1",
@@ -6745,6 +6916,7 @@ mod tests {
             "2001:0::1",
             "2001:2::1",
             "2001:10::1",
+            "2001:20::1",
             "2001:db8::1",
             "3fff::1",
             "4000::1",
