@@ -1337,7 +1337,7 @@ fn add_source_config(
 
     if let Some((existing_config, source_indices)) = source_configs.get_mut(&identity) {
         source_indices.insert(source_index);
-        if config < *existing_config {
+        if config.as_str() < existing_config.as_str() {
             *existing_config = config;
         }
         return;
