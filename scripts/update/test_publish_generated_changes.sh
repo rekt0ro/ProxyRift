@@ -75,7 +75,7 @@ printf 'state-only-update\n' > "$work/subscriptions/source-registry.json"
 }
 
 git clone "$remote" "$verify" >/dev/null 2>&1
-for file in "\${output_files[@]}"; do
+for file in "${output_files[@]}"; do
   grep -Fxq "new-$file" "$verify/subscriptions/$file"
 done
 grep -Fxq "state-only-update" "$verify/subscriptions/source-registry.json"
