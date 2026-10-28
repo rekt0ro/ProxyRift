@@ -4,7 +4,9 @@ use blake2::{digest::consts::U32, Blake2b, Digest};
 use futures::stream::{self, StreamExt};
 use percent_encoding::percent_decode_str;
 use proxyrift::light_gbm::{backend_for_config, LightGbmScores};
-use proxyrift::source_discovery::CollectionOutcome;
+use proxyrift::source_discovery::{
+    content_fingerprint_changed, load_source_content_fingerprints, CollectionOutcome,
+};
 use proxyrift::validator::{
     cheap_compatibility_rejection_context, cheap_compatibility_rejection_reason, config_label,
     endpoint, is_locally_supported_config, is_public_ip, resolve_public_tcp_host, ProxyMetrics,
@@ -292,6 +294,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .filter(|url| !active_set.contains(url))
         .collect::<Vec<_>>();
     let probe_only_sources = stale_probe_sources.iter().cloned().collect::<HashSet<_>>();
+    let known_probe_fingerprints = load_source_content_fingerprints(&stale_probe_sources).await?;
     let mut sources = active_sources.clone();
     sources.extend(stale_probe_sources.iter().cloned());
     println!(
@@ -308,6 +311,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let mut source_configs = HashMap::<String, (String, HashSet<usize>)>::new();
     let mut source_config_priorities = BinaryHeap::<([u8; 32], String)>::new();
+    let mut stale_probe_config_candidates = HashMap::<String, (String, HashSet<usize>)>::new();
+    let mut stale_probe_config_priorities = BinaryHeap::<([u8; 32], String)>::new();
     let source_http_warnings = Arc::new(Mutex::new(Vec::<(usize, u16)>::new()));
 
     let mut source_results = stream::iter(sources.iter().cloned().enumerate())
@@ -486,22 +491,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let mut source_health =
         Vec::<(String, CollectionOutcome, Option<String>)>::with_capacity(sources.len());
-    let mut stale_probe_configs = Vec::<(usize, Vec<String>)>::new();
-    let mut stale_probe_config_count = 0usize;
 
-    while let Some((source_index, mut configs, outcome, fingerprint)) = source_results.next().await
-    {
+    while let Some((source_index, configs, outcome, fingerprint)) = source_results.next().await {
         let source_url = sources[source_index].clone();
-        source_health.push((source_url.clone(), outcome, fingerprint));
 
         if probe_only_sources.contains(&source_url) {
-            let remaining = MAX_STALE_PROBE_CONFIGS.saturating_sub(stale_probe_config_count);
-            configs.truncate(remaining);
-            stale_probe_config_count += configs.len();
-            stale_probe_configs.push((source_index, configs));
+            let previous_fingerprint = known_probe_fingerprints
+                .get(&source_url)
+                .map(String::as_str);
+            add_changed_stale_probe_configs(
+                configs,
+                source_index,
+                previous_fingerprint,
+                fingerprint.as_deref(),
+                &mut stale_probe_config_candidates,
+                &mut stale_probe_config_priorities,
+            );
+            source_health.push((source_url, outcome, fingerprint));
             continue;
         }
 
+        source_health.push((source_url, outcome, fingerprint));
         for config in configs {
             add_source_config(
                 &mut source_configs,
@@ -515,25 +525,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let changed_content_sources =
         proxyrift::source_discovery::record_collection_results(&source_health).await?;
-    let mut stale_probes_unchanged = 0usize;
-    let mut stale_probes_reactivated = 0usize;
+    let stale_probes_reactivated = stale_probe_sources
+        .iter()
+        .filter(|source_url| changed_content_sources.contains(*source_url))
+        .count();
+    let stale_probes_unchanged = stale_probe_sources
+        .len()
+        .saturating_sub(stale_probes_reactivated);
 
-    for (source_index, configs) in stale_probe_configs {
-        let source_url = sources[source_index].clone();
-        if !changed_content_sources.contains(&source_url) {
-            stale_probes_unchanged += 1;
-            continue;
-        }
-
-        stale_probes_reactivated += 1;
-        for config in configs {
-            add_source_config(
-                &mut source_configs,
-                &mut source_config_priorities,
-                config,
-                source_index,
-                MAX_SOURCE_CONFIG_CANDIDATES,
-            );
+    let mut stale_candidates = stale_probe_config_candidates
+        .into_iter()
+        .collect::<Vec<_>>();
+    stale_candidates.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    for (_, (config, source_indices)) in stale_candidates {
+        let mut source_indices = source_indices.into_iter().collect::<Vec<_>>();
+        source_indices.sort_unstable();
+        for source_index in source_indices {
+            if sources
+                .get(source_index)
+                .is_some_and(|source_url| changed_content_sources.contains(source_url))
+            {
+                add_source_config(
+                    &mut source_configs,
+                    &mut source_config_priorities,
+                    config.clone(),
+                    source_index,
+                    MAX_SOURCE_CONFIG_CANDIDATES,
+                );
+            }
         }
     }
 
@@ -1319,8 +1338,11 @@ fn add_source_config(
     let normalized = percent_encode_emoji_characters(&config);
     let identity = dedup_key(&normalized);
 
-    if let Some((_, source_indices)) = source_configs.get_mut(&identity) {
+    if let Some((existing_config, source_indices)) = source_configs.get_mut(&identity) {
         source_indices.insert(source_index);
+        if config.as_str() < existing_config.as_str() {
+            *existing_config = config;
+        }
         return;
     }
 
@@ -1346,6 +1368,31 @@ fn add_source_config(
 
     priorities.push((priority, identity.clone()));
     source_configs.insert(identity, (config, HashSet::from([source_index])));
+}
+
+fn add_changed_stale_probe_configs(
+    configs: Vec<String>,
+    source_index: usize,
+    previous_fingerprint: Option<&str>,
+    current_fingerprint: Option<&str>,
+    candidates: &mut HashMap<String, (String, HashSet<usize>)>,
+    priorities: &mut BinaryHeap<([u8; 32], String)>,
+) -> bool {
+    if !content_fingerprint_changed(previous_fingerprint, current_fingerprint) {
+        return false;
+    }
+
+    for config in configs {
+        add_source_config(
+            candidates,
+            priorities,
+            config,
+            source_index,
+            MAX_STALE_PROBE_CONFIGS,
+        );
+    }
+
+    true
 }
 
 fn lowercase_scheme(config: &str) -> String {
@@ -4676,5 +4723,89 @@ mod bounded_collection_tests {
             pool.values().next().unwrap().1,
             HashSet::from([0usize, 1usize])
         );
+    }
+}
+
+#[cfg(test)]
+mod stale_probe_budget_tests {
+    use super::{add_changed_stale_probe_configs, MAX_STALE_PROBE_CONFIGS};
+    use std::collections::{BinaryHeap, HashMap, HashSet};
+
+    fn configs(prefix: &str, count: usize) -> Vec<String> {
+        (0..count)
+            .map(|index| {
+                format!(
+                    "vless://00000000-0000-0000-0000-000000000001@node{index}.{prefix}.example.com:443?security=tls"
+                )
+            })
+            .collect()
+    }
+
+    type CandidatePool = HashMap<String, (String, HashSet<usize>)>;
+    type Priorities = BinaryHeap<([u8; 32], String)>;
+    type ProbeBatch<'a> = (usize, Option<&'a str>, Option<&'a str>, Vec<String>);
+
+    fn collect(batches: Vec<ProbeBatch<'_>>) -> CandidatePool {
+        let mut candidates = CandidatePool::new();
+        let mut priorities = Priorities::new();
+        for (source_index, previous, current, source_configs) in batches {
+            add_changed_stale_probe_configs(
+                source_configs,
+                source_index,
+                previous,
+                current,
+                &mut candidates,
+                &mut priorities,
+            );
+        }
+        candidates
+    }
+
+    #[test]
+    fn unchanged_sources_do_not_consume_the_changed_source_budget() {
+        let unchanged = configs("unchanged", MAX_STALE_PROBE_CONFIGS);
+        let changed = configs("changed", MAX_STALE_PROBE_CONFIGS + 3);
+        let candidates = collect(vec![
+            (0, Some("same"), Some("same"), unchanged),
+            (1, Some("old"), Some("new"), changed),
+        ]);
+
+        assert_eq!(candidates.len(), MAX_STALE_PROBE_CONFIGS);
+        assert!(candidates.values().all(|(config, sources)| {
+            config.contains(".changed.example.com") && sources == &HashSet::from([1usize])
+        }));
+    }
+
+    #[test]
+    fn changed_source_selection_is_independent_of_completion_order() {
+        let batches = vec![
+            (
+                3,
+                Some("same"),
+                Some("same"),
+                configs("unchanged", MAX_STALE_PROBE_CONFIGS),
+            ),
+            (
+                1,
+                Some("old-a"),
+                Some("new-a"),
+                configs("alpha", MAX_STALE_PROBE_CONFIGS / 2 + 100),
+            ),
+            (
+                2,
+                Some("old-b"),
+                Some("new-b"),
+                configs("beta", MAX_STALE_PROBE_CONFIGS / 2 + 100),
+            ),
+        ];
+
+        let forward = collect(batches.clone());
+        let reverse = collect(batches.into_iter().rev().collect());
+
+        assert_eq!(forward, reverse);
+        assert_eq!(forward.len(), MAX_STALE_PROBE_CONFIGS);
+        assert!(forward
+            .values()
+            .all(|(_, sources)| sources.iter().all(|source| *source != 3)));
     }
 }
