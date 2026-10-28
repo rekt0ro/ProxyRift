@@ -759,9 +759,7 @@ impl Registry {
             .get("content_fingerprint")
             .and_then(Value::as_str)
             .map(ToOwned::to_owned);
-        let changed = previous
-            .as_deref()
-            .is_some_and(|previous| previous != fingerprint);
+        let changed = content_fingerprint_changed(previous.as_deref(), Some(fingerprint));
 
         if previous.as_deref() != Some(fingerprint) {
             object.insert(
@@ -1625,6 +1623,37 @@ pub async fn discover_and_write() -> Result<(usize, usize), Box<dyn std::error::
     );
 
     Ok((new_candidates.len(), ordered.len()))
+}
+
+pub fn content_fingerprint_changed(previous: Option<&str>, current: Option<&str>) -> bool {
+    matches!((previous, current), (Some(previous), Some(current)) if previous != current)
+}
+
+pub async fn load_source_content_fingerprints(
+    urls: &[String],
+) -> Result<HashMap<String, String>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut fingerprints = HashMap::new();
+    if urls.is_empty() {
+        return Ok(fingerprints);
+    }
+
+    let root = project_root()?;
+    let registry_path = root.join("subscriptions").join("source-registry.json");
+    let registry = load_registry(&registry_path, unix_now()).await?;
+
+    for url in urls {
+        if let Some(fingerprint) = registry
+            .sources()
+            .get(url)
+            .and_then(Value::as_object)
+            .and_then(|record| record.get("content_fingerprint"))
+            .and_then(Value::as_str)
+        {
+            fingerprints.insert(url.clone(), fingerprint.to_string());
+        }
+    }
+
+    Ok(fingerprints)
 }
 
 pub async fn record_collection_results(
@@ -5018,5 +5047,17 @@ mod tests {
         assert!(!is_source_path("deprecated/vless.txt"));
         assert!(!is_source_path("examples/configs.txt"));
         assert!(is_source_path("subscriptions/vless.txt"));
+    }
+}
+
+
+#[cfg(test)]
+mod content_fingerprint_change_tests {
+    #[test]
+    fn content_change_requires_a_known_previous_fingerprint() {
+        assert!(!super::content_fingerprint_changed(None, Some("current")));
+        assert!(!super::content_fingerprint_changed(Some("same"), Some("same")));
+        assert!(!super::content_fingerprint_changed(Some("previous"), None));
+        assert!(super::content_fingerprint_changed(Some("previous"), Some("current")));
     }
 }
