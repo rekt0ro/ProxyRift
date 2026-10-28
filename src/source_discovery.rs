@@ -5050,14 +5050,19 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod content_fingerprint_change_tests {
     #[test]
     fn content_change_requires_a_known_previous_fingerprint() {
         assert!(!super::content_fingerprint_changed(None, Some("current")));
-        assert!(!super::content_fingerprint_changed(Some("same"), Some("same")));
+        assert!(!super::content_fingerprint_changed(
+            Some("same"),
+            Some("same")
+        ));
         assert!(!super::content_fingerprint_changed(Some("previous"), None));
-        assert!(super::content_fingerprint_changed(Some("previous"), Some("current")));
+        assert!(super::content_fingerprint_changed(
+            Some("previous"),
+            Some("current")
+        ));
     }
 }
