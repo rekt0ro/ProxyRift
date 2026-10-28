@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="proxyrift-banner.png" alt="ProxyRift" width="100%">
+</p>
+
 ## Subscriptions
 
 ### Light
