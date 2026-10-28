@@ -4743,8 +4743,9 @@ mod stale_probe_budget_tests {
 
     type CandidatePool = HashMap<String, (String, HashSet<usize>)>;
     type Priorities = BinaryHeap<([u8; 32], String)>;
+    type ProbeBatch<'a> = (usize, Option<&'a str>, Option<&'a str>, Vec<String>);
 
-    fn collect(batches: Vec<(usize, Option<&str>, Option<&str>, Vec<String>)>) -> CandidatePool {
+    fn collect(batches: Vec<ProbeBatch<'_>>) -> CandidatePool {
         let mut candidates = CandidatePool::new();
         let mut priorities = Priorities::new();
         for (source_index, previous, current, source_configs) in batches {
