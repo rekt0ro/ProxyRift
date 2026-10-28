@@ -141,6 +141,25 @@ def publish(mode: str) -> int:
                 emit(diff, stderr=True)
                 return diff.returncode
 
+            staged_paths = run(["git", "diff", "--cached", "--name-only"])
+            if staged_paths.returncode:
+                emit(staged_paths, stderr=True)
+                return staged_paths.returncode
+            changed_paths = set((staged_paths.stdout or "").splitlines())
+            if mode == "generated":
+                changed_outputs = changed_paths.intersection(
+                    f"subscriptions/{name}" for name in OUTPUT_FILES
+                )
+                changed_state = changed_paths.intersection(
+                    f"subscriptions/{name}" for name in STATE_FILES
+                )
+                if changed_outputs and changed_state:
+                    commit_message = "Update subscriptions and validation state"
+                elif changed_outputs:
+                    commit_message = "Update subscriptions"
+                else:
+                    commit_message = "Update source and validation state"
+
             commit = run(["git", "commit", "-m", commit_message])
             if commit.returncode:
                 emit(commit, stderr=True)

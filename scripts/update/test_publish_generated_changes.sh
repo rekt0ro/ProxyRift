@@ -26,6 +26,7 @@ cp "$repo_root/scripts/update/publish_common.py" "$seed/scripts/update/publish_c
 for file in "${output_files[@]}"; do
   printf 'old-%s\n' "$file" > "$seed/subscriptions/$file"
 done
+printf 'old-source-state\n' > "$seed/subscriptions/source-registry.json"
 git -C "$seed" add .
 git -C "$seed" commit -m "Seed repository" >/dev/null
 git -C "$seed" push origin main >/dev/null 2>&1
@@ -36,6 +37,8 @@ git -C "$work" config user.email "test@example.com"
 for file in "${output_files[@]}"; do
   printf 'new-%s\n' "$file" > "$work/subscriptions/$file"
 done
+
+printf 'new-source-state\n' > "$work/subscriptions/source-registry.json"
 
 real_git="$(command -v git)"
 fetch_bin="$tmp/fetch-bin"
@@ -54,17 +57,30 @@ chmod +x "$fetch_bin/git"
 (
   cd "$work"
   PATH="$fetch_bin:$PATH" REAL_GIT="$real_git" GIT_FETCH_FAIL_STATE="$tmp/fetch-failed" python3 scripts/update/publish_generated_changes.py
-) > "$tmp/publish.log" 2>&1 || {
-  cat "$tmp/publish.log" >&2
+) > "$tmp/publish-first.log" 2>&1 || {
+  cat "$tmp/publish-first.log" >&2
   printf '[ERROR] Generated subscription publishing failed.\n' >&2
   exit 1
 }
 
+git -C "$work" log -1 --format=%s | grep -Fxq "Update subscriptions"
+printf 'state-only-update\n' > "$work/subscriptions/source-registry.json"
+(
+  cd "$work"
+  PATH="$fetch_bin:$PATH" REAL_GIT="$real_git" GIT_FETCH_FAIL_STATE="$tmp/fetch-failed" python3 scripts/update/publish_generated_changes.py
+) > "$tmp/publish-state-only.log" 2>&1 || {
+  cat "$tmp/publish-state-only.log" >&2
+  printf '[ERROR] Source-state-only publishing failed.\n' >&2
+  exit 1
+}
+
 git clone "$remote" "$verify" >/dev/null 2>&1
-for file in "${output_files[@]}"; do
+for file in "\${output_files[@]}"; do
   grep -Fxq "new-$file" "$verify/subscriptions/$file"
 done
-grep -Fq "[WARN] [Publish] Fetch failed on attempt 1/5; retrying in 2s" "$tmp/publish.log"
-grep -Fq "[INFO] [Publish] Subscription update published" "$tmp/publish.log"
+grep -Fxq "state-only-update" "$verify/subscriptions/source-registry.json"
+grep -Fq "[WARN] [Publish] Fetch failed on attempt 1/5; retrying in 2s" "$tmp/publish-first.log"
+grep -Fq "[INFO] [Publish] Subscription update published" "$tmp/publish-first.log"
+git -C "$verify" log -1 --format=%s | grep -Fxq "Update source and validation state"
 
-printf '[OK] Generated subscription publishing retries transient fetch failures.\n'
+printf '[OK] Generated publishing retries transient fetch failures and labels state-only commits accurately.\n'

@@ -17,7 +17,7 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::env;
 use std::hash::Hash;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -47,6 +47,9 @@ const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_SOURCE_REDIRECTS: usize = 2;
 
 const MAX_COLLECTED_CONFIGS: usize = 30_000;
+const MAX_CONFIGS_PER_SOURCE: usize = 2_000;
+const MAX_SOURCE_CONFIG_CANDIDATES: usize = MAX_COLLECTED_CONFIGS * 2;
+const MAX_STALE_PROBE_CONFIGS: usize = 5_000;
 const MAX_ALL_CONFIGS: usize = 2000;
 const MAX_ALL_PER_ENDPOINT: usize = 5;
 const MAX_ALL_PER_HOST: usize = 10;
@@ -303,7 +306,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         };
     }
 
-    let mut source_configs = HashMap::<String, HashSet<String>>::new();
+    let mut source_configs = HashMap::<String, (String, HashSet<usize>)>::new();
+    let mut source_config_priorities = BinaryHeap::<([u8; 32], String)>::new();
     let source_http_warnings = Arc::new(Mutex::new(Vec::<(usize, u16)>::new()));
 
     let mut source_results = stream::iter(sources.iter().cloned().enumerate())
@@ -437,7 +441,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                     let configs = extract_configs(&text);
                                     let config_count = configs.len();
 
-                                    let fingerprint = source_content_fingerprint(&configs);
+                                    let fingerprint = source_content_fingerprint(&text);
                                     return (
                                         source_index,
                                         configs,
@@ -482,12 +486,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let mut source_health =
         Vec::<(String, CollectionOutcome, Option<String>)>::with_capacity(sources.len());
-    let mut fetched_configs = Vec::<(usize, Vec<String>)>::with_capacity(sources.len());
+    let mut stale_probe_configs = Vec::<(usize, Vec<String>)>::new();
+    let mut stale_probe_config_count = 0usize;
 
-    while let Some((source_index, configs, outcome, fingerprint)) = source_results.next().await {
+    while let Some((source_index, mut configs, outcome, fingerprint)) = source_results.next().await {
         let source_url = sources[source_index].clone();
-        source_health.push((source_url, outcome, fingerprint));
-        fetched_configs.push((source_index, configs));
+        source_health.push((source_url.clone(), outcome, fingerprint));
+
+        if probe_only_sources.contains(&source_url) {
+            let remaining = MAX_STALE_PROBE_CONFIGS.saturating_sub(stale_probe_config_count);
+            configs.truncate(remaining);
+            stale_probe_config_count += configs.len();
+            stale_probe_configs.push((source_index, configs));
+            continue;
+        }
+
+        for config in configs {
+            add_source_config(
+                &mut source_configs,
+                &mut source_config_priorities,
+                config,
+                source_index,
+                MAX_SOURCE_CONFIG_CANDIDATES,
+            );
+        }
     }
 
     let changed_content_sources =
@@ -495,23 +517,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut stale_probes_unchanged = 0usize;
     let mut stale_probes_reactivated = 0usize;
 
-    for (source_index, configs) in fetched_configs {
+    for (source_index, configs) in stale_probe_configs {
         let source_url = sources[source_index].clone();
-        if probe_only_sources.contains(&source_url) {
-            if !changed_content_sources.contains(&source_url) {
-                stale_probes_unchanged += 1;
-                continue;
-            }
-            stale_probes_reactivated += 1;
+        if !changed_content_sources.contains(&source_url) {
+            stale_probes_unchanged += 1;
+            continue;
         }
 
+        stale_probes_reactivated += 1;
         for config in configs {
-            source_configs
-                .entry(config)
-                .or_default()
-                .insert(source_url.clone());
+            add_source_config(
+                &mut source_configs,
+                &mut source_config_priorities,
+                config,
+                source_index,
+                MAX_SOURCE_CONFIG_CANDIDATES,
+            );
         }
     }
+
 
     if !stale_probe_sources.is_empty() {
         println!(
@@ -582,17 +606,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
 
-    let mut deduped = HashMap::<String, (String, HashSet<String>)>::new();
-    for (config, sources_for_config) in source_configs {
+    let mut deduped = HashMap::<String, (String, HashSet<usize>)>::new();
+    for (_, (config, source_indices)) in source_configs {
         let config = percent_encode_emoji_characters(&config);
         let key = dedup_key(&config);
         let entry = deduped
             .entry(key)
             .or_insert_with(|| (config.clone(), HashSet::new()));
-        entry.1.extend(sources_for_config);
+        entry.1.extend(source_indices);
     }
 
-    let mut config_sources = deduped.into_values().collect::<HashMap<_, _>>();
+    let mut config_sources = deduped
+        .into_values()
+        .map(|(config, source_indices)| (config, source_indices))
+        .collect::<HashMap<_, _>>();
     let mut configs = config_sources.keys().cloned().collect::<Vec<_>>();
     configs.sort_unstable();
 
@@ -623,19 +650,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         );
     }
 
-    let unnamed_configs = configs;
-    let named_configs = assign_config_names(unnamed_configs.clone());
-    let mut named_config_sources = HashMap::<String, HashSet<String>>::new();
-
-    for (config, named) in unnamed_configs.into_iter().zip(named_configs.into_iter()) {
-        let sources_for_config = config_sources.remove(&config).unwrap_or_default();
-        named_config_sources.insert(named, sources_for_config);
-    }
-
-    let all_candidate_sources = named_config_sources.clone();
-    configs = named_config_sources.keys().cloned().collect::<Vec<_>>();
-    configs.sort_unstable();
-    let deferred_transport_candidates = configs
+    let deferred_candidates = configs
         .iter()
         .filter(|config| needs_deferred_transport_validation(config))
         .filter(|config| is_locally_supported_config(config))
@@ -643,11 +658,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .collect::<Vec<_>>();
 
     let collected_before_global_cap = configs.len();
-    configs = cap_configs_globally(configs, MAX_COLLECTED_CONFIGS, &named_config_sources);
+    configs = cap_configs_globally(configs, MAX_COLLECTED_CONFIGS, &config_sources);
 
     let retained_configs = configs.iter().cloned().collect::<HashSet<_>>();
-    named_config_sources.retain(|config, _| retained_configs.contains(config));
-    let mut deferred_transport_candidates = deferred_transport_candidates
+    config_sources.retain(|config, _| retained_configs.contains(config));
+    let mut deferred_transport_candidates = deferred_candidates
         .into_iter()
         .filter(|config| retained_configs.contains(config))
         .collect::<Vec<_>>();
@@ -658,6 +673,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             collected_before_global_cap
         );
     }
+
+    configs.sort_unstable();
+    let unnamed_configs = configs;
+    let named_configs = assign_config_names(unnamed_configs.clone());
+    let mut named_config_sources = HashMap::<String, HashSet<String>>::new();
+
+    for (config, named) in unnamed_configs.into_iter().zip(named_configs.into_iter()) {
+        let source_indices = config_sources.remove(&config).unwrap_or_default();
+        let sources_for_config = source_indices
+            .into_iter()
+            .filter_map(|source_index| sources.get(source_index).cloned())
+            .collect::<HashSet<_>>();
+        named_config_sources.insert(named, sources_for_config);
+    }
+
+    let all_candidate_sources = named_config_sources.clone();
+    configs = named_config_sources.keys().cloned().collect::<Vec<_>>();
 
     if configs.is_empty() {
         return Err("no proxy configurations were collected".into());
@@ -1025,7 +1057,7 @@ fn project_root() -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
 fn cap_configs_globally(
     configs: Vec<String>,
     cap: usize,
-    source_map: &HashMap<String, HashSet<String>>,
+    source_map: &HashMap<String, HashSet<usize>>,
 ) -> Vec<String> {
     if configs.len() <= cap {
         return configs;
@@ -1159,19 +1191,8 @@ async fn load_sources_if_exists(
     }
 }
 
-fn source_content_fingerprint(configs: &[String]) -> String {
-    let mut canonical = configs.iter().map(String::as_str).collect::<Vec<_>>();
-    canonical.sort_unstable();
-    canonical.dedup();
-
-    let mut hasher = Blake2b::<U32>::new();
-    for config in canonical {
-        hasher.update(config.as_bytes());
-        hasher.update([0u8]);
-    }
-
-    hasher
-        .finalize()
+fn source_content_fingerprint(content: &str) -> String {
+    Blake2b::<U32>::digest(content.as_bytes())
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
@@ -1253,33 +1274,80 @@ fn split_concatenated_configs(config: &str) -> Vec<&str> {
         .chain(starts.last().map(|&start| &config[start..]))
         .collect()
 }
-fn extract_configs(text: &str) -> Vec<String> {
-    let text = decode_html_entities(text);
-    let pattern = config_pattern();
-
-    let mut found = Vec::new();
-
-    for capture in pattern.find_iter(&text) {
+fn collect_config_candidates(text: &str, pattern: &Regex, found: &mut HashSet<String>) {
+    for capture in pattern.find_iter(text) {
         for candidate in split_concatenated_configs(capture.as_str()) {
             if let Some(config) = normalize_config(candidate) {
-                found.push(config);
-            }
-        }
-    }
-
-    for decoded in decode_base64_variants(&text) {
-        for capture in pattern.find_iter(&decoded) {
-            for candidate in split_concatenated_configs(capture.as_str()) {
-                if let Some(config) = normalize_config(candidate) {
-                    found.push(config);
+                found.insert(config);
+                if found.len() >= MAX_CONFIGS_PER_SOURCE {
+                    return;
                 }
             }
         }
     }
+}
 
-    found.sort_unstable();
-    found.dedup();
-    found
+fn extract_configs(text: &str) -> Vec<String> {
+    let text = decode_html_entities(text);
+    let pattern = config_pattern();
+    let mut found = HashSet::new();
+
+    collect_config_candidates(&text, pattern, &mut found);
+
+    if found.len() < MAX_CONFIGS_PER_SOURCE {
+        for decoded in decode_base64_variants(&text) {
+            collect_config_candidates(&decoded, pattern, &mut found);
+            if found.len() >= MAX_CONFIGS_PER_SOURCE {
+                break;
+            }
+        }
+    }
+
+    let mut configs = found.into_iter().collect::<Vec<_>>();
+    configs.sort_unstable();
+    configs
+}
+
+
+fn add_source_config(
+    source_configs: &mut HashMap<String, (String, HashSet<usize>)>,
+    priorities: &mut BinaryHeap<([u8; 32], String)>,
+    config: String,
+    source_index: usize,
+    limit: usize,
+) {
+    if limit == 0 {
+        return;
+    }
+
+    let normalized = percent_encode_emoji_characters(&config);
+    let identity = dedup_key(&normalized);
+
+    if let Some((_, source_indices)) = source_configs.get_mut(&identity) {
+        source_indices.insert(source_index);
+        return;
+    }
+
+    let digest = Blake2b::<U32>::digest(identity.as_bytes());
+    let mut priority = [0u8; 32];
+    priority.copy_from_slice(&digest[..]);
+
+    if source_configs.len() >= limit {
+        let replace_worst = priorities.peek().is_some_and(|(worst_priority, worst_identity)| {
+            priority < *worst_priority
+                || (priority == *worst_priority && identity < *worst_identity)
+        });
+        if !replace_worst {
+            return;
+        }
+        let Some((_, evicted_identity)) = priorities.pop() else {
+            return;
+        };
+        source_configs.remove(&evicted_identity);
+    }
+
+    priorities.push((priority, identity.clone()));
+    source_configs.insert(identity, (config, HashSet::from([source_index])));
 }
 
 fn lowercase_scheme(config: &str) -> String {
@@ -4527,5 +4595,83 @@ mod http_handshake_timeout_tests {
     fn handshake_timeout_and_logged_latency_are_three_seconds() {
         assert_eq!(HTTP_HANDSHAKE_TIMEOUT_SECS, 3);
         assert_eq!(HTTP_HANDSHAKE_MAX_LATENCY_MS, 3000.0);
+    }
+}
+
+
+#[cfg(test)]
+mod bounded_collection_tests {
+    use super::{add_source_config, extract_configs, source_content_fingerprint, MAX_CONFIGS_PER_SOURCE};
+    use std::collections::{BinaryHeap, HashMap, HashSet};
+
+    fn collect_pool(configs: &[String], limit: usize) -> HashMap<String, (String, HashSet<usize>)> {
+        let mut pool = HashMap::new();
+        let mut priorities = BinaryHeap::new();
+        for config in configs {
+            add_source_config(&mut pool, &mut priorities, config.clone(), 0, limit);
+        }
+        pool
+    }
+
+    #[test]
+    fn source_extraction_is_bounded() {
+        let mut source = String::new();
+        for index in 0..(MAX_CONFIGS_PER_SOURCE + 10) {
+            source.push_str(&format!(
+                "vless://00000000-0000-0000-0000-000000000001@node{index}.example.com:443?security=tls\n"
+            ));
+        }
+
+        assert_eq!(extract_configs(&source).len(), MAX_CONFIGS_PER_SOURCE);
+    }
+
+    #[test]
+    fn source_fingerprint_covers_content_beyond_extracted_candidates() {
+        assert_ne!(
+            source_content_fingerprint("first candidate\nadditional data A"),
+            source_content_fingerprint("first candidate\nadditional data B")
+        );
+    }
+
+    #[test]
+    fn bounded_candidate_selection_is_stable_across_input_order() {
+        let configs = (0..100)
+            .map(|index| format!(
+                "vless://00000000-0000-0000-0000-000000000001@node{index}.example.com:443?security=tls"
+            ))
+            .collect::<Vec<_>>();
+        let mut reversed = configs.clone();
+        reversed.reverse();
+
+        let forward_keys = collect_pool(&configs, 20).into_keys().collect::<HashSet<_>>();
+        let reverse_keys = collect_pool(&reversed, 20).into_keys().collect::<HashSet<_>>();
+
+        assert_eq!(forward_keys, reverse_keys);
+        assert_eq!(forward_keys.len(), 20);
+    }
+
+    #[test]
+    fn equivalent_configs_keep_source_attribution() {
+        let configs = [
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443#first",
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443#second",
+        ];
+        let mut pool = HashMap::new();
+        let mut priorities = BinaryHeap::new();
+        for (source_index, config) in configs.into_iter().enumerate() {
+            add_source_config(
+                &mut pool,
+                &mut priorities,
+                config.to_string(),
+                source_index,
+                1,
+            );
+        }
+
+        assert_eq!(pool.len(), 1);
+        assert_eq!(
+            pool.values().next().unwrap().1,
+            HashSet::from([0usize, 1usize])
+        );
     }
 }
