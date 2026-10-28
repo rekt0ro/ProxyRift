@@ -939,9 +939,7 @@ fn cached_public_tcp_host_in(
 ) -> Option<IpAddr> {
     let key = public_tcp_host_cache_key(host, port);
     match cache.get(&key).copied() {
-        Some((expires_at, address)) if expires_at > now && is_public_ip(&address) => {
-            Some(address)
-        }
+        Some((expires_at, address)) if expires_at > now && is_public_ip(&address) => Some(address),
         Some(_) => {
             cache.remove(&key);
             None
@@ -6832,13 +6830,7 @@ mod tests {
         let now = Instant::now();
         let address: IpAddr = "93.184.216.34".parse().expect("valid public address");
 
-        remember_public_tcp_host_in(
-            &mut cache,
-            "Raw.GitHubusercontent.com.",
-            443,
-            address,
-            now,
-        );
+        remember_public_tcp_host_in(&mut cache, "Raw.GitHubusercontent.com.", 443, address, now);
 
         assert_eq!(
             cached_public_tcp_host_in(
@@ -6888,22 +6880,11 @@ mod tests {
                 now,
             );
         }
-        remember_public_tcp_host_in(
-            &mut cache,
-            "one-more.example",
-            443,
-            address,
-            now,
-        );
+        remember_public_tcp_host_in(&mut cache, "one-more.example", 443, address, now);
 
         assert_eq!(cache.len(), MAX_PUBLIC_TCP_HOST_CACHE_ENTRIES);
         assert_eq!(
-            cached_public_tcp_host_in(
-                &mut cache,
-                "one-more.example",
-                443,
-                now,
-            ),
+            cached_public_tcp_host_in(&mut cache, "one-more.example", 443, now,),
             None
         );
     }
