@@ -294,8 +294,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .filter(|url| !active_set.contains(url))
         .collect::<Vec<_>>();
     let probe_only_sources = stale_probe_sources.iter().cloned().collect::<HashSet<_>>();
-    let known_probe_fingerprints =
-        load_source_content_fingerprints(&stale_probe_sources).await?;
+    let known_probe_fingerprints = load_source_content_fingerprints(&stale_probe_sources).await?;
     let mut sources = active_sources.clone();
     sources.extend(stale_probe_sources.iter().cloned());
     println!(
@@ -530,9 +529,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .iter()
         .filter(|source_url| changed_content_sources.contains(*source_url))
         .count();
-    let stale_probes_unchanged = stale_probe_sources.len().saturating_sub(stale_probes_reactivated);
+    let stale_probes_unchanged = stale_probe_sources
+        .len()
+        .saturating_sub(stale_probes_reactivated);
 
-    let mut stale_candidates = stale_probe_config_candidates.into_iter().collect::<Vec<_>>();
+    let mut stale_candidates = stale_probe_config_candidates
+        .into_iter()
+        .collect::<Vec<_>>();
     stale_candidates.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     for (_, (config, source_indices)) in stale_candidates {
         let mut source_indices = source_indices.into_iter().collect::<Vec<_>>();
@@ -4723,12 +4726,9 @@ mod bounded_collection_tests {
     }
 }
 
-
 #[cfg(test)]
 mod stale_probe_budget_tests {
-    use super::{
-        add_changed_stale_probe_configs, MAX_STALE_PROBE_CONFIGS,
-    };
+    use super::{add_changed_stale_probe_configs, MAX_STALE_PROBE_CONFIGS};
     use std::collections::{BinaryHeap, HashMap, HashSet};
 
     fn configs(prefix: &str, count: usize) -> Vec<String> {
