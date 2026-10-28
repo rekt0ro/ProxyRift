@@ -616,9 +616,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         entry.1.extend(source_indices);
     }
 
-    let mut config_sources = deduped
-        .into_values()
-        .collect::<HashMap<_, _>>();
+    let mut config_sources = deduped.into_values().collect::<HashMap<_, _>>();
     let mut configs = config_sources.keys().cloned().collect::<Vec<_>>();
     configs.sort_unstable();
 
