@@ -4663,9 +4663,6 @@ async fn main() -> Result<(), String> {
         &fully_validated,
         run_timestamp,
     )?;
-    // Keep the runtime log aligned with the disjoint categories in the run summary.
-    // selected_new_count also includes historically known candidates whose 24-hour
-    // revalidation window expired, so it must not be labelled as purely "New".
     println!(
         "[INFO] [Light] Validation result | Selected: {}/{} | New: {} | Revalidation expired: {} | Recently revalidated: {} | Fresh families: {} | HTTP precheck: {} | 1 MiB stability: {}/{} | 9 MiB sustained: {}/{}",
         selected.len(),
