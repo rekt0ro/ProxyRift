@@ -888,6 +888,10 @@ fn load_history(path: &str) -> Result<HashMap<String, HistoryEntry>, String> {
         }
     };
 
+    if value.get("version").and_then(Value::as_u64) != Some(2) {
+        return Ok(HashMap::new());
+    }
+
     let Some(entries) = value.get("entries").and_then(Value::as_object) else {
         return Ok(HashMap::new());
     };
@@ -957,7 +961,7 @@ fn persist_history(
     }
 
     let document = serde_json::json!({
-        "version": 1,
+        "version": 2,
         "entries": entries,
     });
     let body = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
@@ -4740,10 +4744,32 @@ mod tests {
         let passed_entry = entries.get(&history_fingerprint(&passed_config)).unwrap();
         let failed_entry = entries.get(&history_fingerprint(&failed_config)).unwrap();
 
+        assert_eq!(document["version"], 2);
         assert_eq!(passed_entry["checks"], 1);
         assert_eq!(passed_entry["passes"], 1);
         assert_eq!(failed_entry["checks"], 1);
         assert_eq!(failed_entry["passes"], 0);
+
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn ignores_history_with_legacy_pass_semantics() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "proxyrift-legacy-history-{}-{now}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"version":1,"entries":{"legacy":{"checks":5,"passes":5,"last_seen":9999999999}}}"#,
+        )
+        .unwrap();
+
+        assert!(super::load_history(path.to_str().unwrap()).unwrap().is_empty());
 
         std::fs::remove_file(path).unwrap();
     }
