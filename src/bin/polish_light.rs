@@ -4769,7 +4769,9 @@ mod tests {
         )
         .unwrap();
 
-        assert!(super::load_history(path.to_str().unwrap()).unwrap().is_empty());
+        assert!(super::load_history(path.to_str().unwrap())
+            .unwrap()
+            .is_empty());
 
         std::fs::remove_file(path).unwrap();
     }
