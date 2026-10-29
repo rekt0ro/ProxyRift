@@ -1023,6 +1023,7 @@ pub fn is_public_ip(ip: &std::net::IpAddr) -> bool {
                 || (segments[0] == 0x2001 && (segments[1] & 0xfff0) == 0x0020)
                 || (segments[0] == 0x2001 && segments[1] == 0x0db8)
                 || (segments[0] == 0x3fff && (segments[1] & 0xf000) == 0)
+                || segments[0] == 0x2002
                 || (segments[0] & 0xfe00) == 0xfc00
                 || (segments[0] & 0xffc0) == 0xfe80)
         }
@@ -6899,6 +6900,8 @@ mod tests {
             "2001:10::1",
             "2001:20::1",
             "2001:db8::1",
+            "2002::1",
+            "2002:0a00:0001::1",
             "3fff::1",
             "4000::1",
             "5f00::1",

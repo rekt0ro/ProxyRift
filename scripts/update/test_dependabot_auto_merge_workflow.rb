@@ -49,6 +49,7 @@ abort "Auto-merge workflow must call the tested status gate" unless
   merge["run"].include?("bash scripts/update/verify_dependabot_auto_merge_checks.sh")
 
 workflow_text = File.read(path, encoding: "UTF-8")
+abort "Auto-merge must re-check PRs when a draft becomes ready for review" unless workflow_text.include?("      - ready_for_review\n")
 abort "Auto-merge must re-check PRs when CodeQL finishes, even though its aggregate check is not a gate" unless
   workflow_text.include?("      - CI\n      - CodeQL")
 
