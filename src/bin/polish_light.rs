@@ -4664,10 +4664,11 @@ async fn main() -> Result<(), String> {
         run_timestamp,
     )?;
     println!(
-        "[INFO] [Light] Validation result | Selected: {}/{} | New: {} | Revalidated: {} | Fresh families: {} | HTTP precheck: {} | 1 MiB stability: {}/{} | 9 MiB sustained: {}/{}",
+        "[INFO] [Light] Validation result | Selected: {}/{} | New: {} | Revalidation expired: {} | Recently revalidated: {} | Fresh families: {} | HTTP precheck: {} | 1 MiB stability: {}/{} | 9 MiB sustained: {}/{}",
         selected.len(),
         selection_limit,
-        selected_new_count,
+        selected_new_candidates,
+        selected_expired_candidates,
         selected_revalidated_count,
         fresh_family_selected,
         final_metadata.len(),
