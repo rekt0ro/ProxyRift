@@ -594,14 +594,14 @@ fn persist_light_result(
         stream_verified,
     )?;
 
-    let strict_tested = final_attempts.keys().cloned().collect::<HashSet<_>>();
-    let strict_passed = final_metadata.keys().cloned().collect::<HashSet<_>>();
-    let transfer_passed = transfer_verified.keys().cloned().collect::<HashSet<_>>();
+    let strict_tested = transfer_tested.clone();
+    let strict_passed = transfer_verified.keys().cloned().collect::<HashSet<_>>();
+    let stream_passed = stream_verified.keys().cloned().collect::<HashSet<_>>();
     if let Err(error) = proxyrift::source_discovery::record_light_results(
         &strict_tested,
         &strict_passed,
-        transfer_tested,
-        &transfer_passed,
+        stream_tested,
+        &stream_passed,
     ) {
         println!("[WARN] [Source quality] Failed to persist Light feedback: {error}");
     }
