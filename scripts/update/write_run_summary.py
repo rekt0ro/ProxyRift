@@ -272,7 +272,7 @@ def make_summary(env: dict[str, str], workdir: Path) -> str:
 
     light_stats = read_json(tmp_dir / "light-stats.json")
     metric_names = (
-        "input_candidates", "strict_verified", "strict_attempts", "selection_target",
+        "input_candidates", "full_path_verified", "full_path_tested", "selection_target",
         "transfer_stability_tested", "transfer_stability_passed", "transfer_tested",
         "transfer_passed", "stream_continuity_tested", "stream_continuity_passed",
         "published", "fresh_family_target_percent", "published_new_candidates",
@@ -394,7 +394,7 @@ def make_summary(env: dict[str, str], workdir: Path) -> str:
         "| Stage | Passed / tested |",
         "|---|---:|",
         f"| Candidates received | {format_count(metrics['input_candidates'])} |",
-        f"| Strict validation | {format_count(metrics['strict_verified'])} / {format_count(metrics['strict_attempts'])} |",
+        f"| Full-path validation (10 MiB) | {format_count(metrics['full_path_verified'])} / {format_count(metrics['full_path_tested'])} |",
         f"| 1 MiB stability | {format_count(metrics['transfer_stability_passed'])} / {format_count(metrics['transfer_stability_tested'])} |",
         f"| 9 MiB sustained stream | {format_count(metrics['transfer_passed'])} / {format_count(metrics['transfer_tested'])} |",
         "",

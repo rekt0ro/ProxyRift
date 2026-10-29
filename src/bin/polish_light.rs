@@ -506,8 +506,8 @@ fn write_light_stats(
     input_candidates: usize,
     security_rejected: usize,
     consumer_rejected: usize,
-    strict_verified: usize,
-    strict_attempts: usize,
+    full_path_verified: usize,
+    full_path_tested: usize,
     transfer_stability_tested: usize,
     transfer_stability_passed: usize,
     transfer_tested: usize,
@@ -537,8 +537,8 @@ fn write_light_stats(
         "input_candidates": input_candidates,
         "security_rejected": security_rejected,
         "consumer_rejected": consumer_rejected,
-        "strict_verified": strict_verified,
-        "strict_attempts": strict_attempts,
+        "full_path_verified": full_path_verified,
+        "full_path_tested": full_path_tested,
         "transfer_stability_tested": transfer_stability_tested,
         "transfer_stability_passed": transfer_stability_passed,
         "transfer_tested": transfer_tested,
@@ -594,19 +594,19 @@ fn persist_light_result(
         stream_verified,
     )?;
 
-    let strict_tested = final_attempts.keys().cloned().collect::<HashSet<_>>();
-    let strict_passed = final_metadata.keys().cloned().collect::<HashSet<_>>();
-    let transfer_passed = transfer_verified.keys().cloned().collect::<HashSet<_>>();
+    let strict_tested = transfer_tested.clone();
+    let strict_passed = transfer_verified.keys().cloned().collect::<HashSet<_>>();
+    let stream_passed = stream_verified.keys().cloned().collect::<HashSet<_>>();
     if let Err(error) = proxyrift::source_discovery::record_light_results(
         &strict_tested,
         &strict_passed,
-        transfer_tested,
-        &transfer_passed,
+        stream_tested,
+        &stream_passed,
     ) {
         println!("[WARN] [Source quality] Failed to persist Light feedback: {error}");
     }
 
-    persist_history(history_path, history, final_attempts, final_metadata)
+    persist_history(history_path, history, transfer_tested, transfer_verified)
 }
 
 fn value(args: &[String], name: &str, default: &str) -> String {
@@ -888,6 +888,10 @@ fn load_history(path: &str) -> Result<HashMap<String, HistoryEntry>, String> {
         }
     };
 
+    if value.get("version").and_then(Value::as_u64) != Some(2) {
+        return Ok(HashMap::new());
+    }
+
     let Some(entries) = value.get("entries").and_then(Value::as_object) else {
         return Ok(HashMap::new());
     };
@@ -916,8 +920,8 @@ fn load_history(path: &str) -> Result<HashMap<String, HistoryEntry>, String> {
 fn persist_history(
     path: &str,
     history: &HashMap<String, HistoryEntry>,
-    final_attempts: &HashMap<String, usize>,
-    final_metadata: &HashMap<String, ProxyMetrics>,
+    full_path_tested: &HashSet<String>,
+    full_path_passed: &HashMap<String, ProxyMetrics>,
 ) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -925,13 +929,13 @@ fn persist_history(
         .as_secs();
 
     let mut updated = history.clone();
-    for config in final_attempts.keys() {
+    for config in full_path_tested {
         let fingerprint = history_fingerprint(config);
         let entry = updated.entry(fingerprint).or_default();
         entry.checks = entry.checks.saturating_add(1);
         entry.passes = entry
             .passes
-            .saturating_add(u64::from(final_metadata.contains_key(config)));
+            .saturating_add(u64::from(full_path_passed.contains_key(config)));
         entry.last_seen = now;
     }
 
@@ -957,7 +961,7 @@ fn persist_history(
     }
 
     let document = serde_json::json!({
-        "version": 1,
+        "version": 2,
         "entries": entries,
     });
     let body = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
@@ -4546,13 +4550,21 @@ async fn main() -> Result<(), String> {
         );
     }
 
+    let mut full_path_tested = transfer_tested.clone();
+    full_path_tested.extend(
+        stability_tested
+            .iter()
+            .filter(|config| !stability_verified.contains_key(*config))
+            .cloned(),
+    );
+
     write_light_stats(
         &stats_path,
         input_candidate_count,
         security_rejected,
         consumer_rejected,
-        final_metadata.len(),
-        final_attempts.values().copied().sum::<usize>(),
+        transfer_verified.len(),
+        full_path_tested.len(),
         stability_tested.len(),
         stability_verified.len(),
         transfer_tested.len(),
@@ -4626,14 +4638,6 @@ async fn main() -> Result<(), String> {
         }
     );
 
-    let mut full_path_tested = transfer_tested.clone();
-    full_path_tested.extend(
-        stability_tested
-            .iter()
-            .filter(|config| !stability_verified.contains_key(*config))
-            .cloned(),
-    );
-
     persist_light_result(
         &output,
         &selected,
@@ -4703,6 +4707,74 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn history_records_full_path_pass_and_failure_results() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "proxyrift-history-{}-{now}.json",
+            std::process::id()
+        ));
+        let passed_config =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443".to_string();
+        let failed_config =
+            "vless://00000000-0000-0000-0000-000000000002@example.com:443".to_string();
+        let tested = HashSet::from([passed_config.clone(), failed_config.clone()]);
+        let passed = HashMap::from([(
+            passed_config.clone(),
+            ProxyMetrics {
+                successes: 1,
+                attempts: 1,
+                median_ms: 50.0,
+                min_ms: 50.0,
+                jitter_ms: 0.0,
+                throughput_kbps: 1_000.0,
+                successful_targets: Vec::new(),
+            },
+        )]);
+
+        super::persist_history(path.to_str().unwrap(), &HashMap::new(), &tested, &passed).unwrap();
+
+        let document: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let entries = document["entries"].as_object().unwrap();
+        let passed_entry = entries.get(&history_fingerprint(&passed_config)).unwrap();
+        let failed_entry = entries.get(&history_fingerprint(&failed_config)).unwrap();
+
+        assert_eq!(document["version"], 2);
+        assert_eq!(passed_entry["checks"], 1);
+        assert_eq!(passed_entry["passes"], 1);
+        assert_eq!(failed_entry["checks"], 1);
+        assert_eq!(failed_entry["passes"], 0);
+
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn ignores_history_with_legacy_pass_semantics() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "proxyrift-legacy-history-{}-{now}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"version":1,"entries":{"legacy":{"checks":5,"passes":5,"last_seen":9999999999}}}"#,
+        )
+        .unwrap();
+
+        assert!(super::load_history(path.to_str().unwrap())
+            .unwrap()
+            .is_empty());
+
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn light_validation_report_does_not_claim_publication() {

@@ -27,7 +27,7 @@ class RunSummaryTests(unittest.TestCase):
         (self.subscriptions / "all.txt").write_text("vless://all@example.com:443\n", encoding="utf-8")
         (self.subscriptions / "light.txt").write_text("vless://light@example.net:443\n", encoding="utf-8")
         (self.temp_data / "light-stats.json").write_text(json.dumps({
-            "input_candidates": 20000, "strict_verified": 300, "strict_attempts": 317,
+            "input_candidates": 20000, "full_path_verified": 200, "full_path_tested": 317,
             "selection_target": 200, "transfer_stability_tested": 232, "transfer_stability_passed": 220,
             "transfer_tested": 232, "transfer_passed": 211, "stream_continuity_tested": 232,
             "stream_continuity_passed": 211, "published": 200, "fresh_family_target_percent": 70,
@@ -88,7 +88,7 @@ class RunSummaryTests(unittest.TestCase):
         summary = self.generate()
         for expected in (
             "| Candidates received | 20,000 |",
-            "| Strict validation | 300 / 317 |",
+            "| Full-path validation (10 MiB) | 200 / 317 |",
             "| 1 MiB stability | 220 / 232 |",
             "| 9 MiB sustained stream | 211 / 232 |",
             "| Candidate score coverage | 200 / 200 candidates scored (100.0%; complete) |",

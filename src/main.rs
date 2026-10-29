@@ -1219,7 +1219,7 @@ fn config_pattern() -> &'static Regex {
 
     PATTERN.get_or_init(|| {
         Regex::new(
-            r#"(?i)(?:vmess|vless|trojan|ss|socks(?:4a?|5h?)?|hysteria|hysteria2|hy2|wg|http)://[^\s<>"']+"#,
+            r#"(?i)(?:vmess|vless|trojan|ss|socks(?:4a?|5h?)?|hysteria|hysteria2|hy2|tuic|wg|http)://[^\s<>"']+"#,
         )
         .expect("config regex must compile")
     })
@@ -1243,6 +1243,7 @@ fn split_concatenated_configs(config: &str) -> Vec<&str> {
         "hysteria://",
         "hysteria2://",
         "hy2://",
+        "tuic://",
         "wg://",
         "http://",
     ];
@@ -2788,6 +2789,19 @@ mod tests {
                 "socks5://127.0.0.1:1082".to_string(),
                 "socks5h://127.0.0.1:1083".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn extracts_tuic_urls_from_sources() {
+        let first = "tuic://00000000-0000-0000-0000-000000000001:secret@example.com:443";
+        let second = "tuic://00000000-0000-0000-0000-000000000002:secret@example.net:443";
+        let configs = extract_configs(&format!("{first}{second}"));
+
+        assert_eq!(configs, vec![first.to_string(), second.to_string()]);
+        assert_eq!(
+            split_concatenated_configs(&format!("{first}{second}")),
+            vec![first, second]
         );
     }
 
