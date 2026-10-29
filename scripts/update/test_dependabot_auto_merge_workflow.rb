@@ -7,6 +7,12 @@ path = ".github/workflows/dependabot-auto-merge.yml"
 workflow = YAML.load_file(path)
 steps = workflow.dig("jobs", "merge", "steps")
 
+concurrency = workflow["concurrency"]
+abort "Auto-merge workflow must serialize invocations that scan the same open PR queue" unless
+  concurrency.is_a?(Hash) &&
+    concurrency["group"] == "dependabot-action-auto-merge" &&
+    concurrency["cancel-in-progress"] == false
+
 merge_job_condition = workflow.dig("jobs", "merge", "if")
 abort "PR-triggered auto-merge must ignore unrelated human PRs" unless
   merge_job_condition.is_a?(String) &&
@@ -107,6 +113,17 @@ abort "Core-pin squash merges must include the current PR title and PR number in
     body.include?(%q{pr_title="$(jq -r '.title // empty' <<< "${pr_data}")"}) &&
     body.include?('if gh pr merge "${pr}" "${merge_args[@]}"; then') &&
     body.include?('PR #${pr} has no title; refusing to merge without a commit subject.')
+merge_retry_tokens = [
+  "merged_by_another_run=false",
+  "for attempt in {1..10}; do",
+  'if [ "${state}" = "MERGED" ]; then',
+  "sleep 3",
+  'if [ "${merged_by_another_run}" = "true" ]; then',
+  "PR #${pr} was merged by another run."
+]
+abort "Auto-merge must re-check PR state after a concurrent merge attempt" unless
+  merge_retry_tokens.all? { |token| body.include?(token) }
+
 abort "Core-pin updater must only modify its three managed pin files" unless
   body.include?('.github/actions/prepare-update/action.yml|.python-version|.ruby-version|rust-toolchain.toml')
 abort "Unconfigured requirements-file updates must not be auto-merged" if body.include?('requirements*.txt')
