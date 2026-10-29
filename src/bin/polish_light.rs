@@ -4714,8 +4714,10 @@ mod tests {
             "proxyrift-history-{}-{now}.json",
             std::process::id()
         ));
-        let passed_config = "vless://00000000-0000-0000-0000-000000000001@example.com:443".to_string();
-        let failed_config = "vless://00000000-0000-0000-0000-000000000002@example.com:443".to_string();
+        let passed_config =
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443".to_string();
+        let failed_config =
+            "vless://00000000-0000-0000-0000-000000000002@example.com:443".to_string();
         let tested = HashSet::from([passed_config.clone(), failed_config.clone()]);
         let passed = HashMap::from([(
             passed_config.clone(),
@@ -4730,13 +4732,7 @@ mod tests {
             },
         )]);
 
-        super::persist_history(
-            path.to_str().unwrap(),
-            &HashMap::new(),
-            &tested,
-            &passed,
-        )
-        .unwrap();
+        super::persist_history(path.to_str().unwrap(), &HashMap::new(), &tested, &passed).unwrap();
 
         let document: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();

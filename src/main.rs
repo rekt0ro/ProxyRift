@@ -2799,7 +2799,10 @@ mod tests {
         let configs = extract_configs(&format!("{first}{second}"));
 
         assert_eq!(configs, vec![first.to_string(), second.to_string()]);
-        assert_eq!(split_concatenated_configs(&format!("{first}{second}")), vec![first, second]);
+        assert_eq!(
+            split_concatenated_configs(&format!("{first}{second}")),
+            vec![first, second]
+        );
     }
 
     #[test]
