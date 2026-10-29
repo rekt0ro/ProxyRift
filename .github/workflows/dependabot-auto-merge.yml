@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: dependabot-action-auto-merge-${{ github.event.pull_request.number || github.event.workflow_run.id || github.run_id }}
+  group: dependabot-action-auto-merge
   cancel-in-progress: false
 
 permissions:
@@ -239,11 +239,26 @@ jobs:
             if gh pr merge "${pr}" "${merge_args[@]}"; then
               echo "Merged PR #${pr}."
             else
-              state="$(gh pr view "${pr}" --repo "${GITHUB_REPOSITORY}" --json state --jq '.state' 2>/dev/null || true)"
-              if [ "${state}" = "MERGED" ]; then
+              merged_by_another_run=false
+              state=""
+              for attempt in {1..10}; do
+                state="$(gh pr view "${pr}" --repo "${GITHUB_REPOSITORY}" --json state --jq '.state' 2>/dev/null || true)"
+                if [ "${state}" = "MERGED" ]; then
+                  merged_by_another_run=true
+                  break
+                fi
+                if [ -n "${state}" ] && [ "${state}" != "OPEN" ]; then
+                  break
+                fi
+                if (( attempt < 10 )); then
+                  sleep 3
+                fi
+              done
+
+              if [ "${merged_by_another_run}" = "true" ]; then
                 echo "PR #${pr} was merged by another run."
               else
-                echo "Failed to merge PR #${pr}."
+                echo "Failed to merge PR #${pr}; PR state after retries: ${state:-unknown}."
                 exit 1
               fi
             fi
