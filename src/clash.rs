@@ -120,20 +120,19 @@ fn contains_percent_decoded_control_characters(config: &str) -> bool {
         .is_some_and(|value| normalize_clash_transport(&value) == "xhttp");
 
     if decode_component(url.username()).is_ok_and(|value| contains_control_characters(&value))
-        || url
-            .password()
-            .is_some_and(|value| decode_component(value).is_ok_and(|value| contains_control_characters(&value)))
-        || url
-            .fragment()
-            .is_some_and(|value| decode_component(value).is_ok_and(|value| contains_control_characters(&value)))
+        || url.password().is_some_and(|value| {
+            decode_component(value).is_ok_and(|value| contains_control_characters(&value))
+        })
+        || url.fragment().is_some_and(|value| {
+            decode_component(value).is_ok_and(|value| contains_control_characters(&value))
+        })
         || decode_component(url.path()).is_ok_and(|value| contains_control_characters(&value))
     {
         return true;
     }
 
     url.query_pairs().any(|(key, value)| {
-        !(is_xhttp && key.eq_ignore_ascii_case("extra"))
-            && contains_control_characters(&value)
+        !(is_xhttp && key.eq_ignore_ascii_case("extra")) && contains_control_characters(&value)
     })
 }
 
@@ -367,7 +366,9 @@ fn push_xhttp_json_field(
 
     match value {
         Value::String(value) => push_field(lines, indent, key, value),
-        Value::Bool(value) => push_raw_field(lines, indent, key, if *value { "true" } else { "false" }),
+        Value::Bool(value) => {
+            push_raw_field(lines, indent, key, if *value { "true" } else { "false" })
+        }
         Value::Number(value) => push_raw_field(lines, indent, key, &value.to_string()),
         Value::Null => {}
         _ => return Err(format!("unsupported XHTTP option value for {key}")),
@@ -413,7 +414,10 @@ fn push_xhttp_opts(
     }
     if let Some(mode) = mode {
         let mode = mode.trim().to_ascii_lowercase();
-        if !matches!(mode.as_str(), "auto" | "stream-one" | "stream-up" | "packet-up") {
+        if !matches!(
+            mode.as_str(),
+            "auto" | "stream-one" | "stream-up" | "packet-up"
+        ) {
             return Err(format!("unsupported Mihomo XHTTP mode {mode}"));
         }
         push_field(lines, indent + 2, "mode", &mode);
@@ -458,7 +462,10 @@ fn push_xhttp_opts(
                 ("hMaxReusableSecs", "h-max-reusable-secs"),
                 ("hKeepAlivePeriod", "h-keep-alive-period"),
             ];
-            if supported.iter().any(|(source, _)| xmux.contains_key(source)) {
+            if supported
+                .iter()
+                .any(|(source, _)| xmux.contains_key(source))
+            {
                 lines.push(format!("{}reuse-settings:", " ".repeat(indent + 2)));
                 for (source, target) in supported {
                     if let Some(value) = xmux.get(source) {
@@ -1886,11 +1893,9 @@ mod tests {
             }
         }))
         .unwrap();
-        let encoded = percent_encoding::utf8_percent_encode(
-            &extra,
-            percent_encoding::NON_ALPHANUMERIC,
-        )
-        .to_string();
+        let encoded =
+            percent_encoding::utf8_percent_encode(&extra, percent_encoding::NON_ALPHANUMERIC)
+                .to_string();
         let config = format!(
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=xhttp&mode=packet-up&path=%2Fapi%2Fv1%2F&security=tls&extra={encoded}"
         );
