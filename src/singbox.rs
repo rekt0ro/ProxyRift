@@ -2703,14 +2703,21 @@ fn render_subscription_with_count(configs: &[String]) -> Result<(String, usize),
                 .join(", ");
             let suffix = if indices.len() > 8 { ", ..." } else { "" };
 
-            crate::emit_log_if!(
-                !crate::compact_logs_enabled();
-                "[INFO] {} config(s) | {} | indices: {}{}",
-                indices.len(),
-                reason,
-                shown,
-                suffix
-            );
+            if crate::compact_logs_enabled() {
+                println!(
+                    "[INFO] [sing-box] {} config(s) omitted | {}",
+                    indices.len(),
+                    reason
+                );
+            } else {
+                println!(
+                    "[INFO] [sing-box] {} config(s) omitted | {} | indices: {}{}",
+                    indices.len(),
+                    reason,
+                    shown,
+                    suffix
+                );
+            }
         }
     }
 
