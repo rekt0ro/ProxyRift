@@ -62,7 +62,7 @@ const STABILITY_TRANSFER_WORKERS: usize = 24;
 const STABILITY_TEST_MAX_PER_ENDPOINT: usize = 2;
 const STABILITY_TEST_MAX_PER_FAMILY: usize = 6;
 const STABILITY_TRANSFER_MAX_LATENCY_MS: f64 = 15000.0;
-const STABILITY_TARGET_SAFETY_FACTOR: f64 = 1.15;
+const STABILITY_TARGET_SAFETY_FACTOR: f64 = 1.30;
 const STABILITY_TARGET_MIN_RESERVE: usize = 24;
 const STABILITY_TRANSFER_DEFAULT_PASS_RATE: f64 = 0.68;
 const STABILITY_COMPLETION_GRACE_REMAINING: usize = 24;
@@ -5628,8 +5628,8 @@ mod tests {
 
     #[test]
     fn adaptive_stability_reserve_expands_with_low_yield() {
-        assert_eq!(adaptive_stability_pool_target(200, 0, 0), 356);
-        assert_eq!(adaptive_stability_pool_target(200, 243, 169), 349);
+        assert_eq!(adaptive_stability_pool_target(200, 0, 0), 402);
+        assert_eq!(adaptive_stability_pool_target(200, 243, 169), 395);
         assert_eq!(adaptive_stability_pool_target(200, 200, 100), 450);
     }
 
@@ -5640,7 +5640,7 @@ mod tests {
         let low_yield = adaptive_stability_target(200, 200, 100, 500);
         let high_yield = adaptive_stability_target(200, 200, 180, 500);
         assert!(low_yield > high_yield);
-        assert_eq!(high_yield, 271);
+        assert_eq!(high_yield, 306);
     }
 
     #[test]
