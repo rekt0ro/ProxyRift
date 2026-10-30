@@ -464,7 +464,7 @@ fn push_xhttp_opts(
             ];
             if supported
                 .iter()
-                .any(|(source, _)| xmux.contains_key(source))
+                .any(|(source, _)| xmux.contains_key(*source))
             {
                 lines.push(format!("{}reuse-settings:", " ".repeat(indent + 2)));
                 for (source, target) in supported {
