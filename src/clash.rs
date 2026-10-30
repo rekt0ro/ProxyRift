@@ -107,9 +107,34 @@ fn json_contains_control_characters(value: &Value) -> bool {
 }
 
 fn contains_percent_decoded_control_characters(config: &str) -> bool {
-    percent_decode_str(config)
-        .decode_utf8()
-        .is_ok_and(|decoded| contains_control_characters(&decoded))
+    if contains_control_characters(config) {
+        return true;
+    }
+
+    let Ok(url) = Url::parse(clean(config)) else {
+        return percent_decode_str(config)
+            .decode_utf8()
+            .is_ok_and(|decoded| contains_control_characters(&decoded));
+    };
+    let is_xhttp = query_any(&url, &["type", "network"])
+        .is_some_and(|value| normalize_clash_transport(&value) == "xhttp");
+
+    if decode_component(url.username()).is_ok_and(|value| contains_control_characters(&value))
+        || url
+            .password()
+            .is_some_and(|value| decode_component(value).is_ok_and(|value| contains_control_characters(&value)))
+        || url
+            .fragment()
+            .is_some_and(|value| decode_component(value).is_ok_and(|value| contains_control_characters(&value)))
+        || decode_component(url.path()).is_ok_and(|value| contains_control_characters(&value))
+    {
+        return true;
+    }
+
+    url.query_pairs().any(|(key, value)| {
+        !(is_xhttp && key.eq_ignore_ascii_case("extra"))
+            && contains_control_characters(&value)
+    })
 }
 
 fn vmess_json(config: &str) -> Result<Value, String> {
@@ -330,9 +355,53 @@ fn push_httpupgrade_opts(
     }
 }
 
-fn push_xhttp_opts(lines: &mut Vec<String>, indent: usize, path: Option<&str>, host: Option<&str>) {
-    if path.is_none() && host.is_none() {
-        return;
+fn push_xhttp_json_field(
+    lines: &mut Vec<String>,
+    indent: usize,
+    key: &str,
+    value: &Value,
+) -> Result<(), String> {
+    if json_contains_control_characters(value) {
+        return Err(format!("XHTTP option {key} contains control characters"));
+    }
+
+    match value {
+        Value::String(value) => push_field(lines, indent, key, value),
+        Value::Bool(value) => push_raw_field(lines, indent, key, if *value { "true" } else { "false" }),
+        Value::Number(value) => push_raw_field(lines, indent, key, &value.to_string()),
+        Value::Null => {}
+        _ => return Err(format!("unsupported XHTTP option value for {key}")),
+    }
+
+    Ok(())
+}
+
+fn push_xhttp_opts(
+    lines: &mut Vec<String>,
+    indent: usize,
+    path: Option<&str>,
+    host: Option<&str>,
+    mode: Option<&str>,
+    extra: Option<&str>,
+) -> Result<(), String> {
+    let extra_value = extra
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| {
+            serde_json::from_str::<Value>(value)
+                .map_err(|error| format!("invalid VLESS XHTTP extra JSON: {error}"))
+        })
+        .transpose()?;
+    let extra_object = match extra_value.as_ref() {
+        Some(Value::Object(object)) => Some(object),
+        Some(_) => return Err("VLESS XHTTP extra must be a JSON object".to_string()),
+        None => None,
+    };
+    let mode = mode
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| extra_object.and_then(|object| object.get("mode").and_then(Value::as_str)));
+
+    if path.is_none() && host.is_none() && mode.is_none() && extra_object.is_none() {
+        return Ok(());
     }
 
     lines.push(format!("{}xhttp-opts:", " ".repeat(indent)));
@@ -342,6 +411,65 @@ fn push_xhttp_opts(lines: &mut Vec<String>, indent: usize, path: Option<&str>, h
     if let Some(host) = host.filter(|value| !value.is_empty()) {
         push_field(lines, indent + 2, "host", host);
     }
+    if let Some(mode) = mode {
+        let mode = mode.trim().to_ascii_lowercase();
+        if !matches!(mode.as_str(), "auto" | "stream-one" | "stream-up" | "packet-up") {
+            return Err(format!("unsupported Mihomo XHTTP mode {mode}"));
+        }
+        push_field(lines, indent + 2, "mode", &mode);
+    }
+
+    if let Some(object) = extra_object {
+        for (source, target) in [
+            ("xPaddingBytes", "x-padding-bytes"),
+            ("noGRPCHeader", "no-grpc-header"),
+            ("scMaxEachPostBytes", "sc-max-each-post-bytes"),
+            ("scMinPostsIntervalMs", "sc-min-posts-interval-ms"),
+            ("xPaddingObfsMode", "x-padding-obfs-mode"),
+            ("xPaddingKey", "x-padding-key"),
+            ("xPaddingHeader", "x-padding-header"),
+            ("xPaddingPlacement", "x-padding-placement"),
+            ("xPaddingMethod", "x-padding-method"),
+            ("uplinkHTTPMethod", "uplink-http-method"),
+            ("sessionIDPlacement", "session-placement"),
+            ("sessionIDKey", "session-key"),
+            ("sessionIDTable", "session-table"),
+            ("sessionIDLength", "session-length"),
+            ("seqPlacement", "seq-placement"),
+            ("seqKey", "seq-key"),
+            ("uplinkDataPlacement", "uplink-data-placement"),
+            ("uplinkDataKey", "uplink-data-key"),
+            ("uplinkChunkSize", "uplink-chunk-size"),
+        ] {
+            if let Some(value) = object.get(source) {
+                push_xhttp_json_field(lines, indent + 2, target, value)?;
+            }
+        }
+
+        if let Some(xmux) = object.get("xmux") {
+            let xmux = xmux
+                .as_object()
+                .ok_or_else(|| "VLESS XHTTP xmux must be a JSON object".to_string())?;
+            let supported = [
+                ("maxConcurrency", "max-concurrency"),
+                ("maxConnections", "max-connections"),
+                ("cMaxReuseTimes", "c-max-reuse-times"),
+                ("hMaxRequestTimes", "h-max-request-times"),
+                ("hMaxReusableSecs", "h-max-reusable-secs"),
+                ("hKeepAlivePeriod", "h-keep-alive-period"),
+            ];
+            if supported.iter().any(|(source, _)| xmux.contains_key(source)) {
+                lines.push(format!("{}reuse-settings:", " ".repeat(indent + 2)));
+                for (source, target) in supported {
+                    if let Some(value) = xmux.get(source) {
+                        push_xhttp_json_field(lines, indent + 4, target, value)?;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -404,6 +532,8 @@ fn push_transport(
     service_name: Option<&str>,
     max_early_data: Option<&str>,
     early_data_header_name: Option<&str>,
+    mode: Option<&str>,
+    extra: Option<&str>,
 ) -> Result<(), String> {
     match network.trim().to_ascii_lowercase().as_str() {
         "" | "tcp" | "raw" | "none" => Ok(()),
@@ -441,15 +571,22 @@ fn push_transport(
         }
         "xhttp" | "splithttp" => {
             push_field(lines, indent, "network", "xhttp");
-            push_xhttp_opts(lines, indent, path, host);
-            Ok(())
+            push_xhttp_opts(lines, indent, path, host, mode, extra)
         }
         other => Err(format!("unsupported Clash/Mihomo transport {other}")),
     }
 }
 
 fn normalize_clash_transport(value: &str) -> String {
-    match value.trim().to_ascii_lowercase().as_str() {
+    let normalized = value.trim().to_ascii_lowercase();
+    let transport = normalized
+        .split(['#', '@', '?', '&', '¬', 'Â'])
+        .next()
+        .unwrap_or(normalized.as_str())
+        .trim()
+        .trim_end_matches(['.', '…']);
+
+    match transport {
         "" => "tcp".to_string(),
         "tcp" | "raw" | "none" => "tcp".to_string(),
         "websocket" => "ws".to_string(),
@@ -564,6 +701,8 @@ fn convert_vless(config: &str, index: usize) -> Result<String, String> {
         service_name.as_deref(),
         max_early_data.as_deref(),
         early_data_header_name.as_deref(),
+        query(&url, "mode").as_deref(),
+        query(&url, "extra").as_deref(),
     )?;
 
     Ok(lines.join("\n"))
@@ -676,6 +815,8 @@ fn convert_vmess(config: &str, index: usize) -> Result<String, String> {
         service_name.as_deref(),
         max_early_data.as_deref(),
         early_data_header_name.as_deref(),
+        None,
+        None,
     )?;
 
     if let Some(flow) = flow.filter(|value| !value.is_empty()) {
@@ -747,6 +888,8 @@ fn convert_trojan(config: &str, index: usize) -> Result<String, String> {
         service_name.as_deref(),
         max_early_data.as_deref(),
         early_data_header_name.as_deref(),
+        None,
+        None,
     )?;
 
     Ok(lines.join("\n"))
@@ -1137,6 +1280,74 @@ fn convert_hysteria2(config: &str, index: usize) -> Result<String, String> {
     Ok(lines.join("\n"))
 }
 
+fn convert_tuic(config: &str, index: usize) -> Result<String, String> {
+    let url = Url::parse(clean(config)).map_err(|error| error.to_string())?;
+    let (server, port) = endpoint_from_url(&url)?;
+    let uuid = decode_component(url.username())?;
+    let password = url
+        .password()
+        .map(decode_component)
+        .transpose()?
+        .unwrap_or_default();
+    if uuid.trim().is_empty() || password.is_empty() {
+        return Err("TUIC UUID or password missing".to_string());
+    }
+
+    let congestion_controller = query_any(&url, &["congestion_control", "congestionController"])
+        .map(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "bbr" => Ok("bbr"),
+            "cubic" => Ok("cubic"),
+            "new_reno" | "new-reno" | "reno" => Ok("new_reno"),
+            other => Err(format!("unsupported TUIC congestion controller {other}")),
+        })
+        .transpose()?;
+    let udp_relay_mode = query_any(&url, &["udp_relay_mode", "udpRelayMode"])
+        .map(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "native" => Ok("native"),
+            "quic" => Ok("quic"),
+            other => Err(format!("unsupported TUIC UDP relay mode {other}")),
+        })
+        .transpose()?;
+    let sni = query_any(&url, &["sni", "servername", "server_name", "peer"])
+        .unwrap_or_else(|| server.clone());
+    let skip_cert_verify = query_any(&url, &["allowInsecure", "insecure"]).is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    });
+    let client_fingerprint = query_any(&url, &["fp", "client-fingerprint"]);
+    let alpn = query_list(&url, "alpn");
+
+    let mut lines = vec![format!(
+        "  - name: {}",
+        yaml_quote(&name_from_config(config, index))
+    )];
+    push_field(&mut lines, 4, "type", "tuic");
+    push_field(&mut lines, 4, "server", &server);
+    push_raw_field(&mut lines, 4, "port", &port.to_string());
+    push_field(&mut lines, 4, "uuid", uuid.trim());
+    push_field(&mut lines, 4, "password", &password);
+    push_raw_field(&mut lines, 4, "udp", "true");
+    push_raw_field(&mut lines, 4, "tls", "true");
+    push_field(&mut lines, 4, "sni", &sni);
+    if skip_cert_verify {
+        push_raw_field(&mut lines, 4, "skip-cert-verify", "true");
+    }
+    if let Some(fingerprint) = client_fingerprint.filter(|value| !value.is_empty()) {
+        push_field(&mut lines, 4, "client-fingerprint", &fingerprint);
+    }
+    if let Some(controller) = congestion_controller {
+        push_field(&mut lines, 4, "congestion-controller", controller);
+    }
+    if let Some(mode) = udp_relay_mode {
+        push_field(&mut lines, 4, "udp-relay-mode", mode);
+    }
+    push_alpn(&mut lines, 4, &alpn);
+
+    Ok(lines.join("\n"))
+}
+
 fn convert_socks(config: &str, index: usize) -> Result<String, String> {
     let url = Url::parse(clean(config)).map_err(|error| error.to_string())?;
     let (server, port) = endpoint_from_url(&url)?;
@@ -1204,6 +1415,7 @@ fn convert_config(config: &str, index: usize) -> Result<String, String> {
         "ss" => convert_shadowsocks(config, index),
         "hysteria" => convert_hysteria(config, index),
         "hysteria2" | "hy2" => convert_hysteria2(config, index),
+        "tuic" => convert_tuic(config, index),
         "socks" | "socks5" | "socks5h" => convert_socks(config, index),
         scheme @ ("socks4" | "socks4a") => Err(format!("unsupported SOCKS variant {scheme}")),
         "http" => convert_http(config, index),
@@ -1612,6 +1824,8 @@ mod tests {
         let configs = vec![
             "vless://00000000-0000-0000-0000-000000000001@example.com:443?security=tls&sni=cdn%00.example.com"
                 .to_string(),
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?alpn=h2%2C%C2%96"
+                .to_string(),
             "socks5://proxy.example.com:1080".to_string(),
         ];
 
@@ -1620,7 +1834,80 @@ mod tests {
 
         assert_eq!(rendered, 1);
         assert!(!yaml.contains("cdn"));
+        assert!(!yaml.contains("C2"));
         assert!(yaml.contains("proxy.example.com"));
+    }
+
+    #[test]
+    fn recovers_known_transport_values_with_appended_source_metadata() {
+        let configs = vec![
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=tcp%232%F0%9F%90%8A%40oneclickvpnkeys".to_string(),
+            "vless://00000000-0000-0000-0000-000000000002@example.net:443?type=tcp%3Ftype%3Dtcp".to_string(),
+        ];
+
+        let (yaml, rendered) = super::render_with_count(&configs).unwrap();
+
+        assert_eq!(rendered, 2);
+        assert!(yaml.contains("server: 'example.com'"));
+        assert!(yaml.contains("server: 'example.net'"));
+        assert!(!yaml.contains("network:"));
+    }
+
+    #[test]
+    fn renders_tuic_v5_subscription_configs() {
+        let configs = vec![
+            "tuic://2d1ad594-80a4-4bfb-87a6-038e39701f51:secret@146.235.16.130:33738?alpn=h3&congestion_control=bbr&sni=sg2.example.com&udp_relay_mode=quic#ProxyRift%20001".to_string(),
+            "tuic://2d1ad594-80a4-4bfb-87a6-038e39701f51:secret@sg2.example.com:33738?alpn=h3&congestion_control=bbr&udp_relay_mode=quic#ProxyRift%20002".to_string(),
+        ];
+
+        let (yaml, rendered) = super::render_with_count(&configs).unwrap();
+
+        assert_eq!(rendered, 2);
+        assert!(yaml.contains("type: 'tuic'"));
+        assert!(yaml.contains("uuid: '2d1ad594-80a4-4bfb-87a6-038e39701f51'"));
+        assert!(yaml.contains("congestion-controller: 'bbr'"));
+        assert!(yaml.contains("udp-relay-mode: 'quic'"));
+        assert!(yaml.contains("sni: 'sg2.example.com'"));
+        assert!(yaml.contains("alpn:"));
+    }
+
+    #[test]
+    fn renders_vless_xhttp_extra_options_with_encoded_json_newlines() {
+        let extra = serde_json::to_string_pretty(&serde_json::json!({
+            "xPaddingBytes": "100-300",
+            "scMaxEachPostBytes": "393216-786432",
+            "noGRPCHeader": true,
+            "noSSEHeader": true,
+            "scMaxBufferedPosts": 30,
+            "xmux": {
+                "maxConnections": "1",
+                "cMaxReuseTimes": "100-150",
+                "hKeepAlivePeriod": 60
+            }
+        }))
+        .unwrap();
+        let encoded = percent_encoding::utf8_percent_encode(
+            &extra,
+            percent_encoding::NON_ALPHANUMERIC,
+        )
+        .to_string();
+        let config = format!(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=xhttp&mode=packet-up&path=%2Fapi%2Fv1%2F&security=tls&extra={encoded}"
+        );
+
+        let (yaml, rendered) = super::render_with_count(&[config]).unwrap();
+
+        assert_eq!(rendered, 1);
+        assert!(yaml.contains("network: 'xhttp'"));
+        assert!(yaml.contains("mode: 'packet-up'"));
+        assert!(yaml.contains("x-padding-bytes: '100-300'"));
+        assert!(yaml.contains("sc-max-each-post-bytes: '393216-786432'"));
+        assert!(yaml.contains("no-grpc-header: true"));
+        assert!(yaml.contains("reuse-settings:"));
+        assert!(yaml.contains("max-connections: '1'"));
+        assert!(yaml.contains("h-keep-alive-period: 60"));
+        assert!(!yaml.contains("no-sse-header"));
+        assert!(!yaml.contains("sc-max-buffered-posts"));
     }
 
     #[test]
