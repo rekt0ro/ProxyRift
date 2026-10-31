@@ -354,6 +354,23 @@ fn push_httpupgrade_opts(
     }
 }
 
+fn normalize_xhttp_integer_string(key: &str, value: &str) -> Option<String> {
+    if key != "sc-max-each-post-bytes" {
+        return None;
+    }
+
+    let number = value.trim().parse::<f64>().ok()?;
+    if !number.is_finite()
+        || number.fract() != 0.0
+        || number < i64::MIN as f64
+        || number >= -(i64::MIN as f64)
+    {
+        return None;
+    }
+
+    Some(format!("{number:.0}"))
+}
+
 fn push_xhttp_json_field(
     lines: &mut Vec<String>,
     indent: usize,
@@ -365,7 +382,13 @@ fn push_xhttp_json_field(
     }
 
     match value {
-        Value::String(value) => push_field(lines, indent, key, value),
+        Value::String(value) => {
+            if let Some(normalized) = normalize_xhttp_integer_string(key, value) {
+                push_field(lines, indent, key, &normalized);
+            } else {
+                push_field(lines, indent, key, value);
+            }
+        }
         Value::Bool(value) => {
             push_raw_field(lines, indent, key, if *value { "true" } else { "false" })
         }
@@ -1876,6 +1899,25 @@ mod tests {
         assert!(yaml.contains("udp-relay-mode: 'quic'"));
         assert!(yaml.contains("sni: 'sg2.example.com'"));
         assert!(yaml.contains("alpn:"));
+    }
+
+    #[test]
+    fn normalizes_vless_xhttp_sc_max_each_post_bytes_scientific_notation() {
+        let extra = serde_json::json!({
+            "scMaxEachPostBytes": "1E+06"
+        })
+        .to_string();
+        let encoded =
+            percent_encoding::utf8_percent_encode(&extra, percent_encoding::NON_ALPHANUMERIC)
+                .to_string();
+        let config = format!(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=xhttp&extra={encoded}"
+        );
+
+        let (yaml, rendered) = super::render_with_count(&[config]).unwrap();
+
+        assert_eq!(rendered, 1);
+        assert!(yaml.contains("sc-max-each-post-bytes: '1000000'"));
     }
 
     #[test]
