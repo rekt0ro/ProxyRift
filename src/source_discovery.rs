@@ -32,6 +32,7 @@ const MIN_KNOWN_TRANSPORT_REACHABLE: u64 = 20;
 const MAX_LOW_QUALITY_STREAK: u64 = 3;
 const QUALITY_RETRY_COOLDOWN_SECS: u64 = 30 * 24 * 60 * 60;
 const MAX_FAILURE_STREAK: u64 = 5;
+const MAX_CONSECUTIVE_NOT_FOUND: u64 = 2;
 const MAX_EMPTY_STREAK: u64 = 3;
 const RETIRED_SOURCE_COOLDOWN_SECS: u64 = 7 * 24 * 60 * 60;
 const MAX_TREE_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
@@ -376,6 +377,7 @@ struct Candidate {
 pub enum CollectionOutcome {
     Success(usize),
     Failed,
+    NotFound(u16),
     PermanentlyFailed(u16),
 }
 
@@ -826,13 +828,13 @@ impl Registry {
             .collect()
     }
 
-    fn record_outcome(&mut self, url: &str, outcome: CollectionOutcome, now: u64) {
+    fn record_outcome(&mut self, url: &str, outcome: CollectionOutcome, now: u64) -> bool {
         let Some(object) = self
             .sources_mut()
             .get_mut(url)
             .and_then(Value::as_object_mut)
         else {
-            return;
+            return false;
         };
 
         let successes = object
@@ -855,6 +857,10 @@ impl Registry {
             .get("empty_streak")
             .and_then(Value::as_u64)
             .unwrap_or_default();
+        let not_found_streak = object
+            .get("not_found_streak")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
         let configs_total = object
             .get("configs_total")
             .and_then(Value::as_u64)
@@ -868,6 +874,8 @@ impl Registry {
                     "configs_last_run".into(),
                     Value::from(produced_configs as u64),
                 );
+                object.insert("not_found_streak".into(), Value::from(0u64));
+                object.remove("last_http_status");
 
                 if produced_configs > 0 {
                     object.insert(
@@ -878,7 +886,6 @@ impl Registry {
                     object.insert("failure_streak".into(), Value::from(0u64));
                     object.insert("empty_streak".into(), Value::from(0u64));
                     object.remove("permanently_failed");
-                    object.remove("last_http_status");
                     object.remove("retired_at");
                     object.insert("last_success".into(), Value::from(now));
                 } else {
@@ -892,6 +899,7 @@ impl Registry {
                         Value::from(empty_streak.saturating_add(1)),
                     );
                 }
+                false
             }
             CollectionOutcome::Failed => {
                 object.insert("configs_last_run".into(), Value::from(0u64));
@@ -901,15 +909,44 @@ impl Registry {
                     Value::from(streak.saturating_add(1)),
                 );
                 object.insert("empty_streak".into(), Value::from(0u64));
+                object.insert("not_found_streak".into(), Value::from(0u64));
+                object.remove("last_http_status");
+                false
+            }
+            CollectionOutcome::NotFound(status) => {
+                let next_not_found_streak = not_found_streak.saturating_add(1);
+                object.insert("configs_last_run".into(), Value::from(0u64));
+                object.insert("failures".into(), Value::from(failures.saturating_add(1)));
+                object.insert("empty_streak".into(), Value::from(0u64));
+                object.insert(
+                    "not_found_streak".into(),
+                    Value::from(next_not_found_streak),
+                );
+                object.insert("last_http_status".into(), Value::from(u64::from(status)));
+
+                if next_not_found_streak >= MAX_CONSECUTIVE_NOT_FOUND {
+                    object.insert("failure_streak".into(), Value::from(MAX_FAILURE_STREAK));
+                    object.insert("permanently_failed".into(), Value::Bool(true));
+                    object.insert("retired_at".into(), Value::from(now));
+                    true
+                } else {
+                    object.insert("failure_streak".into(), Value::from(streak));
+                    false
+                }
             }
             CollectionOutcome::PermanentlyFailed(status) => {
                 object.insert("configs_last_run".into(), Value::from(0u64));
                 object.insert("failures".into(), Value::from(failures.saturating_add(1)));
                 object.insert("failure_streak".into(), Value::from(MAX_FAILURE_STREAK));
                 object.insert("empty_streak".into(), Value::from(0u64));
+                object.insert(
+                    "not_found_streak".into(),
+                    Value::from(MAX_CONSECUTIVE_NOT_FOUND),
+                );
                 object.insert("permanently_failed".into(), Value::Bool(true));
                 object.insert("last_http_status".into(), Value::from(u64::from(status)));
                 object.insert("retired_at".into(), Value::from(now));
+                true
             }
         }
     }
@@ -1670,17 +1707,13 @@ pub async fn record_collection_results(
     let now = unix_now();
     let mut registry = load_registry(&registry_path, now).await?;
 
-    let permanently_failed = results
-        .iter()
-        .filter_map(|(url, outcome, _)| match outcome {
-            CollectionOutcome::PermanentlyFailed(_) => Some(url.clone()),
-            _ => None,
-        })
-        .collect::<HashSet<_>>();
+    let mut permanently_failed = HashSet::new();
     let mut changed_content = HashSet::new();
 
     for (url, outcome, fingerprint) in results {
-        registry.record_outcome(url, *outcome, now);
+        if registry.record_outcome(url, *outcome, now) {
+            permanently_failed.insert(url.clone());
+        }
         if let Some(fingerprint) = fingerprint {
             if registry.record_content_fingerprint(url, fingerprint, now) {
                 changed_content.insert(url.clone());
@@ -3423,9 +3456,9 @@ mod tests {
         percent_encode_path, readme_candidates_from_raw_body, search_query_set_for_run,
         search_sort_for_run, search_strategy_for_run, select_new_active_urls, source_path_family,
         unix_days_to_ymd, validate_no_self_sources, Candidate, CollectionOutcome, Registry,
-        Repository, Value, MAX_ACTIVE_SOURCES, MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK,
-        MAX_FAILURE_STREAK, MAX_KNOWN_REFRESH_SOURCES, MAX_SOURCE_URL_LENGTH,
-        RETIRED_SOURCE_COOLDOWN_SECS,
+        Repository, Value, MAX_ACTIVE_SOURCES, MAX_CONSECUTIVE_NOT_FOUND,
+        MAX_DISCOVERED_CANDIDATES, MAX_EMPTY_STREAK, MAX_FAILURE_STREAK, MAX_KNOWN_REFRESH_SOURCES,
+        MAX_SOURCE_URL_LENGTH, RETIRED_SOURCE_COOLDOWN_SECS,
     };
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use std::collections::HashSet;
@@ -3551,7 +3584,7 @@ mod tests {
     }
 
     #[test]
-    fn permanent_source_failures_are_quarantined_immediately() {
+    fn not_found_sources_require_consecutive_confirmation_before_quarantine() {
         let mut registry = Registry::new(1);
         let candidate = Candidate {
             url: "source-gone".to_string(),
@@ -3561,16 +3594,74 @@ mod tests {
         };
 
         registry.add_candidate(&candidate, 1);
-        registry.record_outcome(&candidate.url, CollectionOutcome::PermanentlyFailed(404), 2);
+        for now in 2..=5 {
+            registry.record_outcome(&candidate.url, CollectionOutcome::Failed, now);
+        }
+        assert!(!registry.record_outcome(&candidate.url, CollectionOutcome::NotFound(404), 6));
+
+        let record = registry.sources().get(&candidate.url).expect("record");
+        assert_eq!(record["failure_streak"], 4);
+        assert_eq!(record["not_found_streak"], 1);
+        assert_eq!(record["last_http_status"], 404);
+        assert_ne!(record.get("permanently_failed"), Some(&Value::Bool(true)));
+        assert_eq!(
+            registry.active_urls(1, &HashSet::new(), &HashSet::new()),
+            vec![candidate.url.clone()]
+        );
+
+        assert!(registry.record_outcome(&candidate.url, CollectionOutcome::NotFound(410), 7));
 
         let record = registry.sources().get(&candidate.url).expect("record");
         assert_eq!(record["failure_streak"], MAX_FAILURE_STREAK);
-        assert_eq!(record["last_http_status"], 404);
+        assert_eq!(record["not_found_streak"], MAX_CONSECUTIVE_NOT_FOUND);
+        assert_eq!(record["last_http_status"], 410);
         assert_eq!(record["permanently_failed"], true);
-        assert_eq!(record["retired_at"], 2u64);
+        assert_eq!(record["retired_at"], 7u64);
         assert!(registry
             .active_urls(1, &HashSet::new(), &HashSet::new())
             .is_empty());
+    }
+
+    #[test]
+    fn successful_fetch_resets_consecutive_not_found_confirmation() {
+        let mut registry = Registry::new(1);
+        let candidate = Candidate {
+            url: "source-recovers".to_string(),
+            repo: "example/repo".to_string(),
+            repo_rank: 0,
+            priority: 100,
+        };
+
+        registry.add_candidate(&candidate, 1);
+        assert!(!registry.record_outcome(&candidate.url, CollectionOutcome::NotFound(404), 2));
+        assert!(!registry.record_outcome(&candidate.url, CollectionOutcome::Success(10), 3));
+        assert!(!registry.record_outcome(&candidate.url, CollectionOutcome::NotFound(410), 4));
+
+        let record = registry.sources().get(&candidate.url).expect("record");
+        assert_eq!(record["not_found_streak"], 1);
+        assert_eq!(record["failure_streak"], 0);
+        assert_ne!(record.get("permanently_failed"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn transient_fetch_failure_breaks_consecutive_not_found_confirmation() {
+        let mut registry = Registry::new(1);
+        let candidate = Candidate {
+            url: "source-flaky".to_string(),
+            repo: "example/repo".to_string(),
+            repo_rank: 0,
+            priority: 100,
+        };
+
+        registry.add_candidate(&candidate, 1);
+        assert!(!registry.record_outcome(&candidate.url, CollectionOutcome::NotFound(404), 2));
+        assert!(!registry.record_outcome(&candidate.url, CollectionOutcome::Failed, 3));
+        assert!(!registry.record_outcome(&candidate.url, CollectionOutcome::NotFound(404), 4));
+
+        let record = registry.sources().get(&candidate.url).expect("record");
+        assert_eq!(record["not_found_streak"], 1);
+        assert_eq!(record["failure_streak"], 1);
+        assert_ne!(record.get("permanently_failed"), Some(&Value::Bool(true)));
     }
 
     #[test]
