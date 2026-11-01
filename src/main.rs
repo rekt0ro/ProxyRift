@@ -106,6 +106,15 @@ enum SourceBodyError {
     Read,
 }
 
+fn record_source_fetch_failure(
+    failures: &Arc<Mutex<HashMap<&'static str, usize>>>,
+    reason: &'static str,
+) {
+    if let Ok(mut counts) = failures.lock() {
+        *counts.entry(reason).or_default() += 1;
+    }
+}
+
 fn parse_source_redirect(current_url: &Url, location: &str) -> Result<Url, &'static str> {
     let target_url = current_url
         .join(location)
@@ -314,10 +323,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut stale_probe_config_candidates = HashMap::<String, (String, HashSet<usize>)>::new();
     let mut stale_probe_config_priorities = BinaryHeap::<([u8; 32], String)>::new();
     let source_http_warnings = Arc::new(Mutex::new(Vec::<(usize, u16)>::new()));
+    let source_fetch_failures = Arc::new(Mutex::new(HashMap::<&'static str, usize>::new()));
 
     let mut source_results = stream::iter(sources.iter().cloned().enumerate())
         .map(|(source_index, url)| {
             let source_http_warnings = Arc::clone(&source_http_warnings);
+            let source_fetch_failures = Arc::clone(&source_fetch_failures);
 
             async move {
                 let source_number = source_index + 1;
@@ -327,6 +338,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     _ => {
                         source_detail!(
                             "[WARN] Source #{source_number} has an invalid or unsupported URL."
+                        );
+                        record_source_fetch_failure(
+                            &source_fetch_failures,
+                            "invalid or unsupported URL",
                         );
                         return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                     }
@@ -338,6 +353,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     Err(reason) => {
                         source_detail!(
                             "[WARN] Source #{source_number} rejected by safety policy: {reason}."
+                        );
+                        record_source_fetch_failure(
+                            &source_fetch_failures,
+                            "source safety or client setup",
                         );
                         return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                     }
@@ -356,12 +375,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                         "[WARN] Source #{source_number} exceeded the {}-redirect limit.",
                                         MAX_SOURCE_REDIRECTS
                                     );
+                                    record_source_fetch_failure(
+                                        &source_fetch_failures,
+                                        "redirect limit exceeded",
+                                    );
                                     return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                 }
 
                                 let Some(location) = response.headers().get(LOCATION) else {
                                     source_detail!(
                                         "[WARN] Source #{source_number} returned HTTP status {status} without a Location header."
+                                    );
+                                    record_source_fetch_failure(
+                                        &source_fetch_failures,
+                                        "redirect response missing Location",
                                     );
                                     return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                 };
@@ -372,6 +399,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                     Err(_) => {
                                         source_detail!(
                                             "[WARN] Source #{source_number} returned an invalid redirect Location header."
+                                        );
+                                        record_source_fetch_failure(
+                                            &source_fetch_failures,
+                                            "invalid redirect Location header",
                                         );
                                         return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                     }
@@ -388,6 +419,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                                 source_detail!(
                                                     "[WARN] Source #{source_number} redirect rejected by safety policy: {reason}."
                                                 );
+                                                record_source_fetch_failure(
+                                                    &source_fetch_failures,
+                                                    "redirect safety or client setup",
+                                                );
                                                 return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                             }
                                         };
@@ -400,6 +435,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                     Err(reason) => {
                                         source_detail!(
                                             "[WARN] Source #{source_number} redirect rejected by safety policy: {reason}."
+                                        );
+                                        record_source_fetch_failure(
+                                            &source_fetch_failures,
+                                            "redirect safety validation",
                                         );
                                         return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                     }
@@ -426,7 +465,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                     warnings.push((source_number, status.as_u16()));
                                 }
                                 let outcome = if matches!(status.as_u16(), 404 | 410) {
-                                    CollectionOutcome::PermanentlyFailed(status.as_u16())
+                                    CollectionOutcome::NotFound(status.as_u16())
                                 } else {
                                     CollectionOutcome::Failed
                                 };
@@ -437,6 +476,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 .content_length()
                                 .is_some_and(|length| length > MAX_SOURCE_BYTES as u64)
                             {
+                                record_source_fetch_failure(
+                                    &source_fetch_failures,
+                                    "source response exceeds size limit",
+                                );
                                 return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                             }
 
@@ -456,11 +499,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 }
 
                                 Err(SourceBodyError::TooLarge) => {
+                                    record_source_fetch_failure(
+                                        &source_fetch_failures,
+                                        "source response exceeds size limit",
+                                    );
                                     return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                 }
 
                                 Err(SourceBodyError::Read) => {
                                     source_detail!("[INFO] Failed to read source #{source_number}.");
+                                    record_source_fetch_failure(
+                                        &source_fetch_failures,
+                                        "source response body read failed",
+                                    );
                                     return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                                 }
                             }
@@ -479,6 +530,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                             source_detail!(
                                 "[WARN] Failed to download source #{source_number}: {error}"
+                            );
+                            record_source_fetch_failure(
+                                &source_fetch_failures,
+                                "source network or transport error",
                             );
                             return (source_index, Vec::new(), CollectionOutcome::Failed, None);
                         }
@@ -569,21 +624,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .lock()
         .map(|warnings| warnings.clone())
         .unwrap_or_default();
-    let http_status_failures = warnings.len();
-    let failed_sources = source_health
-        .iter()
-        .filter(|(_, outcome, _)| {
-            matches!(
-                outcome,
-                CollectionOutcome::Failed | CollectionOutcome::PermanentlyFailed(_)
-            )
+    let mut fetch_failure_groups = source_fetch_failures
+        .lock()
+        .map(|failures| {
+            failures
+                .iter()
+                .map(|(reason, count)| (*reason, *count))
+                .collect::<Vec<_>>()
         })
-        .count();
-    let non_http_source_failures = failed_sources.saturating_sub(http_status_failures);
-    if non_http_source_failures > 0 {
-        println!(
-            "[WARN] [Sources] {non_http_source_failures} fetch failures without an HTTP status"
-        );
+        .unwrap_or_default();
+    fetch_failure_groups.sort_unstable_by_key(|(reason, _)| *reason);
+    for (reason, count) in fetch_failure_groups {
+        println!("[WARN] [Sources] Fetch failures | {reason}: {count}");
     }
 
     if !warnings.is_empty() {
@@ -615,7 +667,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
             if matches!(status_code, 404 | 410) {
                 println!(
-                    "[INFO] [Sources] HTTP {status_code} {reason} | Failed: {source_count} | Samples: {sources}{suffix}"
+                    "[WARN] [Sources] HTTP {status_code} {reason} | Observed: {source_count} | Consecutive confirmation required before quarantine | Samples: {sources}{suffix}"
                 );
             } else {
                 println!(
