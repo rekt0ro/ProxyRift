@@ -399,7 +399,7 @@ fn push_xhttp_json_field(
             } else {
                 push_raw_field(lines, indent, key, &raw);
             }
-        },
+        }
         Value::Null => {}
         _ => return Err(format!("unsupported XHTTP option value for {key}")),
     }
