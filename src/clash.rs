@@ -392,7 +392,14 @@ fn push_xhttp_json_field(
         Value::Bool(value) => {
             push_raw_field(lines, indent, key, if *value { "true" } else { "false" })
         }
-        Value::Number(value) => push_raw_field(lines, indent, key, &value.to_string()),
+        Value::Number(value) => {
+            let raw = value.to_string();
+            if let Some(normalized) = normalize_xhttp_integer_string(key, &raw) {
+                push_raw_field(lines, indent, key, &normalized);
+            } else {
+                push_raw_field(lines, indent, key, &raw);
+            }
+        }
         Value::Null => {}
         _ => return Err(format!("unsupported XHTTP option value for {key}")),
     }
@@ -1918,6 +1925,23 @@ mod tests {
 
         assert_eq!(rendered, 1);
         assert!(yaml.contains("sc-max-each-post-bytes: '1000000'"));
+    }
+
+    #[test]
+    fn normalizes_vless_xhttp_sc_max_each_post_bytes_numeric_scientific_notation() {
+        let extra = r#"{"scMaxEachPostBytes":1E+06}"#;
+        let encoded =
+            percent_encoding::utf8_percent_encode(extra, percent_encoding::NON_ALPHANUMERIC)
+                .to_string();
+        let config = format!(
+            "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=xhttp&extra={encoded}"
+        );
+
+        let (yaml, rendered) = super::render_with_count(&[config]).unwrap();
+
+        assert_eq!(rendered, 1);
+        assert!(yaml.contains("sc-max-each-post-bytes: 1000000"));
+        assert!(!yaml.contains("sc-max-each-post-bytes: 1E+06"));
     }
 
     #[test]
