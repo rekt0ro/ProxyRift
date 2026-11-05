@@ -93,19 +93,33 @@ class PublicationGateTests(unittest.TestCase):
             text=True, capture_output=True, check=False,
         )
 
+    def publication_manifest(self) -> dict[str, object]:
+        return json.loads((self.subscriptions / ".publication-manifest.json").read_text(encoding="utf-8"))
+
     def test_valid_outputs_pass(self) -> None:
         self.make_outputs()
         result = self.run_gate()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertIn("Publication gate passed", result.stdout)
+        self.assertIn("Clash/Mihomo: validated", result.stdout)
+        self.assertEqual(
+            set(self.publication_manifest()["files"]),
+            {
+                "all.txt", "light.txt", "all-base64.txt", "light-base64.txt",
+                "all-clash.yaml", "light-clash.yaml", "all-singbox.json", "light-singbox.json",
+            },
+        )
 
-    def test_yaml_structure_error_blocks_publication(self) -> None:
+    def test_yaml_structure_error_skips_clash_without_blocking_publication(self) -> None:
         self.make_outputs()
         path = self.subscriptions / "light-clash.yaml"
-        path.write_text(path.read_text().replace("    port: 1080\n", ""), encoding="utf-8")
+        path.write_text(path.read_text().replace("    port: 1080\\n", ""), encoding="utf-8")
         result = self.run_gate()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("structural validation", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("structural validation failed", result.stderr)
+        selected = set(self.publication_manifest()["files"])
+        self.assertNotIn("all-clash.yaml", selected)
+        self.assertNotIn("light-clash.yaml", selected)
+        self.assertIn("clash", self.publication_manifest()["skipped_formats"])
 
     def test_singbox_rejection_blocks_publication(self) -> None:
         self.make_outputs()
@@ -113,11 +127,36 @@ class PublicationGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("sing-box rejected configuration", result.stderr)
 
-    def test_mihomo_rejection_blocks_publication(self) -> None:
+    def test_mihomo_rejection_skips_clash_without_blocking_publication(self) -> None:
         self.make_outputs()
         result = self.run_gate(MOCK_MIHOMO_FAIL="true")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Mihomo rejected Clash configuration", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("Mihomo rejected", result.stderr)
+        selected = set(self.publication_manifest()["files"])
+        self.assertNotIn("all-clash.yaml", selected)
+        self.assertNotIn("light-clash.yaml", selected)
+
+    def test_missing_mihomo_binary_skips_clash_without_blocking_publication(self) -> None:
+        self.make_outputs()
+        result = self.run_gate(MIHOMO_BINARY=str(self.bin / "missing-mihomo"))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("Mihomo validator is missing", result.stderr)
+        selected = set(self.publication_manifest()["files"])
+        self.assertNotIn("all-clash.yaml", selected)
+        self.assertNotIn("light-clash.yaml", selected)
+
+    def test_missing_clash_count_skips_both_clash_exports(self) -> None:
+        self.make_outputs()
+        path = self.subscriptions / ".output-counts.json"
+        counts = json.loads(path.read_text(encoding="utf-8"))
+        counts["light"]["clash"] = None
+        path.write_text(json.dumps(counts), encoding="utf-8")
+        result = self.run_gate()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("invalid or missing Clash entry count", result.stderr)
+        selected = set(self.publication_manifest()["files"])
+        self.assertNotIn("all-clash.yaml", selected)
+        self.assertNotIn("light-clash.yaml", selected)
 
     def test_light_above_maximum_is_rejected(self) -> None:
         self.make_outputs(light=201)

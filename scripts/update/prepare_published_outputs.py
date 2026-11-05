@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -41,7 +42,6 @@ def main() -> int:
     required = [
         SUBSCRIPTIONS / "all.txt", SUBSCRIPTIONS / "light.txt",
         SUBSCRIPTIONS / "all-base64.txt", SUBSCRIPTIONS / "light-base64.txt",
-        SUBSCRIPTIONS / "all-clash.yaml", SUBSCRIPTIONS / "light-clash.yaml",
         SUBSCRIPTIONS / "all-singbox.json", SUBSCRIPTIONS / "light-singbox.json",
         counts_path,
     ]
@@ -65,15 +65,16 @@ def main() -> int:
     mihomo = Path(os.environ.get("MIHOMO_BINARY", str(home / ".local/bin/mihomo")))
     if not singbox.is_file() or not os.access(singbox, os.X_OK):
         return fail(f"sing-box validator is missing or not executable: {singbox}")
-    if not mihomo.is_file() or not os.access(mihomo, os.X_OK):
-        return fail(f"Mihomo validator is missing or not executable: {mihomo}")
-
     try:
         manifest = json.loads(counts_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return fail(f"Invalid or inconsistent format-count manifest for light: {counts_path.as_posix()}")
     if not isinstance(manifest, dict):
         return fail(f"Invalid or inconsistent format-count manifest for light: {counts_path.as_posix()}")
+
+    clash_failures: list[str] = []
+    ruby = shutil.which("ruby")
+    mihomo_available = mihomo.is_file() and os.access(mihomo, os.X_OK)
 
     for name in ("light", "all"):
         source_path = SUBSCRIPTIONS / f"{name}.txt"
@@ -85,7 +86,7 @@ def main() -> int:
         except (OSError, ValueError):
             return fail(f"Base64 output cannot be decoded: {base64_path.as_posix()}")
         try:
-            source = source_path.read_bytes().rstrip(b"\r\n")
+            source = source_path.read_bytes().rstrip(b"\\r\\n")
         except OSError:
             return fail(f"Required output is missing or empty: {source_path.as_posix()}")
         if source != decoded:
@@ -110,50 +111,106 @@ def main() -> int:
         if run_validator([str(singbox), "check", "-c", singbox_path.as_posix()]).returncode != 0:
             return fail(f"sing-box rejected configuration: {singbox_path.as_posix()}")
 
-        clash_path = SUBSCRIPTIONS / f"{name}-clash.yaml"
-        validator = subprocess.run(
-            ["ruby", str(ROOT / "scripts/update/validate_clash_output.rb"), "--count", clash_path.as_posix()],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
-        )
-        if validator.returncode != 0:
-            if validator.stderr:
-                print(validator.stderr, end="", file=sys.stderr)
-            return fail(f"Clash/Mihomo output failed structural validation: {clash_path.as_posix()}")
-        try:
-            clash_count = int(validator.stdout.strip())
-        except ValueError:
-            return fail(f"Clash/Mihomo output failed structural validation: {clash_path.as_posix()}")
-        print(f"[OK] [Clash/Mihomo] Structurally valid | {clash_path.as_posix()} | Proxies: {clash_count}")
-
-        if run_validator([str(mihomo), "-t", "-f", clash_path.as_posix()]).returncode != 0:
-            return fail(f"Mihomo rejected Clash configuration: {clash_path.as_posix()}")
-
         source_count = light_count if name == "light" else all_count
         count_row = manifest.get(name)
         if not isinstance(count_row, dict):
             return fail(f"Invalid or inconsistent format-count manifest for {name}: {counts_path.as_posix()}")
-        values = (count_row.get("source"), count_row.get("clash"), count_row.get("singbox"))
-        if any(not is_nonnegative_integer(value) for value in values):
-            return fail(f"Invalid or inconsistent format-count manifest for {name}: {counts_path.as_posix()}")
-        manifest_source, manifest_clash, manifest_singbox = values
-        if manifest_clash > manifest_source or manifest_singbox > manifest_source:
-            return fail(f"Invalid or inconsistent format-count manifest for {name}: {counts_path.as_posix()}")
+        manifest_source = count_row.get("source")
+        manifest_clash = count_row.get("clash")
+        manifest_singbox = count_row.get("singbox")
+        if not is_nonnegative_integer(manifest_source) or not is_nonnegative_integer(manifest_singbox):
+            return fail(f"Invalid or inconsistent source/sing-box count manifest for {name}: {counts_path.as_posix()}")
+        if manifest_singbox > manifest_source:
+            return fail(f"Invalid or inconsistent source/sing-box count manifest for {name}: {counts_path.as_posix()}")
         singbox_count = len(outbounds)
-
         if manifest_source != source_count:
             return fail(f"Source count does not match format-count manifest for {name}: manifest={manifest_source}, file={source_count}.")
-        if manifest_clash != clash_count:
-            return fail(f"Clash entry count does not match format-count manifest for {name}: manifest={manifest_clash}, file={clash_count}.")
         if manifest_singbox != singbox_count:
             return fail(f"sing-box entry count does not match format-count manifest for {name}: manifest={manifest_singbox}, file={singbox_count}.")
 
+        clash_path = SUBSCRIPTIONS / f"{name}-clash.yaml"
+        clash_failure: str | None = None
+        clash_count: int | None = None
+        if not is_nonnegative_integer(manifest_clash) or manifest_clash > manifest_source:
+            clash_failure = f"{name}: invalid or missing Clash entry count in {counts_path.as_posix()}"
+        elif not clash_path.is_file() or clash_path.stat().st_size == 0:
+            clash_failure = f"{name}: Clash output is missing or empty: {clash_path.as_posix()}"
+        elif ruby is None:
+            clash_failure = "Ruby is unavailable for Clash structural validation"
+        else:
+            try:
+                validator = subprocess.run(
+                    [ruby, str(ROOT / "scripts/update/validate_clash_output.rb"), "--count", clash_path.as_posix()],
+                    text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                )
+            except OSError as exc:
+                validator = None
+                clash_failure = f"{name}: could not run Clash structural validator: {exc}"
+            if validator is not None and validator.returncode != 0:
+                detail = validator.stderr.strip() or "validator rejected the YAML"
+                clash_failure = f"{name}: structural validation failed for {clash_path.as_posix()}: {detail}"
+            elif validator is not None:
+                try:
+                    clash_count = int(validator.stdout.strip())
+                except ValueError:
+                    clash_failure = f"{name}: structural validator returned an invalid proxy count for {clash_path.as_posix()}"
+                if clash_failure is None and clash_count != manifest_clash:
+                    clash_failure = f"{name}: Clash count does not match the format-count manifest: manifest={manifest_clash}, file={clash_count}"
+
+        if clash_failure is None and not mihomo_available:
+            clash_failure = f"Mihomo validator is missing or not executable: {mihomo}"
+        if clash_failure is None:
+            try:
+                mihomo_result = subprocess.run(
+                    [str(mihomo), "-t", "-f", clash_path.as_posix()],
+                    text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                )
+            except OSError as exc:
+                mihomo_result = None
+                clash_failure = f"{name}: could not run Mihomo validator: {exc}"
+            if mihomo_result is not None and mihomo_result.returncode != 0:
+                detail = (mihomo_result.stderr or mihomo_result.stdout).strip() or "Mihomo rejected the configuration"
+                clash_failure = f"{name}: Mihomo rejected {clash_path.as_posix()}: {detail}"
+
+        if clash_failure is not None:
+            clash_failures.append(clash_failure)
+            print(f"[WARN] [Clash/Mihomo] {clash_failure}", file=sys.stderr)
+        else:
+            print(f"[OK] [Clash/Mihomo] Structurally valid and accepted by Mihomo | {clash_path.as_posix()} | Proxies: {clash_count}")
+
+        clash_display = str(clash_count) if clash_failure is None else "skipped"
         print(
-            f"[INFO] Format accounting | {name} source: {source_count} | Clash: {clash_count} "
-            f"(omitted: {source_count - clash_count}) | sing-box: {singbox_count} "
-            f"(omitted: {source_count - singbox_count})"
+            f"[INFO] Format accounting | {name} source: {source_count} | Clash: {clash_display} "
+            f"| sing-box: {singbox_count} (omitted: {source_count - singbox_count})"
         )
 
-    print(f"[OK] Publication gate passed | Light: {light_count} (minimum {minimum_light}) | All: {all_count}")
+    publication_files = [
+        "all.txt", "light.txt", "all-base64.txt", "light-base64.txt",
+        "all-singbox.json", "light-singbox.json",
+    ]
+    if clash_failures:
+        for clash_file in ("all-clash.yaml", "light-clash.yaml"):
+            print(
+                f"[WARN] [Clash/Mihomo] Not publishing {clash_file}; retaining the last published version",
+                file=sys.stderr,
+            )
+    else:
+        publication_files.extend(["all-clash.yaml", "light-clash.yaml"])
+
+    publication_manifest = {
+        "files": publication_files,
+        "skipped_formats": {"clash": clash_failures} if clash_failures else {},
+    }
+    (SUBSCRIPTIONS / ".publication-manifest.json").write_text(
+        json.dumps(publication_manifest, indent=2) + "\\n",
+        encoding="utf-8",
+    )
+
+    clash_status = "skipped; previous exports retained" if clash_failures else "validated"
+    print(
+        f"[OK] Publication gate passed | Light: {light_count} (minimum {minimum_light}) "
+        f"| All: {all_count} | Clash/Mihomo: {clash_status}"
+    )
     return 0
 
 
