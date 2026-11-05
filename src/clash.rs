@@ -388,7 +388,10 @@ fn push_xhttp_json_field(
     key: &str,
     value: &Value,
 ) -> Result<(), String> {
-    if key == "sc-min-posts-interval-ms" && !is_positive_integer(value) {
+    if key == "sc-min-posts-interval-ms"
+        && !matches!(value, Value::Null)
+        && !is_positive_integer(value)
+    {
         return Err("Mihomo requires sc-min-posts-interval-ms to be a positive integer".to_string());
     }
     if json_contains_control_characters(value) {
