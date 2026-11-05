@@ -39,7 +39,7 @@ if reject_name:
     content = open(sys.argv[3], encoding="utf-8").read()
     names = [name.strip().strip("'\\\"") for name in re.findall(r"(?m)^  - name: (.*)$", content)]
     if reject_name in names:
-        print(f"proxy {names.index(reject_name) + 1}: mocked incompatible proxy", file=sys.stderr)
+        print(f"proxy {names.index(reject_name)}: mocked incompatible proxy", file=sys.stderr)
         raise SystemExit(1)
 """
 

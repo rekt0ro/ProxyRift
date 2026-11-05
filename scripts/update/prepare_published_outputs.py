@@ -180,10 +180,10 @@ def main() -> int:
                 break
 
             rejected_index = int(rejected_proxy.group(1))
-            if not 1 <= rejected_index <= clash_count:
+            if not 0 <= rejected_index < clash_count:
                 clash_failure = (
                     f"{name}: Mihomo reported proxy index {rejected_index} outside the current "
-                    f"Clash output range 1..{clash_count}: {detail}"
+                    f"Clash output range 0..{clash_count - 1}: {detail}"
                 )
                 break
             if clash_count <= 1:
@@ -229,7 +229,7 @@ def main() -> int:
             clash_count = updated_count
             count_row["clash"] = clash_count
             print(
-                f"[WARN] [Clash/Mihomo] Removed rejected proxy {rejected_index} from {clash_path.as_posix()} "
+                f"[WARN] [Clash/Mihomo] Removed rejected proxy {rejected_index + 1} from {clash_path.as_posix()} "
                 f"| Remaining: {clash_count} | {detail}",
                 file=sys.stderr,
             )

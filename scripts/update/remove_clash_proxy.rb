@@ -9,7 +9,7 @@ def reject(message)
 end
 
 unless ARGV.length == 2
-  reject("usage: remove_clash_proxy.rb <output.yaml> <1-based-proxy-index>")
+  reject("usage: remove_clash_proxy.rb <output.yaml> <zero-based-proxy-index>")
 end
 
 path, raw_index = ARGV
@@ -18,7 +18,7 @@ begin
 rescue ArgumentError
   reject("proxy index must be a positive integer")
 end
-reject("proxy index must be a positive integer") unless index.positive?
+reject("proxy index must be a positive integer") unless index >= 0
 
 begin
   document = YAML.safe_load(File.read(path, encoding: "UTF-8"), aliases: false)
@@ -31,12 +31,12 @@ unless document.is_a?(Hash) && document["proxies"].is_a?(Array)
 end
 
 proxies = document.fetch("proxies")
-unless index <= proxies.length
-  reject("proxy index #{index} is outside the available range 1..#{proxies.length}")
+unless index < proxies.length
+  reject("proxy index #{index} is outside the available range 0..#{proxies.length - 1}")
 end
-reject("cannot remove proxy #{index}; at least one proxy must remain") if proxies.length <= 1
+reject("cannot remove proxy index #{index}; at least one proxy must remain") if proxies.length <= 1
 
-removed = proxies.delete_at(index - 1)
+removed = proxies.delete_at(index)
 name = removed.is_a?(Hash) ? removed["name"] : nil
 begin
   Tempfile.create([".#{File.basename(path)}", ".tmp"], File.dirname(path)) do |file|
@@ -49,4 +49,4 @@ rescue SystemCallError => error
   reject("cannot write filtered Clash output #{path}: #{error.message}")
 end
 
-puts "Removed proxy #{index}#{name ? " (#{name})" : ""} from #{path}"
+puts "Removed proxy index #{index}#{name ? " (#{name})" : ""} from #{path}"

@@ -57,7 +57,7 @@ Tempfile.create(["proxyrift-clash-remove", ".yaml"]) do |file|
         port: 1080
   YAML
   file.flush
-  stdout, stderr, status = Open3.capture3("ruby", remover, file.path, "2")
+  stdout, stderr, status = Open3.capture3("ruby", remover, file.path, "1")
   abort "Proxy removal failed: #{stderr}" unless status.success?
   document = YAML.safe_load(File.read(file.path, encoding: "UTF-8"), aliases: false)
   names = document.fetch("proxies").map { |proxy| proxy.fetch("name") }
