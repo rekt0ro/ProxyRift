@@ -371,12 +371,26 @@ fn normalize_xhttp_integer_string(key: &str, value: &str) -> Option<String> {
     Some(format!("{number:.0}"))
 }
 
+fn is_positive_integer(value: &Value) -> bool {
+    match value {
+        Value::Number(number) => number
+            .as_i64()
+            .is_some_and(|number| number > 0)
+            || number.as_u64().is_some_and(|number| number > 0),
+        Value::String(value) => value.trim().parse::<u64>().is_ok_and(|number| number > 0),
+        _ => false,
+    }
+}
+
 fn push_xhttp_json_field(
     lines: &mut Vec<String>,
     indent: usize,
     key: &str,
     value: &Value,
 ) -> Result<(), String> {
+    if key == "sc-min-posts-interval-ms" && !is_positive_integer(value) {
+        return Err("Mihomo requires sc-min-posts-interval-ms to be a positive integer".to_string());
+    }
     if json_contains_control_characters(value) {
         return Err(format!("XHTTP option {key} contains control characters"));
     }
@@ -1942,6 +1956,35 @@ mod tests {
         assert_eq!(rendered, 1);
         assert!(yaml.contains("sc-max-each-post-bytes: 1000000"));
         assert!(!yaml.contains("sc-max-each-post-bytes: 1E+06"));
+    }
+
+    #[test]
+    fn skips_vless_xhttp_with_non_positive_sc_min_posts_interval_ms() {
+        for interval in [
+            serde_json::json!(0),
+            serde_json::json!("0"),
+            serde_json::json!(-1),
+            serde_json::json!("-1"),
+        ] {
+            let extra = serde_json::json!({
+                "scMinPostsIntervalMs": interval
+            })
+            .to_string();
+            let encoded =
+                percent_encoding::utf8_percent_encode(&extra, percent_encoding::NON_ALPHANUMERIC)
+                    .to_string();
+            let invalid = format!(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=xhttp&extra={encoded}"
+            );
+            let valid = "socks5://proxy.example.com:1080".to_string();
+
+            let (yaml, rendered) =
+                super::render_with_count(&[invalid, valid]).expect("valid sibling should render");
+
+            assert_eq!(rendered, 1);
+            assert!(!yaml.contains("sc-min-posts-interval-ms"));
+            assert!(yaml.contains("proxy.example.com"));
+        }
     }
 
     #[test]
