@@ -112,7 +112,7 @@ class PublicationGateTests(unittest.TestCase):
     def test_yaml_structure_error_skips_clash_without_blocking_publication(self) -> None:
         self.make_outputs()
         path = self.subscriptions / "light-clash.yaml"
-        path.write_text(path.read_text().replace("    port: 1080\\n", ""), encoding="utf-8")
+        path.write_text(path.read_text().replace("    port: 1080\n", ""), encoding="utf-8")
         result = self.run_gate()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("structural validation failed", result.stderr)

@@ -86,7 +86,7 @@ def main() -> int:
         except (OSError, ValueError):
             return fail(f"Base64 output cannot be decoded: {base64_path.as_posix()}")
         try:
-            source = source_path.read_bytes().rstrip(b"\\r\\n")
+            source = source_path.read_bytes().rstrip(b"\r\n")
         except OSError:
             return fail(f"Required output is missing or empty: {source_path.as_posix()}")
         if source != decoded:
@@ -202,7 +202,7 @@ def main() -> int:
         "skipped_formats": {"clash": clash_failures} if clash_failures else {},
     }
     (SUBSCRIPTIONS / ".publication-manifest.json").write_text(
-        json.dumps(publication_manifest, indent=2) + "\\n",
+        json.dumps(publication_manifest, indent=2) + "\n",
         encoding="utf-8",
     )
 

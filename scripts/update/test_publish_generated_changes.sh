@@ -85,10 +85,10 @@ printf 'state-only-update\n' > "$work/subscriptions/source-registry.json"
 }
 
 for file in "${core_output_files[@]}"; do
-  printf 'second-%s\\n' "$file" > "$work/subscriptions/$file"
+  printf 'second-%s\n' "$file" > "$work/subscriptions/$file"
 done
 for file in all-clash.yaml light-clash.yaml; do
-  printf 'invalid-%s\\n' "$file" > "$work/subscriptions/$file"
+  printf 'invalid-%s\n' "$file" > "$work/subscriptions/$file"
 done
 cat > "$work/subscriptions/.publication-manifest.json" <<'JSON'
 {"files":["all.txt","light.txt","all-base64.txt","light-base64.txt","all-singbox.json","light-singbox.json"],"skipped_formats":{"clash":["All: Mihomo rejected the generated configuration"]}}
@@ -98,7 +98,7 @@ JSON
   PATH="$fetch_bin:$PATH" REAL_GIT="$real_git" GIT_FETCH_FAIL_STATE="$tmp/fetch-failed" python3 scripts/update/publish_generated_changes.py
 ) > "$tmp/publish-without-clash.log" 2>&1 || {
   cat "$tmp/publish-without-clash.log" >&2
-  printf '[ERROR] Publishing non-Clash outputs failed when Clash validation was skipped.\\n' >&2
+  printf '[ERROR] Publishing non-Clash outputs failed when Clash validation was skipped.\n' >&2
   exit 1
 }
 
@@ -109,7 +109,7 @@ done
 for file in all-clash.yaml light-clash.yaml; do
   grep -Fxq "new-$file" "$verify/subscriptions/$file"
   if grep -Fq "invalid-$file" "$verify/subscriptions/$file"; then
-    printf '[ERROR] Invalid Clash output replaced the last published version: %s\\n' "$file" >&2
+    printf '[ERROR] Invalid Clash output replaced the last published version: %s\n' "$file" >&2
     exit 1
   fi
 done
