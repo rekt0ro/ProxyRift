@@ -37,7 +37,7 @@ if os.environ.get("MOCK_MIHOMO_FAIL") == "true":
 reject_name = os.environ.get("MOCK_MIHOMO_REJECT_NAME")
 if reject_name:
     content = open(sys.argv[3], encoding="utf-8").read()
-    names = re.findall(r"(?m)^  - name: '([^']+)'$", content)
+    names = [name.strip().strip("'\\\"") for name in re.findall(r"(?m)^  - name: (.*)$", content)]
     if reject_name in names:
         print(f"proxy {names.index(reject_name) + 1}: mocked incompatible proxy", file=sys.stderr)
         raise SystemExit(1)
