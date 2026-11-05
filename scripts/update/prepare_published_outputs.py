@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -159,18 +160,79 @@ def main() -> int:
 
         if clash_failure is None and not mihomo_available:
             clash_failure = f"Mihomo validator is missing or not executable: {mihomo}"
-        if clash_failure is None:
+        while clash_failure is None and mihomo_available:
             try:
                 mihomo_result = subprocess.run(
                     [str(mihomo), "-t", "-f", clash_path.as_posix()],
                     text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
                 )
             except OSError as exc:
-                mihomo_result = None
                 clash_failure = f"{name}: could not run Mihomo validator: {exc}"
-            if mihomo_result is not None and mihomo_result.returncode != 0:
-                detail = (mihomo_result.stderr or mihomo_result.stdout).strip() or "Mihomo rejected the configuration"
-                clash_failure = f"{name}: Mihomo rejected {clash_path.as_posix()}: {detail}"
+                break
+
+            if mihomo_result.returncode == 0:
+                break
+
+            detail = (mihomo_result.stderr or mihomo_result.stdout).strip() or "Mihomo rejected the configuration"
+            rejected_proxy = re.search(r"\bproxy\s+(\d+)\s*:", detail, re.IGNORECASE)
+            if rejected_proxy is None:
+                clash_failure = f"{name}: Mihomo rejected {clash_path.as_posix()} without a proxy index: {detail}"
+                break
+
+            rejected_index = int(rejected_proxy.group(1))
+            if not 1 <= rejected_index <= clash_count:
+                clash_failure = (
+                    f"{name}: Mihomo reported proxy index {rejected_index} outside the current "
+                    f"Clash output range 1..{clash_count}: {detail}"
+                )
+                break
+            if clash_count <= 1:
+                clash_failure = (
+                    f"{name}: Mihomo rejected the only remaining Clash proxy; refusing to publish "
+                    f"an empty subscription: {detail}"
+                )
+                break
+
+            removal = subprocess.run(
+                ["ruby", str(ROOT / "scripts/update/remove_clash_proxy.rb"), clash_path.as_posix(), str(rejected_index)],
+                text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            )
+            if removal.returncode != 0:
+                removal_detail = removal.stderr.strip() or removal.stdout.strip() or "proxy removal failed"
+                clash_failure = f"{name}: could not remove Mihomo-rejected proxy {rejected_index}: {removal_detail}"
+                break
+
+            try:
+                updated_validator = subprocess.run(
+                    [ruby, str(ROOT / "scripts/update/validate_clash_output.rb"), "--count", clash_path.as_posix()],
+                    text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                )
+            except OSError as exc:
+                clash_failure = f"{name}: could not revalidate Clash output after proxy removal: {exc}"
+                break
+            if updated_validator.returncode != 0:
+                detail = updated_validator.stderr.strip() or "structural validator rejected the filtered YAML"
+                clash_failure = f"{name}: filtered Clash output failed structural validation: {detail}"
+                break
+            try:
+                updated_count = int(updated_validator.stdout.strip())
+            except ValueError:
+                clash_failure = f"{name}: structural validator returned an invalid proxy count after filtering"
+                break
+            if updated_count != clash_count - 1:
+                clash_failure = (
+                    f"{name}: removing proxy {rejected_index} changed the Clash count from "
+                    f"{clash_count} to {updated_count}; expected {clash_count - 1}"
+                )
+                break
+
+            clash_count = updated_count
+            count_row["clash"] = clash_count
+            print(
+                f"[WARN] [Clash/Mihomo] Removed rejected proxy {rejected_index} from {clash_path.as_posix()} "
+                f"| Remaining: {clash_count} | {detail}",
+                file=sys.stderr,
+            )
 
         if clash_failure is not None:
             clash_failures.append(clash_failure)
@@ -201,6 +263,10 @@ def main() -> int:
         "files": publication_files,
         "skipped_formats": {"clash": clash_failures} if clash_failures else {},
     }
+    counts_path.write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
     (SUBSCRIPTIONS / ".publication-manifest.json").write_text(
         json.dumps(publication_manifest, indent=2) + "\n",
         encoding="utf-8",

@@ -29,11 +29,18 @@ except Exception as exc:
 """
 
 MIHOMO_STUB = """#!/usr/bin/env python3
-import os, sys
+import os, re, sys
 if sys.argv[1:3] != ["-t", "-f"] or len(sys.argv) < 4 or not os.path.isfile(sys.argv[3]):
     print("[mock] expected -t -f <config>", file=sys.stderr); raise SystemExit(2)
 if os.environ.get("MOCK_MIHOMO_FAIL") == "true":
     print("[mock] invalid Clash configuration", file=sys.stderr); raise SystemExit(1)
+reject_name = os.environ.get("MOCK_MIHOMO_REJECT_NAME")
+if reject_name:
+    content = open(sys.argv[3], encoding="utf-8").read()
+    names = re.findall(r"(?m)^  - name: '([^']+)'$", content)
+    if reject_name in names:
+        print(f"proxy {names.index(reject_name) + 1}: mocked incompatible proxy", file=sys.stderr)
+        raise SystemExit(1)
 """
 
 
@@ -135,6 +142,30 @@ class PublicationGateTests(unittest.TestCase):
         selected = set(self.publication_manifest()["files"])
         self.assertNotIn("all-clash.yaml", selected)
         self.assertNotIn("light-clash.yaml", selected)
+
+    def test_mihomo_rejection_removes_only_the_invalid_proxy(self) -> None:
+        self.make_outputs()
+        result = self.run_gate(MOCK_MIHOMO_REJECT_NAME="test proxy 2")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("Removed rejected proxy 2", result.stderr)
+
+        light = (self.subscriptions / "light-clash.yaml").read_text(encoding="utf-8")
+        self.assertIn("test proxy 1", light)
+        self.assertNotIn("test proxy 2", light)
+        self.assertIn("test proxy 3", light)
+
+        all_output = (self.subscriptions / "all-clash.yaml").read_text(encoding="utf-8")
+        self.assertIn("test proxy 1", all_output)
+        self.assertEqual(
+            set(self.publication_manifest()["files"]),
+            {
+                "all.txt", "light.txt", "all-base64.txt", "light-base64.txt",
+                "all-clash.yaml", "light-clash.yaml", "all-singbox.json", "light-singbox.json",
+            },
+        )
+        counts = json.loads((self.subscriptions / ".output-counts.json").read_text(encoding="utf-8"))
+        self.assertEqual(counts["light"]["clash"], 49)
+        self.assertEqual(counts["all"]["clash"], 1)
 
     def test_missing_mihomo_binary_skips_clash_without_blocking_publication(self) -> None:
         self.make_outputs()
