@@ -378,7 +378,11 @@ fn is_valid_sc_min_posts_interval_ms(value: &str) -> bool {
         [minimum, maximum] => {
             let minimum = minimum.trim().parse::<i64>();
             let maximum = maximum.trim().parse::<i64>();
-            matches!((minimum, maximum), (Ok(minimum), Ok(maximum)) if minimum >= 0 && maximum > 0 && maximum >= minimum)
+            matches!(
+                (minimum, maximum),
+                (Ok(minimum), Ok(maximum))
+                    if minimum >= 0 && maximum > 0 && maximum >= minimum
+            )
         }
         _ => false,
     }
