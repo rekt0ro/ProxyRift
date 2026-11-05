@@ -373,10 +373,10 @@ fn normalize_xhttp_integer_string(key: &str, value: &str) -> Option<String> {
 
 fn is_positive_integer(value: &Value) -> bool {
     match value {
-        Value::Number(number) => number
-            .as_i64()
-            .is_some_and(|number| number > 0)
-            || number.as_u64().is_some_and(|number| number > 0),
+        Value::Number(number) => {
+            number.as_i64().is_some_and(|number| number > 0)
+                || number.as_u64().is_some_and(|number| number > 0)
+        },
         Value::String(value) => value.trim().parse::<u64>().is_ok_and(|number| number > 0),
         _ => false,
     }
@@ -392,7 +392,9 @@ fn push_xhttp_json_field(
         && !matches!(value, Value::Null)
         && !is_positive_integer(value)
     {
-        return Err("Mihomo requires sc-min-posts-interval-ms to be a positive integer".to_string());
+        return Err(
+            "Mihomo requires sc-min-posts-interval-ms to be a positive integer".to_string(),
+        );
     }
     if json_contains_control_characters(value) {
         return Err(format!("XHTTP option {key} contains control characters"));
