@@ -151,7 +151,7 @@ class PublicationGateTests(unittest.TestCase):
 
         light = (self.subscriptions / "light-clash.yaml").read_text(encoding="utf-8")
         self.assertIn("test proxy 1", light)
-        self.assertNotIn("- name: test proxy 2\\n", light)
+        self.assertNotIn("- name: test proxy 2\n", light)
         self.assertIn("test proxy 3", light)
 
         all_output = (self.subscriptions / "all-clash.yaml").read_text(encoding="utf-8")
