@@ -16,9 +16,9 @@ path, raw_index = ARGV
 begin
   index = Integer(raw_index, 10)
 rescue ArgumentError
-  reject("proxy index must be a positive integer")
+  reject("proxy index must be a non-negative integer")
 end
-reject("proxy index must be a positive integer") unless index >= 0
+reject("proxy index must be a non-negative integer") unless index >= 0
 
 begin
   document = YAML.safe_load(File.read(path, encoding: "UTF-8"), aliases: false)
