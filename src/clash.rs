@@ -376,7 +376,7 @@ fn is_positive_integer(value: &Value) -> bool {
         Value::Number(number) => {
             number.as_i64().is_some_and(|number| number > 0)
                 || number.as_u64().is_some_and(|number| number > 0)
-        },
+        }
         Value::String(value) => value.trim().parse::<u64>().is_ok_and(|number| number > 0),
         _ => false,
     }
