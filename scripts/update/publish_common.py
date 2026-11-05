@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -15,6 +16,11 @@ OUTPUT_FILES = (
     "all.txt", "light.txt", "all-base64.txt", "light-base64.txt",
     "all-clash.yaml", "light-clash.yaml", "all-singbox.json", "light-singbox.json",
 )
+CORE_OUTPUT_FILES = (
+    "all.txt", "light.txt", "all-base64.txt", "light-base64.txt",
+    "all-singbox.json", "light-singbox.json",
+)
+CLASH_OUTPUT_FILES = ("all-clash.yaml", "light-clash.yaml")
 STATE_FILES = (
     "light-history.json", "light-training.jsonl", "light-training-stats.json",
     "light-candidate-ledger.json", "source-registry.json",
@@ -59,7 +65,44 @@ def publish(mode: str) -> int:
     root = Path.cwd()
     subscriptions = root / "subscriptions"
     if mode == "generated":
-        required = list(OUTPUT_FILES)
+        publication_manifest_path = subscriptions / ".publication-manifest.json"
+        try:
+            publication_manifest = json.loads(publication_manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            print(f"[ERROR] [Publish] Missing or invalid publication manifest: {publication_manifest_path.relative_to(root)}", file=sys.stderr)
+            return 1
+        selected_files = publication_manifest.get("files") if isinstance(publication_manifest, dict) else None
+        if (
+            not isinstance(selected_files, list)
+            or any(not isinstance(name, str) for name in selected_files)
+            or len(selected_files) != len(set(selected_files))
+            or not set(CORE_OUTPUT_FILES).issubset(selected_files)
+            or not set(selected_files).issubset(OUTPUT_FILES)
+        ):
+            print(f"[ERROR] [Publish] Invalid output selection in {publication_manifest_path.relative_to(root)}", file=sys.stderr)
+            return 1
+        selected_clash = set(selected_files).intersection(CLASH_OUTPUT_FILES)
+        if selected_clash and selected_clash != set(CLASH_OUTPUT_FILES):
+            print("[ERROR] [Publish] Clash outputs must be selected or skipped together", file=sys.stderr)
+            return 1
+        skipped_formats = publication_manifest.get("skipped_formats", {})
+        if not isinstance(skipped_formats, dict) or any(
+            name != "clash" or not isinstance(reasons, list)
+            or any(not isinstance(reason, str) for reason in reasons)
+            for name, reasons in skipped_formats.items()
+        ):
+            print(f"[ERROR] [Publish] Invalid skipped-format details in {publication_manifest_path.relative_to(root)}", file=sys.stderr)
+            return 1
+        if selected_clash and "clash" in skipped_formats:
+            print("[ERROR] [Publish] Clash cannot be both selected and skipped", file=sys.stderr)
+            return 1
+        if not selected_clash and "clash" not in skipped_formats:
+            print("[ERROR] [Publish] Skipped Clash outputs require an explicit reason", file=sys.stderr)
+            return 1
+        for name, reasons in skipped_formats.items():
+            detail = "; ".join(reasons) or "validation unavailable"
+            print(f"[WARN] [Publish] Skipping {name} outputs; retaining last published versions | {detail}")
+        required = list(selected_files)
         optional = list(STATE_FILES)
         snapshot_prefix = "proxyrift-publish."
         commit_message = "Update subscriptions"

@@ -29,11 +29,18 @@ except Exception as exc:
 """
 
 MIHOMO_STUB = """#!/usr/bin/env python3
-import os, sys
+import os, re, sys
 if sys.argv[1:3] != ["-t", "-f"] or len(sys.argv) < 4 or not os.path.isfile(sys.argv[3]):
     print("[mock] expected -t -f <config>", file=sys.stderr); raise SystemExit(2)
 if os.environ.get("MOCK_MIHOMO_FAIL") == "true":
     print("[mock] invalid Clash configuration", file=sys.stderr); raise SystemExit(1)
+reject_name = os.environ.get("MOCK_MIHOMO_REJECT_NAME")
+if reject_name:
+    content = open(sys.argv[3], encoding="utf-8").read()
+    names = [name.strip().strip("'\\\"") for name in re.findall(r"(?m)^  - name: (.*)$", content)]
+    if reject_name in names:
+        print(f"proxy {names.index(reject_name)}: mocked incompatible proxy", file=sys.stderr)
+        raise SystemExit(1)
 """
 
 
@@ -93,19 +100,33 @@ class PublicationGateTests(unittest.TestCase):
             text=True, capture_output=True, check=False,
         )
 
+    def publication_manifest(self) -> dict[str, object]:
+        return json.loads((self.subscriptions / ".publication-manifest.json").read_text(encoding="utf-8"))
+
     def test_valid_outputs_pass(self) -> None:
         self.make_outputs()
         result = self.run_gate()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertIn("Publication gate passed", result.stdout)
+        self.assertIn("Clash/Mihomo: validated", result.stdout)
+        self.assertEqual(
+            set(self.publication_manifest()["files"]),
+            {
+                "all.txt", "light.txt", "all-base64.txt", "light-base64.txt",
+                "all-clash.yaml", "light-clash.yaml", "all-singbox.json", "light-singbox.json",
+            },
+        )
 
-    def test_yaml_structure_error_blocks_publication(self) -> None:
+    def test_yaml_structure_error_skips_clash_without_blocking_publication(self) -> None:
         self.make_outputs()
         path = self.subscriptions / "light-clash.yaml"
         path.write_text(path.read_text().replace("    port: 1080\n", ""), encoding="utf-8")
         result = self.run_gate()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("structural validation", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("structural validation failed", result.stderr)
+        selected = set(self.publication_manifest()["files"])
+        self.assertNotIn("all-clash.yaml", selected)
+        self.assertNotIn("light-clash.yaml", selected)
+        self.assertIn("clash", self.publication_manifest()["skipped_formats"])
 
     def test_singbox_rejection_blocks_publication(self) -> None:
         self.make_outputs()
@@ -113,11 +134,60 @@ class PublicationGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("sing-box rejected configuration", result.stderr)
 
-    def test_mihomo_rejection_blocks_publication(self) -> None:
+    def test_mihomo_rejection_skips_clash_without_blocking_publication(self) -> None:
         self.make_outputs()
         result = self.run_gate(MOCK_MIHOMO_FAIL="true")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Mihomo rejected Clash configuration", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("Mihomo rejected", result.stderr)
+        selected = set(self.publication_manifest()["files"])
+        self.assertNotIn("all-clash.yaml", selected)
+        self.assertNotIn("light-clash.yaml", selected)
+
+    def test_mihomo_rejection_removes_only_the_invalid_proxy(self) -> None:
+        self.make_outputs()
+        result = self.run_gate(MOCK_MIHOMO_REJECT_NAME="test proxy 2")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("Removed rejected proxy 2", result.stderr)
+
+        light = (self.subscriptions / "light-clash.yaml").read_text(encoding="utf-8")
+        self.assertIn("test proxy 1", light)
+        self.assertNotIn("- name: test proxy 2\n", light)
+        self.assertIn("test proxy 3", light)
+
+        all_output = (self.subscriptions / "all-clash.yaml").read_text(encoding="utf-8")
+        self.assertIn("test proxy 1", all_output)
+        self.assertEqual(
+            set(self.publication_manifest()["files"]),
+            {
+                "all.txt", "light.txt", "all-base64.txt", "light-base64.txt",
+                "all-clash.yaml", "light-clash.yaml", "all-singbox.json", "light-singbox.json",
+            },
+        )
+        counts = json.loads((self.subscriptions / ".output-counts.json").read_text(encoding="utf-8"))
+        self.assertEqual(counts["light"]["clash"], 49)
+        self.assertEqual(counts["all"]["clash"], 1)
+
+    def test_missing_mihomo_binary_skips_clash_without_blocking_publication(self) -> None:
+        self.make_outputs()
+        result = self.run_gate(MIHOMO_BINARY=str(self.bin / "missing-mihomo"))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("Mihomo validator is missing", result.stderr)
+        selected = set(self.publication_manifest()["files"])
+        self.assertNotIn("all-clash.yaml", selected)
+        self.assertNotIn("light-clash.yaml", selected)
+
+    def test_missing_clash_count_skips_both_clash_exports(self) -> None:
+        self.make_outputs()
+        path = self.subscriptions / ".output-counts.json"
+        counts = json.loads(path.read_text(encoding="utf-8"))
+        counts["light"]["clash"] = None
+        path.write_text(json.dumps(counts), encoding="utf-8")
+        result = self.run_gate()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("invalid or missing Clash entry count", result.stderr)
+        selected = set(self.publication_manifest()["files"])
+        self.assertNotIn("all-clash.yaml", selected)
+        self.assertNotIn("light-clash.yaml", selected)
 
     def test_light_above_maximum_is_rejected(self) -> None:
         self.make_outputs(light=201)

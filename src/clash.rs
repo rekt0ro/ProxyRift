@@ -371,12 +371,52 @@ fn normalize_xhttp_integer_string(key: &str, value: &str) -> Option<String> {
     Some(format!("{number:.0}"))
 }
 
+fn is_valid_sc_min_posts_interval_ms(value: &str) -> bool {
+    let parts = value.split('-').collect::<Vec<_>>();
+    match parts.as_slice() {
+        [single] => single.trim().parse::<i64>().is_ok_and(|value| value > 0),
+        [minimum, maximum] => {
+            let minimum = minimum.trim().parse::<i64>();
+            let maximum = maximum.trim().parse::<i64>();
+            matches!(
+                (minimum, maximum),
+                (Ok(minimum), Ok(maximum))
+                    if minimum >= 0 && maximum > 0 && maximum >= minimum
+            )
+        }
+        _ => false,
+    }
+}
+
+fn normalize_sc_min_posts_interval_ms(value: &Value) -> Option<String> {
+    let value = match value {
+        Value::Null => return None,
+        Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()))
+            .map(|value| value.to_string()),
+        Value::String(value) => Some(value.trim().to_string()),
+        _ => None,
+    };
+
+    Some(match value {
+        Some(value) if is_valid_sc_min_posts_interval_ms(&value) => value,
+        _ => "30".to_string(),
+    })
+}
+
 fn push_xhttp_json_field(
     lines: &mut Vec<String>,
     indent: usize,
     key: &str,
     value: &Value,
 ) -> Result<(), String> {
+    if key == "sc-min-posts-interval-ms" {
+        if let Some(normalized) = normalize_sc_min_posts_interval_ms(value) {
+            push_field(lines, indent, key, &normalized);
+        }
+        return Ok(());
+    }
     if json_contains_control_characters(value) {
         return Err(format!("XHTTP option {key} contains control characters"));
     }
@@ -1944,6 +1984,52 @@ mod tests {
         assert!(!yaml.contains("sc-max-each-post-bytes: 1E+06"));
     }
 
+    #[test]
+    fn normalizes_vless_xhttp_non_positive_sc_min_posts_interval_ms_to_default() {
+        for interval in [
+            serde_json::json!(0),
+            serde_json::json!("0"),
+            serde_json::json!(-1),
+            serde_json::json!("-1"),
+            serde_json::json!("0-0"),
+            serde_json::json!("invalid"),
+            serde_json::json!(0.5),
+        ] {
+            let extra = serde_json::json!({"scMinPostsIntervalMs": interval}).to_string();
+            let encoded =
+                percent_encoding::utf8_percent_encode(&extra, percent_encoding::NON_ALPHANUMERIC)
+                    .to_string();
+            let xhttp = format!(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=xhttp&extra={encoded}"
+            );
+            let valid = "socks5://proxy.example.com:1080".to_string();
+
+            let (yaml, rendered) =
+                super::render_with_count(&[xhttp, valid]).expect("both proxies should render");
+
+            assert_eq!(rendered, 2);
+            assert!(yaml.contains("sc-min-posts-interval-ms: '30'"));
+            assert!(yaml.contains("proxy.example.com"));
+        }
+    }
+
+    #[test]
+    fn preserves_valid_vless_xhttp_sc_min_posts_interval_ranges() {
+        for interval in ["30", "0-30", "30-60"] {
+            let extra = serde_json::json!({"scMinPostsIntervalMs": interval}).to_string();
+            let encoded =
+                percent_encoding::utf8_percent_encode(&extra, percent_encoding::NON_ALPHANUMERIC)
+                    .to_string();
+            let config = format!(
+                "vless://00000000-0000-0000-0000-000000000001@example.com:443?type=xhttp&extra={encoded}"
+            );
+
+            let (yaml, rendered) = super::render_with_count(&[config]).unwrap();
+
+            assert_eq!(rendered, 1);
+            assert!(yaml.contains(&format!("sc-min-posts-interval-ms: '{interval}'")));
+        }
+    }
     #[test]
     fn renders_vless_xhttp_extra_options_with_encoded_json_newlines() {
         let extra = serde_json::to_string_pretty(&serde_json::json!({

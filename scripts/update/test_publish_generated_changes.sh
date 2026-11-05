@@ -15,6 +15,12 @@ output_files=(
   all-singbox.json light-singbox.json
 )
 
+core_output_files=(
+  all.txt light.txt
+  all-base64.txt light-base64.txt
+  all-singbox.json light-singbox.json
+)
+
 git init --bare --initial-branch=main "$remote" >/dev/null
 git clone "$remote" "$seed" >/dev/null 2>&1
 git -C "$seed" config user.name "Test"
@@ -39,6 +45,10 @@ for file in "${output_files[@]}"; do
 done
 
 printf 'new-source-state\n' > "$work/subscriptions/source-registry.json"
+cat > "$work/subscriptions/.publication-manifest.json" <<'JSON'
+{"files":["all.txt","light.txt","all-base64.txt","light-base64.txt","all-singbox.json","light-singbox.json","all-clash.yaml","light-clash.yaml"],"skipped_formats":{}}
+JSON
+
 
 real_git="$(command -v git)"
 fetch_bin="$tmp/fetch-bin"
@@ -74,13 +84,39 @@ printf 'state-only-update\n' > "$work/subscriptions/source-registry.json"
   exit 1
 }
 
+for file in "${core_output_files[@]}"; do
+  printf 'second-%s\n' "$file" > "$work/subscriptions/$file"
+done
+for file in all-clash.yaml light-clash.yaml; do
+  printf 'invalid-%s\n' "$file" > "$work/subscriptions/$file"
+done
+cat > "$work/subscriptions/.publication-manifest.json" <<'JSON'
+{"files":["all.txt","light.txt","all-base64.txt","light-base64.txt","all-singbox.json","light-singbox.json"],"skipped_formats":{"clash":["All: Mihomo rejected the generated configuration"]}}
+JSON
+(
+  cd "$work"
+  PATH="$fetch_bin:$PATH" REAL_GIT="$real_git" GIT_FETCH_FAIL_STATE="$tmp/fetch-failed" python3 scripts/update/publish_generated_changes.py
+) > "$tmp/publish-without-clash.log" 2>&1 || {
+  cat "$tmp/publish-without-clash.log" >&2
+  printf '[ERROR] Publishing non-Clash outputs failed when Clash validation was skipped.\n' >&2
+  exit 1
+}
+
 git clone "$remote" "$verify" >/dev/null 2>&1
-for file in "${output_files[@]}"; do
+for file in "${core_output_files[@]}"; do
+  grep -Fxq "second-$file" "$verify/subscriptions/$file"
+done
+for file in all-clash.yaml light-clash.yaml; do
   grep -Fxq "new-$file" "$verify/subscriptions/$file"
+  if grep -Fq "invalid-$file" "$verify/subscriptions/$file"; then
+    printf '[ERROR] Invalid Clash output replaced the last published version: %s\n' "$file" >&2
+    exit 1
+  fi
 done
 grep -Fxq "state-only-update" "$verify/subscriptions/source-registry.json"
 grep -Fq "[WARN] [Publish] Fetch failed on attempt 1/5; retrying in 2s" "$tmp/publish-first.log"
 grep -Fq "[INFO] [Publish] Subscription update published" "$tmp/publish-first.log"
-git -C "$verify" log -1 --format=%s | grep -Fxq "Update source and validation state"
+grep -Fq "[WARN] [Publish] Skipping clash outputs; retaining last published versions" "$tmp/publish-without-clash.log"
+git -C "$verify" log -1 --format=%s | grep -Fxq "Update subscriptions"
 
-printf '[OK] Generated publishing retries transient fetch failures and labels state-only commits accurately.\n'
+printf '[OK] Generated publishing preserves last-known-good Clash exports when validation is skipped.\n'

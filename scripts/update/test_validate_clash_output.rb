@@ -2,8 +2,10 @@
 
 require "open3"
 require "tempfile"
+require "yaml"
 
 validator = File.expand_path("validate_clash_output.rb", __dir__)
+remover = File.expand_path("remove_clash_proxy.rb", __dir__)
 
 def validate(validator, content, *arguments)
   Tempfile.create(["proxyrift-clash", ".yaml"]) do |file|
@@ -37,5 +39,29 @@ abort "Invalid port error was not clear" unless stderr.include?("port must be an
 _, stderr, status = validate(validator, "proxies: [\n")
 abort "Malformed YAML was accepted" if status.success?
 abort "Malformed YAML error was not clear" unless stderr.include?("cannot parse")
+
+Tempfile.create(["proxyrift-clash-remove", ".yaml"]) do |file|
+  file.write(<<~YAML)
+    proxies:
+      - name: "First proxy"
+        type: socks5
+        server: first.example.com
+        port: 1080
+      - name: "Rejected proxy"
+        type: socks5
+        server: rejected.example.com
+        port: 1080
+      - name: "Third proxy"
+        type: socks5
+        server: third.example.com
+        port: 1080
+  YAML
+  file.flush
+  stdout, stderr, status = Open3.capture3("ruby", remover, file.path, "1")
+  abort "Proxy removal failed: #{stderr}" unless status.success?
+  document = YAML.safe_load(File.read(file.path, encoding: "UTF-8"), aliases: false)
+  names = document.fetch("proxies").map { |proxy| proxy.fetch("name") }
+  abort "Proxy removal did not preserve the other entries: #{names.inspect}" unless names == ["First proxy", "Third proxy"]
+end
 
 puts "Clash output validator tests passed."

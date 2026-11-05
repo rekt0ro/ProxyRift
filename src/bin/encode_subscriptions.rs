@@ -147,16 +147,33 @@ fn subscription_config_count(path: &str) -> Result<usize, String> {
         .count())
 }
 
-fn render_clash_file(input: &str, output: &str) -> Result<usize, String> {
-    let source_count = subscription_config_count(input)?;
-    let rendered = clash::render_file(input, output)?;
-    let omitted = source_count.checked_sub(rendered).ok_or_else(|| {
-        format!("Clash renderer returned {rendered} entries for {source_count} source configs")
-    })?;
+fn render_clash_file(input: &str, output: &str) -> Option<usize> {
+    let source_count = match subscription_config_count(input) {
+        Ok(count) => count,
+        Err(error) => {
+            eprintln!("[WARN] [Clash/Mihomo] Could not count source configs for {output}: {error}");
+            return None;
+        }
+    };
+    let rendered = match clash::render_file(input, output) {
+        Ok(count) => count,
+        Err(error) => {
+            eprintln!(
+                "[WARN] [Clash/Mihomo] Could not generate {output}: {error}; retaining the last published export"
+            );
+            return None;
+        }
+    };
+    let Some(omitted) = source_count.checked_sub(rendered) else {
+        eprintln!(
+            "[WARN] [Clash/Mihomo] Renderer returned {rendered} entries for {source_count} source configs in {output}; retaining the last published export"
+        );
+        return None;
+    };
     println!(
         "[INFO] [Clash/Mihomo] Rendered {rendered}/{source_count} configs | Omitted: {omitted} | {output}"
     );
-    Ok(rendered)
+    Some(rendered)
 }
 
 fn render_singbox_file(input: &str, output: &str) -> Result<usize, String> {
@@ -190,9 +207,9 @@ fn main() -> Result<(), String> {
     let all_source_count = subscription_config_count("subscriptions/all.txt")?;
     let light_source_count = subscription_config_count("subscriptions/light.txt")?;
     let all_clash_count =
-        render_clash_file("subscriptions/all.txt", "subscriptions/all-clash.yaml")?;
+        render_clash_file("subscriptions/all.txt", "subscriptions/all-clash.yaml");
     let light_clash_count =
-        render_clash_file("subscriptions/light.txt", "subscriptions/light-clash.yaml")?;
+        render_clash_file("subscriptions/light.txt", "subscriptions/light-clash.yaml");
     let all_singbox_count =
         render_singbox_file("subscriptions/all.txt", "subscriptions/all-singbox.json")?;
     let light_singbox_count = render_singbox_file(
@@ -285,6 +302,34 @@ mod tests {
             output.file_name().unwrap().to_str().unwrap()
         ));
         assert_eq!(temporary, Path::new("subscriptions/.all-base64.txt.tmp"));
+    }
+
+    #[test]
+    fn clash_render_failure_does_not_abort_optional_export() {
+        use super::render_clash_file;
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "proxyrift-clash-render-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("source.txt");
+        let output = directory.join("clash.yaml");
+        fs::write(&input, "tuic://password@example.com:443\n").unwrap();
+
+        assert_eq!(
+            render_clash_file(input.to_str().unwrap(), output.to_str().unwrap()),
+            None
+        );
+        assert!(!output.exists());
+
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
