@@ -7356,7 +7356,9 @@ mod tests {
         assert!(is_light_consumer_compatible(config));
         assert!(is_locally_supported_config(config));
         assert!(is_supported_tuic_config(&format!("{config}&heartbeat=30s")));
-        assert!(!is_supported_tuic_config(&format!("{config}&heartbeat=invalid")));
+        assert!(!is_supported_tuic_config(&format!(
+            "{config}&heartbeat=invalid"
+        )));
 
         assert_eq!(
             cheap_compatibility_rejection_reason(
