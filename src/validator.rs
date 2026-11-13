@@ -7355,6 +7355,8 @@ mod tests {
         assert_eq!(cheap_compatibility_rejection_reason(config), None);
         assert!(is_light_consumer_compatible(config));
         assert!(is_locally_supported_config(config));
+        assert!(is_supported_tuic_config(&format!("{config}&heartbeat=30s")));
+        assert!(!is_supported_tuic_config(&format!("{config}&heartbeat=invalid")));
 
         assert_eq!(
             cheap_compatibility_rejection_reason(
@@ -7837,7 +7839,7 @@ mod tests {
     }
 
     #[test]
-    fn local_compatibility_rejects_unsupported_vmess_mode() {
+    fn light_consumer_rejects_unsupported_vmess_mode() {
         let mut payload = serde_json::json!({
             "v": "2",
             "add": "example.com",
@@ -7847,21 +7849,21 @@ mod tests {
             "mode": "gun"
         });
         let supported = format!("vmess://{}", STANDARD.encode(payload.to_string()));
-        assert!(is_locally_supported_config(&supported));
+        assert!(is_light_consumer_compatible(&supported));
 
         payload["mode"] = serde_json::Value::String("origin".to_string());
         let unsupported = format!("vmess://{}", STANDARD.encode(payload.to_string()));
-        assert!(!is_locally_supported_config(&unsupported));
+        assert!(!is_light_consumer_compatible(&unsupported));
     }
 
     #[test]
-    fn local_compatibility_rejects_unsupported_hysteria2_options() {
+    fn light_consumer_rejects_unsupported_hysteria2_options() {
         let base = "hy2://password@example.com:443";
-        assert!(is_locally_supported_config(base));
+        assert!(is_light_consumer_compatible(base));
 
         for option in ["pinSHA256=AA:BB:CC:DD", "ech=YWJj", "insecure=1"] {
             assert!(
-                !is_locally_supported_config(&format!("{base}?{option}")),
+                !is_light_consumer_compatible(&format!("{base}?{option}")),
                 "{option}"
             );
         }
@@ -7877,12 +7879,6 @@ mod tests {
         ));
         assert!(!is_locally_supported_config(
             "hysteria://example.com:443?upmbps=0&downmbps=100"
-        ));
-        assert!(is_locally_supported_config(
-            "hysteria://example.com:443?upmbps=100&downmbps=100&heartbeat=30s"
-        ));
-        assert!(!is_locally_supported_config(
-            "hysteria://example.com:443?upmbps=100&downmbps=100&heartbeat=invalid"
         ));
     }
 
