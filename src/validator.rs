@@ -3315,15 +3315,10 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                 }
             }
 
-            if value
+            !value
                 .get("mode")
                 .and_then(Value::as_str)
                 .is_some_and(|mode| !mode.trim().is_empty() && !mode.eq_ignore_ascii_case("gun"))
-            {
-                return false;
-            }
-
-            true
         }
         "ss" => {
             let Ok(url) = Url::parse(cleaned) else {
@@ -3355,7 +3350,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
             let Ok(url) = Url::parse(cleaned) else {
                 return false;
             };
-            if url.query_pairs().any(|(key, value)| {
+            !url.query_pairs().any(|(key, value)| {
                 key.eq_ignore_ascii_case("pinSHA256")
                     || key.eq_ignore_ascii_case("ech")
                     || (key.eq_ignore_ascii_case("insecure")
@@ -3363,11 +3358,7 @@ pub fn is_light_consumer_compatible(config: &str) -> bool {
                             value.trim().to_ascii_lowercase().as_str(),
                             "1" | "true" | "yes" | "on"
                         ))
-            }) {
-                return false;
-            }
-
-            true
+            })
         }
         "tuic" => is_supported_tuic_config(cleaned),
         "http" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h" => Url::parse(cleaned)
@@ -3552,11 +3543,7 @@ pub fn is_supported_tuic_config(config: &str) -> bool {
     }
 
     let heartbeat = first_query(&url, &["heartbeat"], Some(""));
-    if !heartbeat.trim().is_empty() && !valid_duration(&heartbeat) {
-        return false;
-    }
-
-    true
+    heartbeat.trim().is_empty() || valid_duration(&heartbeat)
 }
 
 fn valid_duration(value: &str) -> bool {
@@ -7368,6 +7355,10 @@ mod tests {
         assert_eq!(cheap_compatibility_rejection_reason(config), None);
         assert!(is_light_consumer_compatible(config));
         assert!(is_locally_supported_config(config));
+        assert!(is_supported_tuic_config(&format!("{config}&heartbeat=30s")));
+        assert!(!is_supported_tuic_config(&format!(
+            "{config}&heartbeat=invalid"
+        )));
 
         assert_eq!(
             cheap_compatibility_rejection_reason(
@@ -7847,6 +7838,37 @@ mod tests {
     #[test]
     fn local_compatibility_rejects_hysteria2_without_password() {
         assert!(!is_locally_supported_config("hy2://example.com:443"));
+    }
+
+    #[test]
+    fn light_consumer_rejects_unsupported_vmess_mode() {
+        let mut payload = serde_json::json!({
+            "v": "2",
+            "add": "example.com",
+            "port": "443",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "net": "tcp",
+            "mode": "gun"
+        });
+        let supported = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+        assert!(is_light_consumer_compatible(&supported));
+
+        payload["mode"] = serde_json::Value::String("origin".to_string());
+        let unsupported = format!("vmess://{}", STANDARD.encode(payload.to_string()));
+        assert!(!is_light_consumer_compatible(&unsupported));
+    }
+
+    #[test]
+    fn light_consumer_rejects_unsupported_hysteria2_options() {
+        let base = "hy2://password@example.com:443";
+        assert!(is_light_consumer_compatible(base));
+
+        for option in ["pinSHA256=AA:BB:CC:DD", "ech=YWJj", "insecure=1"] {
+            assert!(
+                !is_light_consumer_compatible(&format!("{base}?{option}")),
+                "{option}"
+            );
+        }
     }
 
     #[test]
