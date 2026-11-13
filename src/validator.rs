@@ -7859,11 +7859,7 @@ mod tests {
         let base = "hy2://password@example.com:443";
         assert!(is_locally_supported_config(base));
 
-        for option in [
-            "pinSHA256=AA:BB:CC:DD",
-            "ech=YWJj",
-            "insecure=1",
-        ] {
+        for option in ["pinSHA256=AA:BB:CC:DD", "ech=YWJj", "insecure=1"] {
             assert!(
                 !is_locally_supported_config(&format!("{base}?{option}")),
                 "{option}"
