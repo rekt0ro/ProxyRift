@@ -11,7 +11,7 @@ if jq -e '
       and all($ci[]; .bucket == "pass")
   end
 ' <<< "$checks" >/dev/null; then
-  echo "[OK] All CI checks passed. CodeQL and other non-CI checks are ignored."
+  echo "[OK] All CI checks passed. Non-CI checks are ignored."
   exit 0
 fi
 
