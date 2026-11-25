@@ -17,6 +17,10 @@ SINGBOX_STUB = """#!/usr/bin/env python3
 import json, os, sys
 if sys.argv[1:2] != ["check"] or "-c" not in sys.argv:
     print("[mock] expected check -c <config>", file=sys.stderr); raise SystemExit(2)
+calls_file = os.environ.get("MOCK_SINGBOX_CALLS_FILE")
+if calls_file:
+    with open(calls_file, "a", encoding="utf-8") as calls:
+        calls.write("check\\n")
 if os.environ.get("MOCK_SINGBOX_FAIL") == "true":
     print("[mock] schema rejection", file=sys.stderr); raise SystemExit(1)
 try:
@@ -24,6 +28,10 @@ try:
         doc = json.load(stream)
     assert isinstance(doc, dict) and isinstance(doc.get("outbounds"), list) and doc["outbounds"]
     assert all(isinstance(row, dict) and isinstance(row.get("type"), str) and row["type"] and isinstance(row.get("tag"), str) and row["tag"] for row in doc["outbounds"])
+    reject_tag = os.environ.get("MOCK_SINGBOX_REJECT_TAG")
+    if reject_tag and any(row.get("tag") == reject_tag for row in doc["outbounds"]):
+        print(f"unknown uTLS fingerprint: mocked rejection for {reject_tag}", file=sys.stderr)
+        raise SystemExit(1)
 except Exception as exc:
     print(str(exc), file=sys.stderr); raise SystemExit(1)
 """
@@ -128,11 +136,36 @@ class PublicationGateTests(unittest.TestCase):
         self.assertNotIn("light-clash.yaml", selected)
         self.assertIn("clash", self.publication_manifest()["skipped_formats"])
 
-    def test_singbox_rejection_blocks_publication(self) -> None:
+    def test_singbox_rejection_removes_only_the_invalid_outbound(self) -> None:
+        self.make_outputs(light=50, all_count=10)
+        calls_file = self.root / "singbox-calls.txt"
+        result = self.run_gate(
+            MOCK_SINGBOX_REJECT_TAG="test-50",
+            MOCK_SINGBOX_CALLS_FILE=str(calls_file),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("unknown uTLS fingerprint", result.stderr)
+        self.assertIn("Filtered 1 incompatible outbound", result.stderr)
+
+        light_doc = json.loads((self.subscriptions / "light-singbox.json").read_text(encoding="utf-8"))
+        all_doc = json.loads((self.subscriptions / "all-singbox.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(light_doc["outbounds"]), 49)
+        self.assertNotIn("test-50", [row["tag"] for row in light_doc["outbounds"]])
+        self.assertIn("test-49", [row["tag"] for row in light_doc["outbounds"]])
+        self.assertEqual(len(all_doc["outbounds"]), 10)
+
+        counts = json.loads((self.subscriptions / ".output-counts.json").read_text(encoding="utf-8"))
+        self.assertEqual(counts["light"]["singbox"], 49)
+        self.assertEqual(counts["all"]["singbox"], 10)
+        self.assertEqual(len(calls_file.read_text(encoding="utf-8").splitlines()), 14)
+        self.assertIn("all-singbox.json", self.publication_manifest()["files"])
+        self.assertIn("light-singbox.json", self.publication_manifest()["files"])
+
+    def test_singbox_rejection_of_every_outbound_preserves_previous_publication(self) -> None:
         self.make_outputs()
         result = self.run_gate(MOCK_SINGBOX_FAIL="true")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("sing-box rejected configuration", result.stderr)
+        self.assertIn("sing-box rejected every outbound", result.stderr)
 
     def test_mihomo_rejection_skips_clash_without_blocking_publication(self) -> None:
         self.make_outputs()
