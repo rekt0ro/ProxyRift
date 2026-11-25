@@ -10,7 +10,6 @@ on:
   workflow_run:
     workflows:
       - CI
-      - CodeQL
     types:
       - completed
   workflow_dispatch:
@@ -209,7 +208,7 @@ jobs:
                   and (.bucket == "fail" or .bucket == "cancel" or .bucket == "skipping")
                 )
               ' <<< "${checks}" >/dev/null; then
-                echo "A required CI/Rust/Ruby/Python check failed, was cancelled, or was skipped for PR #${pr}; not merging."
+                echo "A required CI check failed, was cancelled, or was skipped for PR #${pr}; not merging."
                 break
               fi
 
@@ -218,11 +217,11 @@ jobs:
             done
 
             if [ "${checks_ready}" != "true" ]; then
-              echo "Required CI/Rust/Ruby/Python checks did not all pass within 15 minutes for PR #${pr}; skipping."
+              echo "Required CI checks did not all pass within 15 minutes for PR #${pr}; skipping."
               continue
             fi
 
-            echo "Required CI/Rust/Ruby/Python checks passed for PR #${pr}; merging."
+            echo "All required CI checks passed for PR #${pr}; merging."
             merge_args=(
               --repo "${GITHUB_REPOSITORY}"
               --squash
