@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,68 @@ def is_nonnegative_integer(value: Any) -> bool:
 
 
 def run_validator(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, text=True, check=False)
+    return subprocess.run(
+        command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+    )
+
+
+def filter_singbox_outbounds(
+    singbox: Path,
+    singbox_path: Path,
+    document: dict[str, Any],
+    outbounds: list[dict[str, Any]],
+    name: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    initial = run_validator([str(singbox), "check", "-c", singbox_path.as_posix()])
+    if initial.returncode == 0:
+        return outbounds, []
+
+    def rejection(index: int, outbound: dict[str, Any], result: subprocess.CompletedProcess[str]) -> dict[str, Any]:
+        return {
+            "index": index + 1,
+            "tag": outbound.get("tag", ""),
+            "type": outbound.get("type", ""),
+            "reason": (result.stderr or result.stdout).strip() or "sing-box rejected outbound",
+        }
+
+    if len(outbounds) == 1:
+        return [], [rejection(0, outbounds[0], initial)]
+
+    max_checks = min(256, max(32, len(outbounds) * 2))
+    checks = 1
+    rejected: list[dict[str, Any]] = []
+
+    with tempfile.TemporaryDirectory(prefix=f"proxyrift-{name}-singbox-") as temporary:
+        directory = Path(temporary)
+
+        def inspect(batch: list[tuple[int, dict[str, Any]]]) -> list[dict[str, Any]]:
+            nonlocal checks
+            if checks >= max_checks:
+                raise RuntimeError(
+                    f"sing-box validation exceeded the {max_checks}-check isolation limit for {name}; "
+                    "refusing to publish an incompletely validated subscription"
+                )
+
+            subset = dict(document)
+            subset["outbounds"] = [outbound for _, outbound in batch]
+            config_path = directory / f"batch-{checks}.json"
+            config_path.write_text(json.dumps(subset, indent=2) + "\n", encoding="utf-8")
+            result = run_validator([str(singbox), "check", "-c", config_path.as_posix()])
+            checks += 1
+
+            if result.returncode == 0:
+                return subset["outbounds"]
+            if len(batch) == 1:
+                index, outbound = batch[0]
+                rejected.append(rejection(index, outbound, result))
+                return []
+
+            midpoint = len(batch) // 2
+            return inspect(batch[:midpoint]) + inspect(batch[midpoint:])
+
+        valid = inspect(list(enumerate(outbounds)))
+
+    return valid, rejected
 
 
 def main() -> int:
@@ -109,9 +171,6 @@ def main() -> int:
         ):
             return fail(f"Invalid sing-box JSON or outbound missing a non-empty type/tag: {singbox_path.as_posix()}")
 
-        if run_validator([str(singbox), "check", "-c", singbox_path.as_posix()]).returncode != 0:
-            return fail(f"sing-box rejected configuration: {singbox_path.as_posix()}")
-
         source_count = light_count if name == "light" else all_count
         count_row = manifest.get(name)
         if not isinstance(count_row, dict):
@@ -123,11 +182,36 @@ def main() -> int:
             return fail(f"Invalid or inconsistent source/sing-box count manifest for {name}: {counts_path.as_posix()}")
         if manifest_singbox > manifest_source:
             return fail(f"Invalid or inconsistent source/sing-box count manifest for {name}: {counts_path.as_posix()}")
-        singbox_count = len(outbounds)
+        original_singbox_count = len(outbounds)
         if manifest_source != source_count:
             return fail(f"Source count does not match format-count manifest for {name}: manifest={manifest_source}, file={source_count}.")
-        if manifest_singbox != singbox_count:
-            return fail(f"sing-box entry count does not match format-count manifest for {name}: manifest={manifest_singbox}, file={singbox_count}.")
+        if manifest_singbox != original_singbox_count:
+            return fail(f"sing-box entry count does not match format-count manifest for {name}: manifest={manifest_singbox}, file={original_singbox_count}.")
+
+        valid_outbounds, rejected_outbounds = filter_singbox_outbounds(
+            singbox, singbox_path, singbox_doc, outbounds, name,
+        )
+        if not valid_outbounds:
+            return fail(f"sing-box rejected every outbound in {singbox_path.as_posix()}; retaining the last published subscription.")
+        singbox_count = len(valid_outbounds)
+        if rejected_outbounds:
+            singbox_doc["outbounds"] = valid_outbounds
+            temporary_path = singbox_path.with_name(f".{singbox_path.name}.filtered.tmp")
+            temporary_path.write_text(json.dumps(singbox_doc, indent=2) + "\n", encoding="utf-8")
+            os.replace(temporary_path, singbox_path)
+            count_row["singbox"] = singbox_count
+            for rejected in rejected_outbounds:
+                print(
+                    f"[WARN] [sing-box] Rejected outbound {rejected['index']} "
+                    f"({rejected['tag'] or rejected['type']}) from {singbox_path.as_posix()} "
+                    f"| {rejected['reason']}",
+                    file=sys.stderr,
+                )
+            print(
+                f"[WARN] [sing-box] Filtered {len(rejected_outbounds)} incompatible outbound(s) "
+                f"| Kept: {singbox_count}/{original_singbox_count}",
+                file=sys.stderr,
+            )
 
         clash_path = SUBSCRIPTIONS / f"{name}-clash.yaml"
         clash_failure: str | None = None
@@ -283,6 +367,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         raise SystemExit(1)
