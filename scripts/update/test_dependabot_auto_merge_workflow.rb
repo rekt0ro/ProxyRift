@@ -50,8 +50,10 @@ abort "Auto-merge workflow must call the tested status gate" unless
 
 workflow_text = File.read(path, encoding: "UTF-8")
 abort "Auto-merge must re-check PRs when a draft becomes ready for review" unless workflow_text.include?("      - ready_for_review\n")
-abort "Auto-merge must re-check PRs when CodeQL finishes, even though its aggregate check is not a gate" unless
-  workflow_text.include?("      - CI\n      - CodeQL")
+abort "Auto-merge must re-check PRs when CI finishes" unless
+  workflow_text.include?("      - CI\n    types:")
+abort "CodeQL must not trigger or gate the auto-merge workflow" if
+  workflow_text.include?("      - CodeQL")
 
 body = merge.fetch("run")
 
@@ -130,11 +132,11 @@ abort "Core-pin updater must only modify its three managed pin files" unless
 abort "Unconfigured requirements-file updates must not be auto-merged" if body.include?('requirements*.txt')
 gate_path = "scripts/update/verify_dependabot_auto_merge_checks.sh"
 gate = File.read(gate_path, encoding: "UTF-8")
-%w[Analyze\ (rust) Analyze\ (ruby) Analyze\ (python)].each do |check_name|
-  abort "Required check #{check_name} is missing from the status gate" unless
-    gate.include?(check_name)
-end
-abort "Aggregate CodeQL must not be a required check" if gate.include?(".name == \"CodeQL\"")
-abort "Analyze (actions) must not be a required check" if gate.include?(".name == \"Analyze (actions)\"")
+abort "Status gate must only inspect CI workflow checks" unless
+  gate.include?('.workflow == "CI"') &&
+    !gate.include?("Analyze (rust)") &&
+    !gate.include?("Analyze (ruby)") &&
+    !gate.include?("Analyze (python)") &&
+    !gate.include?("CodeQL")
 
-puts "Dependabot auto-merge waits for CI plus Rust/Ruby/Python checks and ignores aggregate CodeQL."
+puts "Dependabot auto-merge waits only for successful CI checks."
