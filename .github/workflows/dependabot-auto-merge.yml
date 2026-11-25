@@ -199,12 +199,7 @@ jobs:
 
               if jq -e '
                 any(.[]?;
-                  (
-                    .workflow == "CI"
-                    or .name == "Analyze (rust)"
-                    or .name == "Analyze (ruby)"
-                    or .name == "Analyze (python)"
-                  )
+                  .workflow == "CI"
                   and (.bucket == "fail" or .bucket == "cancel" or .bucket == "skipping")
                 )
               ' <<< "${checks}" >/dev/null; then
