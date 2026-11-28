@@ -1,247 +1,123 @@
 proxies:
   - name: 'ProxyRift 001'
-    type: 'vless'
-    server: '69.48.201.136'
-    port: 30016
+    type: 'ss'
+    server: '67.220.73.247'
+    port: 443
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'DGjtV63aPW3E'
     udp: true
-    uuid: '03dc60cb-a8d4-4226-93fe-0e6cbf77fe5a'
-    encryption: 'none'
-    servername: '69.48.201.136'
-    network: 'ws'
-    ws-opts:
-      path: '/usserver'
-      headers:
-        Host: 'zoom.us'
   - name: 'ProxyRift 002'
     type: 'vless'
-    server: '5.161.26.117'
+    server: '38.145.220.193'
     port: 443
     udp: true
-    uuid: '6d30baea-6964-4db3-a454-e0a4bab5fae3'
+    uuid: '07a4351f-f5c8-4739-b70a-f76c08c9c9a0'
+    flow: 'xtls-rprx-vision'
     encryption: 'none'
     tls: true
-    servername: 'dl.code-academy.ir'
-    client-fingerprint: 'edge'
-    network: 'ws'
-    ws-opts:
-      headers:
-        Host: 'dl.code-academy.ir'
+    servername: 'www.cloudflare.com'
+    reality-opts:
+      public-key: 'vVI2d7f6Kor_qq5G9dj9Mgl3uzN0aN9EVndPbP3y5GY'
+      short-id: '446efed1ff571486'
   - name: 'ProxyRift 003'
     type: 'vless'
-    server: '45.138.100.248'
-    port: 10443
-    udp: true
-    uuid: 'ae908ff5-f749-402c-af25-e6e9aef4d6bb'
-    servername: '45.138.100.248'
-  - name: 'ProxyRift 004'
-    type: 'vless'
-    server: '169.40.42.90'
+    server: '169.40.42.202'
     port: 443
     udp: true
     uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
     flow: 'xtls-rprx-vision'
     tls: true
     servername: 'yahoo.com'
-    client-fingerprint: 'edge'
+    client-fingerprint: 'random'
+    reality-opts:
+      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
+      short-id: 'c39cc7310a'
+  - name: 'ProxyRift 004'
+    type: 'vless'
+    server: '169.40.42.163'
+    port: 443
+    udp: true
+    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'yahoo.com'
+    client-fingerprint: 'random'
     reality-opts:
       public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
       short-id: 'c39cc7310a'
   - name: 'ProxyRift 005'
-    type: 'ss'
-    server: '38.99.82.34'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'TyWIy6paiFUX'
-    udp: true
-  - name: 'ProxyRift 006'
     type: 'vless'
-    server: '169.40.42.89'
+    server: '152.232.82.196'
     port: 443
     udp: true
-    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'yahoo.com'
-    reality-opts:
-      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
-      short-id: 'c39cc7310a'
-    alpn:
-      - 'networld_vpn-channel@.networld_vpn-channel@.networld_vpn-channel@.networld_vpn-channel@.networld_vpn-channel@.networld_vpn-channel@.networld_vpn-'
-  - name: 'ProxyRift 007'
-    type: 'vless'
-    server: '169.40.42.229'
-    port: 443
-    udp: true
-    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'yahoo.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
-      short-id: 'c39cc7310a'
-  - name: 'ProxyRift 008'
-    type: 'vless'
-    server: '15.204.97.214'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    uuid: 'f836fa6f-fb89-455c-ac95-0657daa63058'
     flow: 'xtls-rprx-vision'
     encryption: 'none'
     tls: true
-    servername: 'fuck.rkn'
+    servername: 'api.videobereg.cc'
     client-fingerprint: 'firefox'
     reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
+      public-key: 'r5WB5FnSCt4eeBC1FJMfkWHbzsMuabo0Rc6wuAhlZUs'
+      short-id: 'a8'
+  - name: 'ProxyRift 006'
+    type: 'ss'
+    server: '129.146.36.59'
+    port: 50356
+    cipher: '2022-blake3-chacha20-poly1305'
+    password: 'qhoiEimMGIVz7xXKevpUDBg2fDLpRPR2BWLA+zpJMO8='
+    udp: true
+  - name: 'ProxyRift 007'
+    type: 'vless'
+    server: '151.101.1.242'
+    port: 443
+    udp: true
+    uuid: '484d6ef7-e018-4ca3-bb9d-ce05f47f4c7a'
+    encryption: 'none'
+    tls: true
+    servername: 'barbered-mattocks.video-streams.org'
+    client-fingerprint: 'firefox'
+    network: 'ws'
+    ws-opts:
+      path: '/ws'
+      headers:
+        Host: 'barbered-mattocks.video-streams.org'
+  - name: 'ProxyRift 008'
+    type: 'vless'
+    server: '66.94.113.190'
+    port: 443
+    udp: true
+    uuid: '31ce0fbd-130b-4188-82ac-5db19bc9debd'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.tesla.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: '02Yg4to3gnD2VkzaE9qBZlhsMqzE_oL5tZETE-8yx1Q'
+      short-id: '53050dd29221b30f'
   - name: 'ProxyRift 009'
-    type: 'vless'
-    server: '15.204.97.198'
-    port: 23576
+    type: 'ss'
+    server: '146.70.90.195'
+    port: 17453
+    cipher: 'aes-128-gcm'
+    password: 'cVCf+5/dBI353UY4YcN3nS05znsJYtLF'
     udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
   - name: 'ProxyRift 010'
-    type: 'vless'
-    server: '172.64.154.113'
-    port: 8443
+    type: 'ss'
+    server: '144.21.40.25'
+    port: 45819
+    cipher: '2022-blake3-chacha20-poly1305'
+    password: 'WkrvJt8CvNeLr9JwHU50A96gpmcI5HIxZeO+Jape31w='
     udp: true
-    uuid: '53bbdad4-2f4e-45db-8df4-fa491a6a7227'
-    encryption: 'none'
-    tls: true
-    servername: 'freeceshi6.frii.site'
-    client-fingerprint: 'chrome'
-    network: 'ws'
-    ws-opts:
-      path: '/?Telegram---Safewebsbot'
-      headers:
-        Host: 'freeceshi6.frii.site'
   - name: 'ProxyRift 011'
-    type: 'vless'
-    server: '104.16.205.65'
-    port: 2083
+    type: 'ss'
+    server: '134.65.56.97'
+    port: 61312
+    cipher: '2022-blake3-chacha20-poly1305'
+    password: '3uwSf+R0Swhv0PAOwXrwJME8FZxdgl+tA7QCbgnnCUA='
     udp: true
-    uuid: '51a0af77-a60c-4d9b-81a4-f50e1b38d90b'
-    tls: true
-    servername: 'ahmad99hoseini.pages.dev'
-    client-fingerprint: 'chrome'
-    network: 'ws'
-    ws-opts:
-      path: '/'
-      headers:
-        Host: 'ahmad99hoseini.pages.dev'
   - name: 'ProxyRift 012'
-    type: 'vless'
-    server: '162.159.135.234'
-    port: 2087
-    udp: true
-    uuid: '5d7b401c-78fa-4254-872e-6d42bf7e75ec'
-    tls: true
-    servername: 'vp2.1145678.xyz'
-    network: 'ws'
-    ws-opts:
-      path: '/out'
-      headers:
-        Host: 'vp2.1145678.xyz'
-  - name: 'ProxyRift 014'
-    type: 'vless'
-    server: 'shin-ra.ccwu.cc'
-    port: 443
-    udp: true
-    uuid: '817b61c8-9bf0-4365-8a52-e43dfad274a6'
-    tls: true
-    servername: 'shin-ra.ccwu.cc'
-    network: 'ws'
-    ws-opts:
-      path: '/'
-      headers:
-        Host: 'shin-ra.ccwu.cc'
-  - name: 'ProxyRift 015'
-    type: 'ss'
-    server: '109.201.152.181'
-    port: 443
-    cipher: 'aes-128-cfb'
-    password: 'shadowsocks'
-    udp: true
-  - name: 'ProxyRift 016'
-    type: 'vless'
-    server: '188.114.99.0'
-    port: 443
-    udp: true
-    uuid: '53bbdad4-2f4e-45db-8df4-fa491a6a7227'
-    encryption: 'none'
-    tls: true
-    servername: 'freeceshi6.frii.site'
-    alpn:
-      - 'http/1.1'
-    network: 'ws'
-    ws-opts:
-      path: '/?Telegram---PLANB_NET---PLANB_NET---PLANB_NET---PLANB_NET'
-      headers:
-        Host: 'freeceshi6.frii.site'
-  - name: 'ProxyRift 017'
-    type: 'ss'
-    server: '193.29.139.168'
-    port: 8080
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'QCXDxuDlTTMD7jtgHUjIoj'
-    udp: true
-  - name: 'ProxyRift 018'
-    type: 'vless'
-    server: '51.158.206.34'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'ProxyRift 019'
-    type: 'vless'
-    server: '51.158.206.97'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'ProxyRift 020'
-    type: 'ss'
-    server: 'leviko-fr1459.shopingggg.ir'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'ySGkGhr2sKHV'
-    udp: true
-  - name: 'ProxyRift 021'
-    type: 'vless'
-    server: '51.158.206.29'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'ProxyRift 022'
     type: 'vless'
     server: '51.158.206.96'
     port: 23576
@@ -251,517 +127,1138 @@ proxies:
     encryption: 'none'
     tls: true
     servername: 'fuck.rkn'
-    client-fingerprint: 'chrome'
     reality-opts:
       public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
       short-id: '01'
-  - name: 'ProxyRift 023'
+  - name: 'ProxyRift 013'
     type: 'vless'
-    server: '94.130.237.57'
-    port: 27154
+    server: '5.175.138.181'
+    port: 6789
     udp: true
-    uuid: 'd9d02f3e-c877-4a1f-990e-f2418777f745'
-    encryption: 'none'
-    servername: '94.130.237.57'
-    network: 'grpc'
-    grpc-opts:
-      grpc-service-name: 'Telegram=@AmyraxVPN'
-  - name: 'ProxyRift 024'
-    type: 'vless'
-    server: '51.158.206.20'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    uuid: '4748fc40-2026-4d6a-a64d-5dba4f7f6ef8'
     flow: 'xtls-rprx-vision'
     encryption: 'none'
     tls: true
-    servername: 'fuck.rkn'
-    client-fingerprint: 'chrome'
+    servername: 'orvexe.app'
+    client-fingerprint: 'firefox'
     reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-  - name: 'ProxyRift 025'
-    type: 'ss'
-    server: '193.29.139.234'
-    port: 8080
-    cipher: 'chacha20-ietf-poly1305'
-    password: '4a2rfixophdjffa8KVA4Aa'
-    udp: true
-  - name: 'ProxyRift 026'
+      public-key: '45XSrBkQt7S1y2XaD51M3dmF4MjBfIrg5vF-56EeeEw'
+  - name: 'ProxyRift 014'
     type: 'vless'
-    server: 'spacex.com'
+    server: '5.255.127.12'
     port: 443
     udp: true
-    uuid: 'cced2d3b-9840-4579-a6b3-5de365f3bf50'
+    uuid: 'ba373a70-295f-482d-a471-8bc17b54e23b'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
     tls: true
-    servername: 'wallweb6.pages.dev'
-    network: 'ws'
-    ws-opts:
-      path: '/fp=chrome'
-      headers:
-        Host: 'wallweb6.pages.dev'
-  - name: 'ProxyRift 027'
+    servername: 'nle.899themes.pro'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'pR39Vv5qhk8r6akOicoy6mMs4-ppSWUez8MyAXG7wwQ'
+      short-id: '27350908de933e09'
+  - name: 'ProxyRift 015'
     type: 'vless'
-    server: '169.40.42.35'
+    server: '37.16.74.36'
+    port: 2053
+    udp: true
+    uuid: 'b58564f3-bcc4-4af9-8a47-7ad8039cba93'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.funda.nl'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'u8QY55NuwaED8-IEG2dw5G-VhmB6D5VSxfWhM38_XkA'
+      short-id: '8807cf28'
+  - name: 'ProxyRift 016'
+    type: 'ss'
+    server: '138.2.172.250'
+    port: 59924
+    cipher: '2022-blake3-chacha20-poly1305'
+    password: 'pwjfp4Qn4FubW1kQjkHYHcGaHuVF9Uu76Y7XAwQvm8Q='
+    udp: true
+  - name: 'ProxyRift 017'
+    type: 'vless'
+    server: '169.40.42.229'
     port: 443
     udp: true
     uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
     flow: 'xtls-rprx-vision'
-    encryption: 'none'
     tls: true
     servername: 'yahoo.com'
-    client-fingerprint: 'ios'
+    client-fingerprint: 'random'
     reality-opts:
       public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
       short-id: 'c39cc7310a'
-  - name: 'ProxyRift 028'
-    type: 'vless'
-    server: '62.210.91.10'
-    port: 23576
+  - name: 'ProxyRift 018'
+    type: 'hysteria2'
+    server: '185.200.199.179'
+    port: 54706
     udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
+    password: 'Cqx5aT9Zux'
     tls: true
-    servername: 'fuck.rkn'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'ProxyRift 029'
+    servername: '185.200.199.179'
+  - name: 'ProxyRift 019'
+    type: 'ss'
+    server: '130.61.87.73'
+    port: 59924
+    cipher: '2022-blake3-chacha20-poly1305'
+    password: 'ALhi9l8iwrHGrmTCoXOIS+9WfrrJIE76JjHxzmdaveY='
+    udp: true
+  - name: 'ProxyRift 020'
     type: 'vless'
-    server: '108.159.247.2'
+    server: '104.18.89.52'
     port: 443
     udp: true
-    uuid: '7a42d986-f0b8-46e7-82cf-9516e168a613'
-    encryption: 'none'
+    uuid: 'f0d6aa7c-0b34-4b68-9af8-1ea5e0b39bdc'
     tls: true
-    servername: 'd1aedflfr97jes.cloudfront.net'
-    client-fingerprint: 'firefox'
-    alpn:
-      - 'http/1.1'
+    servername: 'ssj-wkg.pages.dev'
+    client-fingerprint: 'chrome'
     network: 'ws'
     ws-opts:
       path: '/'
       headers:
-        Host: 'd1aedflfr97jes.cloudfront.net'
-  - name: 'ProxyRift 030'
+        Host: 'ssj-wkg.pages.dev'
+  - name: 'ProxyRift 021'
     type: 'vless'
-    server: '91.98.105.20'
-    port: 8080
+    server: '158.101.214.73'
+    port: 58873
     udp: true
-    uuid: '6d30baea-6964-4db3-a454-e0a4bab5fae3'
+    uuid: '3ec17af8-4a6a-439c-946a-e5408f37ba9b'
     flow: 'xtls-rprx-vision'
     encryption: 'none'
     tls: true
-    servername: 'tgju.org'
+    servername: 'www.cloudflare.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'U7t4RFE9MSMtC-o1DoJ8pYzKMfgVpTg6ZhTTknBrVkU'
+      short-id: '1f2519bb96e5589c'
+  - name: 'ProxyRift 022'
+    type: 'vless'
+    server: '177.3.221.248'
+    port: 443
+    udp: true
+    uuid: '1d1eda2e-0bd7-4478-877b-1c5425c6c4dd'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'tradingview.com'
     client-fingerprint: 'firefox'
     reality-opts:
-      public-key: 'tIQQp41fRrliguh9hOjPdKHkR5P_tFHqfhpHU_SKazc'
-      short-id: 'eb11f7630faaaf60'
-  - name: 'ProxyRift 031'
+      public-key: 'yr_opKG6DGTppNDXkk-DhGSYJZXbb9o-caexk2FZO38'
+      short-id: '8f3c6e2a1b5d4f09'
+  - name: 'ProxyRift 023'
     type: 'vless'
-    server: 'proxy-34l.pages.dev'
-    port: 2087
+    server: '104.21.80.8'
+    port: 443
     udp: true
-    uuid: '40af9131-d540-448a-bc56-5bba147a1dc3'
+    uuid: '50414e45-4c5f-5a45-5553-73bbc10a8397'
+    encryption: 'none'
     tls: true
-    servername: 'proxy-34l.pages.dev'
+    servername: 'qlzckveeuzhs.2uzgknemu8hs.workers.dev'
+    client-fingerprint: 'firefox'
+    network: 'ws'
+    ws-opts:
+      path: '/stream/PANEL_ZEUS/73bbc10a8397'
+      headers:
+        Host: 'qlzckveeuzhs.2uzgknemu8hs.workers.dev'
+  - name: 'ProxyRift 024'
+    type: 'vless'
+    server: '104.21.93.170'
+    port: 443
+    udp: true
+    uuid: '5c9e3f77-5bde-4732-af3c-6a5d3ecee37a'
+    tls: true
+    servername: 'worker3.wewotes286.workers.dev'
     client-fingerprint: 'chrome'
     network: 'ws'
     ws-opts:
+      path: '/'
       headers:
-        Host: 'proxy-34l.pages.dev'
-  - name: 'ProxyRift 032'
-    type: 'vless'
-    server: '8.6.112.86'
-    port: 443
-    udp: true
-    uuid: '53bbdad4-2f4e-45db-8df4-fa491a6a7227'
-    encryption: 'none'
-    tls: true
-    servername: 'freeceshi6.frii.site'
-    alpn:
-      - 'http/1.1'
-    network: 'ws'
-    ws-opts:
-      path: '/?Telegram---PLANB_NET---PLANB_NET---PLANB_NET---PLANB_NET'
-      headers:
-        Host: 'freeceshi6.frii.site'
-  - name: 'ProxyRift 033'
-    type: 'hysteria2'
-    server: '193.233.127.209'
-    port: 443
-    udp: true
-    password: 'b1490307-d693-4392-8f32-a3f7cc139202'
-    tls: true
-    servername: 'trendslate.nem-osh-rkp.net'
-  - name: 'ProxyRift 034'
-    type: 'vless'
-    server: '188.114.98.0'
-    port: 443
-    udp: true
-    uuid: '53bbdad4-2f4e-45db-8df4-fa491a6a7227'
-    tls: true
-    servername: 'freeceshi6.frii.site'
-    network: 'ws'
-    ws-opts:
-      path: '/?TELEGRAM--MARAMBASHI--MARAMBASHI--MARAMBASHI--MARAMBASHI?ed=2560'
-      headers:
-        Host: 'freeceshi6.frii.site'
-  - name: 'ProxyRift 035'
-    type: 'vless'
-    server: '104.18.13.229'
-    port: 8443
-    udp: true
-    uuid: '1753c03f-39c4-4bf2-ae83-38e90c847e8e'
-    tls: true
-    servername: 'ydyg0908.mynameiszt.eu.org'
-    client-fingerprint: 'random'
-    network: 'ws'
-    ws-opts:
-      headers:
-        Host: 'ydyg0908.mynameiszt.eu.org'
-  - name: 'ProxyRift 036'
-    type: 'trojan'
-    server: '5.249.255.116'
-    port: 443
-    udp: true
-    password: 'zhs000666'
-    tls: true
-    servername: '666-4sd.pages.dev'
-    network: 'ws'
-    ws-opts:
-      path: '/?ed=2560&proxyip=ts.hpc.tw'
-      headers:
-        Host: '666-4sd.pages.dev'
-  - name: 'ProxyRift 037'
-    type: 'trojan'
-    server: '172.66.47.18'
-    port: 443
-    udp: true
-    password: 'e7TTceggMwUMg+aFN:F4'
-    tls: true
-    servername: 'APkD964o1oghlTghHt0L0Of.pAgeS.Dev'
-    client-fingerprint: 'chrome'
-    alpn:
-      - 'http/1.1'
-    network: 'ws'
-    ws-opts:
-      path: '/tr/SIeRkg2QvR2Zcpu0SeEMow?ed=2560'
-      headers:
-        Host: 'apkd964o1oghltghht0l0of.pages.dev'
-  - name: 'ProxyRift 038'
-    type: 'hysteria2'
-    server: 'canaryform.ratethatrestaurant.org'
-    port: 443
-    udp: true
-    password: 'b1490307-d693-4392-8f32-a3f7cc139202'
-    tls: true
-    servername: 'canaryform.ratethatrestaurant.org'
-  - name: 'ProxyRift 039'
-    type: 'vmess'
-    server: '67.220.95.3'
-    port: 18000
-    udp: true
-    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
-    alterId: 0
-    cipher: 'aes-128-gcm'
-  - name: 'ProxyRift 040'
-    type: 'vless'
-    server: '51.194.118.38'
-    port: 443
-    udp: true
-    uuid: '7ff1e7e1-2b5a-4e53-ae77-1516f9eb7754'
-    encryption: 'none'
-    tls: true
-    servername: 'a1259.ve8nzuk.com'
-    client-fingerprint: 'chrome'
-    network: 'grpc'
-    grpc-opts:
-      grpc-service-name: '50a5f706c8ea4433838a207d435fbf031b008a9a'
-  - name: 'ProxyRift 041'
-    type: 'hysteria2'
-    server: '144.31.3.148'
-    port: 443
-    udp: true
-    password: 'b1490307-d693-4392-8f32-a3f7cc139202'
-    tls: true
-    servername: 'headerruntime.bezl-self.co.uk'
-  - name: 'ProxyRift 042'
-    type: 'vless'
-    server: '8.6.112.4'
-    port: 443
-    udp: true
-    uuid: '53bbdad4-2f4e-45db-8df4-fa491a6a7227'
-    encryption: 'none'
-    tls: true
-    servername: 'freeceshi6.frii.site'
-    alpn:
-      - 'http/1.1'
-    network: 'ws'
-    ws-opts:
-      path: '/?Telegram---PLANB_NET---PLANB_NET---PLANB_NET---PLANB_NET'
-      headers:
-        Host: 'freeceshi6.frii.site'
-  - name: 'ProxyRift 043'
-    type: 'vless'
-    server: '104.20.28.233'
-    port: 443
-    udp: true
-    uuid: 'e081da45-9fae-4687-9376-f9a6a0dbbe83'
-    encryption: 'none'
-    tls: true
-    servername: 'e33xr.qzz.io'
-    network: 'ws'
-    ws-opts:
-      path: '/id-amz'
-      headers:
-        Host: 'e33xr.qzz.io'
-  - name: 'ProxyRift 044'
-    type: 'vless'
-    server: 'n3.fernstatic.com'
-    port: 9443
-    udp: true
-    uuid: 'ad295072-0049-4981-a9aa-6314c43e87e5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'n3.fernstatic.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'LGj0rJ5R28CbD24VRc5nCpNg-2EMU85fmUZNdrZ6CWI'
-      short-id: 'bc7b676b8ed7b300'
-  - name: 'ProxyRift 045'
-    type: 'vless'
-    server: '138.124.86.230'
-    port: 48115
-    udp: true
-    uuid: 'b2fe1fa4-6a79-4938-a3f4-63b54ae7f16b'
-    tls: true
-    servername: '138-124-86-230.sslip.io'
-    network: 'grpc'
-    grpc-opts:
-      grpc-service-name: '138-124-86-230-sslip-io'
-  - name: 'ProxyRift 046'
+        Host: 'worker3.wewotes286.workers.dev'
+  - name: 'ProxyRift 025'
     type: 'vless'
     server: '138.124.125.193'
     port: 10444
     udp: true
     uuid: 'e57ce64d-5a1a-4a90-96df-9e1bd3ad26e4'
     flow: 'xtls-rprx-vision'
-    encryption: 'none'
     tls: true
     servername: 'ads.x5.ru'
+    client-fingerprint: 'random'
     reality-opts:
       public-key: '0oTkcqwLTUNLnSOP-VUWErmy6usAIg-biBE6ioZO-Vo'
       short-id: '8debcf36f1cc69ff'
-  - name: 'ProxyRift 047'
+  - name: 'ProxyRift 026'
     type: 'vless'
-    server: '201.58.178.197'
+    server: '31.76.100.80'
     port: 443
     udp: true
-    uuid: 'e894c08a-fecc-46f5-bf03-c95d0274c79d'
-    flow: 'xtls-rprx-vision'
+    uuid: 'bab5032a-b457-45df-b4a3-d956e31c402c'
     encryption: 'none'
     tls: true
-    servername: 'lesson4.schoolpizorbz.xyz'
+    servername: 'de.losserver.live'
     client-fingerprint: 'firefox'
     reality-opts:
-      public-key: 'EUuZAVtneL8O7MgjETmHvOyInaxqJu2RD6hiFQdDPwk'
-      short-id: '0df067145606c0b0'
-  - name: 'ProxyRift 048'
+      public-key: 'IRvdF1XS_Tb7Kw9U3huKIbPPxOfRVEsGFPUllw1kCho'
+      short-id: '7b'
+  - name: 'ProxyRift 027'
     type: 'vless'
-    server: '177.202.76.30'
+    server: '193.148.253.75'
+    port: 443
+    udp: true
+    uuid: 'cda0862a-0f87-4be9-8ed8-1d0c9e382839'
+    encryption: 'none'
+    tls: true
+    servername: 'f0d7aft.nl13.h1clayd.click'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'kkCGiCQCKnkozJR1KKCRNtmdBECmThCgI9VSv7iDcWI'
+      short-id: '8956c57cb4c4f8d2'
+  - name: 'ProxyRift 028'
+    type: 'vless'
+    server: 'lesson14.schoolpizorbz.xyz'
     port: 443
     udp: true
     uuid: 'e894c08a-fecc-46f5-bf03-c95d0274c79d'
     flow: 'xtls-rprx-vision'
-    encryption: 'none'
     tls: true
     servername: 'lesson14.schoolpizorbz.xyz'
     client-fingerprint: 'firefox'
     reality-opts:
       public-key: 'G465rpA3czwxSTrjkcl0KK6HohO5G8do2MxjcRbULSA'
       short-id: 'd52f9a703c9bf2d9'
-  - name: 'ProxyRift 049'
+  - name: 'ProxyRift 029'
     type: 'vless'
-    server: 'fdn1.gmax12.ir'
-    port: 8080
+    server: '162.159.130.234'
+    port: 2087
     udp: true
-    uuid: '6d30baea-6964-4db3-a454-e0a4bab5fae3'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
+    uuid: '5d7b401c-78fa-4254-872e-6d42bf7e75ec'
     tls: true
-    servername: 'tgju.org'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: 'tIQQp41fRrliguh9hOjPdKHkR5P_tFHqfhpHU_SKazc'
-      short-id: 'eb11f7630faaaf60'
-  - name: 'ProxyRift 050'
-    type: 'vless'
-    server: '213.176.92.168'
-    port: 10444
-    udp: true
-    uuid: 'ba52cc43-700d-4040-9444-29214c98e6e0'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'video.yandex.ru'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: '0oTkcqwLTUNLnSOP-VUWErmy6usAIg-biBE6ioZO-Vo'
-      short-id: '8debcf36f1cc69ff'
-  - name: 'ProxyRift 051'
-    type: 'vless'
-    server: '141.193.213.21'
-    port: 8443
-    udp: true
-    uuid: 'c9b4fb55-1634-436f-beb7-3b1db5b0131d'
-    tls: true
-    servername: 'free-server.techsonic.dev'
+    servername: 'vp3.1145678.xyz'
     client-fingerprint: 'chrome'
     network: 'ws'
     ws-opts:
-      path: '/free-server.techsonic.dev'
+      path: '/new/comics'
       headers:
-        Host: 'free-server.techsonic.dev'
-  - name: 'ProxyRift 052'
-    type: 'ss'
-    server: '23.162.152.245'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'ySGkGhr2sKHV'
-    udp: true
-  - name: 'ProxyRift 053'
+        Host: 'vp3.1145678.xyz'
+  - name: 'ProxyRift 030'
     type: 'vless'
-    server: 'vps3.nemnogogo.com'
+    server: '195.123.213.28'
+    port: 443
+    udp: true
+    uuid: '02fcc1a4-ee90-4970-8bbb-4ffaa8109d24'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.cloudflare.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'NMgy1XgCSXExOg6Tg8xG9lCWttMF6sjdpB41lZy6FWo'
+      short-id: '5c256336e3b673fa'
+  - name: 'ProxyRift 031'
+    type: 'vless'
+    server: '201.58.190.223'
+    port: 443
+    udp: true
+    uuid: 'e894c08a-fecc-46f5-bf03-c95d0274c79d'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'lesson7.schoolpizorbz.xyz'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'GOhYUjECeb39wHy3zMCWD60tuP2cV3cbONurnmo5TQE'
+      short-id: '2e3656d5425ca623'
+  - name: 'ProxyRift 032'
+    type: 'vless'
+    server: '176.126.122.236'
+    port: 443
+    udp: true
+    uuid: '8df59ae7-bf0b-42a4-90f1-824eb747a794'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'worldoftanks.eu'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: '6dc3iKXilOQpA_JFrKlk5-CsFjSmOm_5p0kSQcO9qi4'
+  - name: 'ProxyRift 033'
+    type: 'vless'
+    server: 'lesson15.schoolpizorbz.xyz'
+    port: 443
+    udp: true
+    uuid: 'e894c08a-fecc-46f5-bf03-c95d0274c79d'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'lesson15.schoolpizorbz.xyz'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'Wpmzv6fsZD7Lgbxtad3Of-XEl6T2qnjq_GDLCh6eOAg'
+      short-id: '4e1a1a1c3d18869e'
+  - name: 'ProxyRift 034'
+    type: 'vless'
+    server: '89.150.45.156'
+    port: 443
+    udp: true
+    uuid: 'ba373a70-295f-482d-a471-8bc17b54e23b'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'frb.899themes.pro'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'pR39Vv5qhk8r6akOicoy6mMs4-ppSWUez8MyAXG7wwQ'
+      short-id: '27350908de933e09'
+  - name: 'ProxyRift 035'
+    type: 'vless'
+    server: '83.143.112.79'
+    port: 443
+    udp: true
+    uuid: 'e894c08a-fecc-46f5-bf03-c95d0274c79d'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'lesson10.schoolpizorbz.xyz'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'IL8J51YZ8vzSpHXhvBNQUnACZjGKuSYLIDPLH5tZ4BA'
+      short-id: 'c9899c71959d69e4'
+  - name: 'ProxyRift 036'
+    type: 'vless'
+    server: '2.27.122.255'
+    port: 443
+    udp: true
+    uuid: 'e307f400-d65e-4afd-bfe2-9a54deca5678'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'sun9-37.userapi.com'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'Uig-31Ux76EreEvx8Ntb0BwS1TkUGbu0LcsQsiAH6wg'
+      short-id: 'd52d3ecf49447c2a'
+  - name: 'ProxyRift 037'
+    type: 'vless'
+    server: '31.76.21.252'
+    port: 443
+    udp: true
+    uuid: 'e894c08a-fecc-46f5-bf03-c95d0274c79d'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'lesson5.schoolpizorbz.xyz'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'hkbj7k2VDqVjrwQLXhoWIgjUwGOKFJ9Y1gdCv2YGQik'
+      short-id: '190004e1840538bf'
+  - name: 'ProxyRift 038'
+    type: 'vless'
+    server: '46.28.67.55'
+    port: 443
+    udp: true
+    uuid: 'd1a6a033-fdbd-46a6-a177-3370ba042b9f'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.cloudflare.com'
+    reality-opts:
+      public-key: 'i2dJ1_XGDpp50qpEclh6SWSWkxt4B0t2hi2qOVQbeSU'
+      short-id: 'd06d78e974491b6e'
+  - name: 'ProxyRift 039'
+    type: 'vless'
+    server: '196.240.125.12'
+    port: 8443
+    udp: true
+    uuid: 'f121ffc8-f6dc-4728-a871-a05e3f9cf8c5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'api-v2-6b09ce88.vmagnum.win'
+    client-fingerprint: 'qq'
+  - name: 'ProxyRift 040'
+    type: 'vless'
+    server: '172.233.27.145'
+    port: 64552
+    udp: true
+    uuid: '504b7143-71e0-4cf0-909b-5ff271bd03d6'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.cloudflare.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'U7t4RFE9MSMtC-o1DoJ8pYzKMfgVpTg6ZhTTknBrVkU'
+      short-id: '1f2519bb96e5589c'
+  - name: 'ProxyRift 041'
+    type: 'vless'
+    server: '48.102.138.175'
+    port: 8443
+    udp: true
+    uuid: 'e894c08a-fecc-46f5-bf03-c95d0274c79d'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.google.com'
+    reality-opts:
+      public-key: '25QzRZqG6_xhYTy3Be7EXiE8UgaVyRl_GFx8mfXBLWc'
+      short-id: '6aee1e2cdc4d33dd'
+  - name: 'ProxyRift 042'
+    type: 'vless'
+    server: '200.169.179.233'
     port: 443
     udp: true
     uuid: '38308ff1-5aa9-494f-a25a-0f2870d56b3e'
     encryption: 'none'
     tls: true
     servername: 'vps3.nemnogogo.com'
+    client-fingerprint: 'chrome'
     network: 'grpc'
     grpc-opts:
       grpc-service-name: 'mobile.api.Event'
-  - name: 'ProxyRift 054'
-    type: 'vless'
-    server: 'fdn6.code-academy.ir'
-    port: 8080
-    udp: true
-    uuid: '6d30baea-6964-4db3-a454-e0a4bab5fae3'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'tgju.org'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: 'tIQQp41fRrliguh9hOjPdKHkR5P_tFHqfhpHU_SKazc'
-      short-id: 'eb11f7630faaaf60'
-  - name: 'ProxyRift 055'
-    type: 'hysteria2'
-    server: '2.26.93.169'
-    port: 443
-    udp: true
-    password: 'b1490307-d693-4392-8f32-a3f7cc139202'
-    tls: true
-    servername: 'statslabel.videostockmarket.org'
-  - name: 'ProxyRift 056'
-    type: 'vmess'
-    server: '23.162.200.198'
-    port: 18000
-    udp: true
-    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
-    alterId: 0
-    cipher: 'auto'
-    servername: 'learn.healthcarejobshubenhancemedicalprofessionalskillstoday.com'
-  - name: 'ProxyRift 057'
-    type: 'vless'
-    server: '50.7.159.242'
-    port: 443
-    udp: true
-    uuid: '8840fac2-5361-4cb6-b887-cd1b95092394'
-    tls: true
-    servername: 'jp.reddotcorp.org'
-  - name: 'ProxyRift 058'
+  - name: 'ProxyRift 043'
     type: 'ss'
-    server: 'jp-telegram-khp25-viber-09773510813.premiumx.giize.com'
-    port: 1080
+    server: 's23.fusetea.ir'
+    port: 2089
     cipher: 'chacha20-ietf-poly1305'
-    password: '53dea5063dff45e4961fb9cba5d3f83a'
+    password: 'R02KmzzSD7PeZ_DosF87xZ7zIn8jLtyP'
     udp: true
-  - name: 'ProxyRift 059'
-    type: 'hysteria2'
-    server: '176.123.11.40'
-    port: 443
-    udp: true
-    password: 'b1490307-d693-4392-8f32-a3f7cc139202'
-    tls: true
-    servername: 'seriesseller.ratethatrestaurant.org'
-  - name: 'ProxyRift 060'
+  - name: 'ProxyRift 044'
     type: 'vless'
-    server: '195.123.226.21'
+    server: '82.118.16.189'
     port: 443
     udp: true
-    uuid: '6589c320-db68-43cd-a273-b46299bab355'
+    uuid: '29f178f7-f96f-46ba-8fc0-bbcd690ba788'
     flow: 'xtls-rprx-vision'
     encryption: 'none'
-    tls: true
-    servername: 'gateway.icloud.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'rabtI-ymNXBUvYYRwAw8DiR-1pdP7U0WPIaCBHEkgzo'
-      short-id: '77bb0d07bddbc832'
-  - name: 'ProxyRift 061'
-    type: 'vless'
-    server: '209.200.246.148'
-    port: 443
-    udp: true
-    uuid: 'ca52e2b6-fb9f-4dac-b6dc-49da9923f251'
-    flow: 'xtls-rprx-vision'
     tls: true
     servername: 'www.cloudflare.com'
-    client-fingerprint: 'random'
     reality-opts:
-      public-key: 'uTmb-ytXsx8p0fkBz7A76SHpWk7_oVutIA4LGTE8BQk'
-      short-id: 'f98843107912e782'
+      public-key: 'zmo2VkZkfjh2kWjaRghXUs39ImQo87LmPhjvzbX3yB4'
+      short-id: '1e9a49dd374c1191'
+  - name: 'ProxyRift 045'
+    type: 'hysteria2'
+    server: '94.183.164.119'
+    port: 24433
+    udp: true
+    password: '549766c3-fa5f-471e-8031-ffc1f8d5064f'
+    tls: true
+    servername: 'lakes.blog-forme.ru'
+  - name: 'ProxyRift 046'
+    type: 'vless'
+    server: '51.38.71.147'
+    port: 443
+    udp: true
+    uuid: 'fda89998-7e9a-4494-857a-cd0d00661b58'
+    encryption: 'none'
+    tls: true
+    servername: 'uk1.connectsuite.org'
+    client-fingerprint: 'firefox'
+    network: 'ws'
+    ws-opts:
+      path: '/cdn-cgi/ws'
+      headers:
+        Host: 'uk1.connectsuite.org'
+  - name: 'ProxyRift 047'
+    type: 'ss'
+    server: '213.183.63.60'
+    port: 9098
+    cipher: 'aes-256-cfb'
+    password: 'aLpQtfEZe445QyHk'
+    udp: true
+  - name: 'ProxyRift 048'
+    type: 'vless'
+    server: '201.51.11.65'
+    port: 443
+    udp: true
+    uuid: '1e2b9c0c-4f9b-56f5-a062-1c4f2d2aa200'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'absolute-disaster.org'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'GiDgVRVYrTkv1mZJeFVWkr736Iey2kqLM6L0eUbffV8'
+  - name: 'ProxyRift 049'
+    type: 'vless'
+    server: '87.242.94.18'
+    port: 443
+    udp: true
+    uuid: '00799b08-1090-4ed3-bec0-0fa26816a703'
+    tls: true
+    servername: 'stremnina.online'
+    client-fingerprint: 'firefox'
+    alpn:
+      - 'http/1.1'
+    network: 'ws'
+    ws-opts:
+      path: '/api/v2/sync/Qc88QUU2RzCH'
+      headers:
+        Host: 'stremnina.online'
+  - name: 'ProxyRift 050'
+    type: 'ss'
+    server: '185.135.86.175'
+    port: 9036
+    cipher: 'aes-256-cfb'
+    password: 'hbtvgUz5uNYyB3Rf'
+    udp: true
+  - name: 'ProxyRift 051'
+    type: 'ss'
+    server: '185.135.86.175'
+    port: 9082
+    cipher: 'aes-256-cfb'
+    password: '45xgMgm386pjWjTx'
+    udp: true
+  - name: 'ProxyRift 052'
+    type: 'ss'
+    server: '194.87.69.12'
+    port: 18443
+    cipher: 'aes-256-gcm'
+    password: '5mKjXAGrliIAlYwWDeFzkCEMIgQdFQLe'
+    udp: true
+  - name: 'ProxyRift 053'
+    type: 'ss'
+    server: '107.181.155.27'
+    port: 2089
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'lZZzfo1mqH7PqnloAogdi2XBhlgiofMy'
+    udp: true
+  - name: 'ProxyRift 054'
+    type: 'vless'
+    server: '94.103.83.173'
+    port: 443
+    udp: true
+    uuid: 'f4b08bf1-d9bd-4755-aa88-ba922282c608'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'ruitaliamicro1.gangplatform.com'
+    client-fingerprint: 'qq'
+    reality-opts:
+      public-key: 'X99zq7QEhnb9l3JsdyrL8Jt6yDZTcL3QzNbTZrUmJEM'
+      short-id: 'dbd5efbe0fd57f71'
+  - name: 'ProxyRift 055'
+    type: 'ss'
+    server: '45.15.166.254'
+    port: 1080
+    cipher: 'chacha20-ietf-poly1305'
+    password: '2ZO4D8H-lPk6RW5s68bQqGloK8iDpaQm'
+    udp: true
+  - name: 'ProxyRift 056'
+    type: 'vless'
+    server: '147.45.98.78'
+    port: 443
+    udp: true
+    uuid: '3b51157f-fa41-4092-b378-376b0e2d3edb'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'eh.vk.ru'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'C8jwxMahtF-BpgtauR6I6dVXCc0X8VM9nbFxDQ3LzF0'
+      short-id: 'b4'
+  - name: 'ProxyRift 057'
+    type: 'vless'
+    server: '2.56.207.123'
+    port: 443
+    udp: true
+    uuid: 'ba373a70-295f-482d-a471-8bc17b54e23b'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'ironlark.xyz'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'pR39Vv5qhk8r6akOicoy6mMs4-ppSWUez8MyAXG7wwQ'
+      short-id: '27350908de933e09'
+  - name: 'ProxyRift 058'
+    type: 'ss'
+    server: '198.98.53.130'
+    port: 443
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'eDfN7SODQceIOmIAbtJJtK'
+    udp: true
+  - name: 'ProxyRift 059'
+    type: 'vless'
+    server: '217.60.14.70'
+    port: 6789
+    udp: true
+    uuid: '4748fc40-2026-4d6a-a64d-5dba4f7f6ef8'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'orvexe.app'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: '45XSrBkQt7S1y2XaD51M3dmF4MjBfIrg5vF-56EeeEw'
+  - name: 'ProxyRift 060'
+    type: 'vless'
+    server: '83.141.92.168'
+    port: 443
+    udp: true
+    uuid: 'a7595994-695d-484e-bfcb-e9fbb73cfa39'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'sladovna.russianpiwo.fun'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'kpQWnVk3fEJXfPGFsMerUoPV_ZqUJUJFRnF1FvKyhRY'
+      short-id: '7a7d19880a9ee786'
+  - name: 'ProxyRift 061'
+    type: 'vless'
+    server: 'jp2chat.xyy123.win'
+    port: 443
+    udp: true
+    uuid: '218345b7-3589-4c5e-9c6c-15a6c2de6895'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'blog.api.www.cloudflare.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'I4sC7wO_OjKQcby3249aC1qGAmoMgHEFtRUvoLUy2yc'
+      short-id: 'c92cbef726ee8169'
   - name: 'ProxyRift 062'
     type: 'vless'
-    server: '72.61.179.194'
-    port: 8443
+    server: '140.245.113.33'
+    port: 443
+    udp: true
+    uuid: 'f4ca59b2-767d-3425-8dfc-95a96a0e6802'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'learn.microsoft.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'tF9nKF6amexok5wKbieQ2QRKQI5_ZTFE6MUj1hUBBkY'
+      short-id: 'c940a3b6d60b8611'
+  - name: 'ProxyRift 063'
+    type: 'vless'
+    server: '191.217.215.228'
+    port: 2053
+    udp: true
+    uuid: 'fbe22815-0718-4eae-816f-e91c67d15b54'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: '191.217.215.228'
+    client-fingerprint: 'firefox'
+  - name: 'ProxyRift 064'
+    type: 'ss'
+    server: '213.183.63.60'
+    port: 9085
+    cipher: 'aes-256-cfb'
+    password: '9ej82EKe2gq7gLAM'
+    udp: true
+  - name: 'ProxyRift 065'
+    type: 'ss'
+    server: '213.183.63.60'
+    port: 9064
+    cipher: 'aes-256-cfb'
+    password: 'cp8pRSUAyLhTfVWH'
+    udp: true
+  - name: 'ProxyRift 066'
+    type: 'ss'
+    server: '91.201.65.122'
+    port: 9070
+    cipher: 'aes-256-cfb'
+    password: 'bf7v334KKDV3YDhH'
+    udp: true
+  - name: 'ProxyRift 067'
+    type: 'ss'
+    server: '129.146.39.228'
+    port: 50356
+    cipher: '2022-blake3-chacha20-poly1305'
+    password: 'QqMeeeN+E9UW+St1oRBDvZGb/Lp5jLdCycyi2WPqkQA='
+    udp: true
+  - name: 'ProxyRift 068'
+    type: 'vless'
+    server: '162.159.130.234'
+    port: 443
     udp: true
     uuid: '5d7b401c-78fa-4254-872e-6d42bf7e75ec'
     tls: true
-    servername: 'v1n3.11676767.xyz'
+    servername: 'vp5.1145678.xyz'
     client-fingerprint: 'chrome'
     network: 'ws'
     ws-opts:
-      path: '/go.php/products'
+      path: '/servicefp=chrome'
       headers:
-        Host: 'v1n3.11676767.xyz'
-  - name: 'ProxyRift 063'
-    type: 'vless'
-    server: 'sandstone.gerqix.online'
+        Host: 'vp5.1145678.xyz'
+  - name: 'ProxyRift 069'
+    type: 'hysteria2'
+    server: 'timewhite655.thebestqas.am'
     port: 443
     udp: true
-    uuid: '749b1c56-e658-4bf5-94bd-5c3286a4aed1'
+    password: 'f4b08bf1-d9bd-4755-aa88-ba922282c608'
+    tls: true
+    servername: 'timewhite655.thebestqas.am'
+  - name: 'ProxyRift 070'
+    type: 'vless'
+    server: '167.179.90.137'
+    port: 443
+    udp: true
+    uuid: 'bf14dc50-e9f2-49fd-8642-620446edeafb'
     encryption: 'none'
     tls: true
-    servername: 'sandstone.gerqix.online'
+    servername: 'v5-4b5.pages.dev'
+    client-fingerprint: 'chrome'
+    network: 'ws'
+    ws-opts:
+      path: '/'
+      headers:
+        Host: 'v5-4b5.pages.dev'
+  - name: 'ProxyRift 071'
+    type: 'ss'
+    server: '5.188.181.201'
+    port: 9011
+    cipher: 'aes-256-cfb'
+    password: 'M3t2ZEQcMGRWBjRa'
+    udp: true
+  - name: 'ProxyRift 072'
+    type: 'vless'
+    server: '138.124.37.196'
+    port: 443
+    udp: true
+    uuid: '97daeafa-0744-38a0-9441-74d6cdb63e80'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'lg.hel.play2go.cloud'
+    reality-opts:
+      public-key: 'r7gK1xDtZl5wDL59Teyw--KXacW1EjOT2mm0MdwY7gM'
+      short-id: '39b7084197ed8260'
+  - name: 'ProxyRift 073'
+    type: 'ss'
+    server: '91.201.65.122'
+    port: 9053
+    cipher: 'aes-256-cfb'
+    password: 'SBM7R883jBmnqe6C'
+    udp: true
+  - name: 'ProxyRift 074'
+    type: 'vless'
+    server: 'route-fi-de-waicore.unrealvpn.xyz'
+    port: 443
+    udp: true
+    uuid: '97daeafa-0744-38a0-9441-74d6cdb63e80'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'lg.hel.play2go.cloud'
     client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'r7gK1xDtZl5wDL59Teyw--KXacW1EjOT2mm0MdwY7gM'
+      short-id: '39b7084197ed8260'
+  - name: 'ProxyRift 075'
+    type: 'vless'
+    server: '89.22.224.146'
+    port: 43788
+    udp: true
+    uuid: 'acc10ba5-a222-44b3-8a1a-4f247ffc6466'
+    encryption: 'none'
+    tls: true
+    servername: 'c6dbx99g6stb418qeo.t3jmlj0r152zji4htdkm9.workers.dev'
+    client-fingerprint: 'chrome'
+    network: 'ws'
+    ws-opts:
+      path: '/@Marisa_kristi'
+      headers:
+        Host: 'c6dbx99g6stb418qeo.t3jmlj0r152zji4htdkm9.workers.dev'
+  - name: 'ProxyRift 076'
+    type: 'vless'
+    server: '141.193.213.20'
+    port: 2083
+    udp: true
+    uuid: '3b237274-8afd-4d22-b359-4a71f57b114b'
+    encryption: 'none'
+    tls: true
+    servername: 'cdn.zcstore.org'
+    client-fingerprint: 'chrome'
     alpn:
-      - 'h2'
+      - 'http/1.1'
+    network: 'ws'
+    ws-opts:
+      path: '/'
+      headers:
+        Host: 'cdn.zcstore.org'
+  - name: 'ProxyRift 077'
+    type: 'ss'
+    server: '91.201.65.122'
+    port: 9002
+    cipher: 'aes-256-cfb'
+    password: 'b8KkNDjEd5QqFyRm'
+    udp: true
+  - name: 'ProxyRift 078'
+    type: 'ss'
+    server: '5.188.181.201'
+    port: 9014
+    cipher: 'aes-256-cfb'
+    password: 'KnJGad3FqTvjqbaX'
+    udp: true
+  - name: 'ProxyRift 079'
+    type: 'vless'
+    server: '79.141.166.81'
+    port: 443
+    udp: true
+    uuid: 'ba373a70-295f-482d-a471-8bc17b54e23b'
+    tls: true
+    servername: 'hazelforge.xyz'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'pR39Vv5qhk8r6akOicoy6mMs4-ppSWUez8MyAXG7wwQ'
+      short-id: '27350908de933e09'
     network: 'grpc'
     grpc-opts:
-      grpc-service-name: 'glush.de6.v1'
-  - name: 'ProxyRift 064'
+      grpc-service-name: 'neurex'
+  - name: 'ProxyRift 080'
     type: 'ss'
-    server: '103.106.228.187'
-    port: 14603
-    cipher: 'aes-128-gcm'
-    password: '+kjIMXiRJevupAgyKqXN5e0HSd8aV22b'
+    server: '195.238.126.20'
+    port: 9008
+    cipher: 'aes-256-cfb'
+    password: 'y9VURyNzJWNRYEGQ'
     udp: true
-  - name: 'ProxyRift 065'
+  - name: 'ProxyRift 081'
+    type: 'ss'
+    server: '195.238.126.20'
+    port: 9045
+    cipher: 'aes-256-cfb'
+    password: 'Lp27rqyJq72bZsqX'
+    udp: true
+  - name: 'ProxyRift 082'
+    type: 'vmess'
+    server: '168.138.43.75'
+    port: 80
+    udp: true
+    uuid: '11c3627f-31e8-4695-dfbd-34076e2f1f5d'
+    alterId: 0
+    cipher: 'auto'
+    servername: 'jp01.a0a.xyz'
+    network: 'ws'
+    ws-opts:
+      path: '/cctv13.m3u8'
+  - name: 'ProxyRift 083'
+    type: 'ss'
+    server: '195.238.126.20'
+    port: 9002
+    cipher: 'aes-256-cfb'
+    password: 'b8KkNDjEd5QqFyRm'
+    udp: true
+  - name: 'ProxyRift 084'
+    type: 'ss'
+    server: 'jpa.123069.xyz'
+    port: 53758
+    cipher: 'aes-128-gcm'
+    password: 'Bwlqh7GcFB'
+    udp: true
+  - name: 'ProxyRift 085'
+    type: 'ss'
+    server: '195.238.126.20'
+    port: 9011
+    cipher: 'aes-256-cfb'
+    password: 'M3t2ZEQcMGRWBjRa'
+    udp: true
+  - name: 'ProxyRift 086'
+    type: 'vless'
+    server: '199.7.140.201'
+    port: 443
+    udp: true
+    uuid: 'a52ac672-0f5f-4070-b8fd-6b5685fc8004'
+    encryption: 'none'
+    tls: true
+    servername: 'www.cloudflare.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'LRAkgKlj5BPtVAGEIZfO5LvDZ5Eg91X0CBKIYhBC1jE'
+  - name: 'ProxyRift 087'
+    type: 'ss'
+    server: '217.30.10.44'
+    port: 9052
+    cipher: 'aes-256-cfb'
+    password: 'jt2ekBNc9HuVtm2a'
+    udp: true
+  - name: 'ProxyRift 088'
+    type: 'ss'
+    server: '217.30.10.44'
+    port: 9006
+    cipher: 'aes-256-cfb'
+    password: 'FAdUvMJUq5vDgKEq'
+    udp: true
+  - name: 'ProxyRift 089'
+    type: 'ss'
+    server: '51.222.141.125'
+    port: 445
+    cipher: 'aes-256-gcm'
+    password: 'zDNVedRFPQexG9v'
+    udp: true
+  - name: 'ProxyRift 090'
+    type: 'ss'
+    server: '217.30.10.44'
+    port: 9063
+    cipher: 'aes-256-cfb'
+    password: 'aQqJbtwFGcCCaeL3'
+    udp: true
+  - name: 'ProxyRift 091'
+    type: 'ss'
+    server: '195.238.126.20'
+    port: 9078
+    cipher: 'aes-256-cfb'
+    password: 'JCJpbRbQZNw9XFZG'
+    udp: true
+  - name: 'ProxyRift 092'
+    type: 'vless'
+    server: '7aa271t.es9.h1clayd.click'
+    port: 443
+    udp: true
+    uuid: '4201786b-d99b-4147-a5f0-20d47acddb81'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: '7aa271t.es9.h1clayd.click'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'ZSmetD4e9QG5CiXhniHg5HJB68L4kwbgAkJmMHtVwEE'
+      short-id: '42426c882c5fcd41'
+  - name: 'ProxyRift 093'
+    type: 'vless'
+    server: '195.206.235.232'
+    port: 443
+    udp: true
+    uuid: 'cda0862a-0f87-4be9-8ed8-1d0c9e382839'
+    encryption: 'none'
+    tls: true
+    servername: '5d0319t.nl7.h1clayd.click'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'l-GzBDuNuhnjxoRlZqKvT7jAt_sbVAxhGFsAttO5kXs'
+      short-id: '361d0dd59c70516f'
+  - name: 'ProxyRift 094'
+    type: 'ss'
+    server: '217.30.10.44'
+    port: 9071
+    cipher: 'aes-256-cfb'
+    password: 'mENfxTFQpRKKh4As'
+    udp: true
+  - name: 'ProxyRift 095'
+    type: 'vless'
+    server: 'de1.0a0.uk'
+    port: 443
+    udp: true
+    uuid: '4b1f802a-1004-4ab1-8f8a-a44c0cb70f87'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'rrpk5WSvxhvJQeXsGHN74r9umdeyrp76BkkPDjAgBDM'
+      short-id: 'd7f53772804d2cd0'
+  - name: 'ProxyRift 096'
+    type: 'vless'
+    server: '48.102.138.212'
+    port: 443
+    udp: true
+    uuid: 'e894c08a-fecc-46f5-bf03-c95d0274c79d'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'lesson13.schoolpizorbz.xyz'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'luf3doVXhkblZF7R3E5m1hc_e6dYmEn2rrgoGBvQaEU'
+      short-id: '68bf8009e520f8da'
+  - name: 'ProxyRift 097'
+    type: 'vless'
+    server: '158.220.113.176'
+    port: 80
+    udp: true
+    uuid: 'c762af05-2e92-4133-bc30-8cf45dd40a28'
+    encryption: 'none'
+    servername: '158.220.113.176'
+    network: 'ws'
+    ws-opts:
+      path: '/'
+      headers:
+        Host: 'suh.cryptofront.uk'
+  - name: 'ProxyRift 098'
+    type: 'vless'
+    server: '153.56.229.218'
+    port: 443
+    udp: true
+    uuid: 'ba0dbd83-3569-46dc-bc3d-ef6e58ffc97b'
+    encryption: 'none'
+    tls: true
+    servername: '71b840t.de7.h1clayd.click'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: '3wFF83gtIA0sXj-6GGCAa--oQbSr0MVUj0FBc-0QmiE'
+      short-id: 'e572b6579ea525d4'
+  - name: 'ProxyRift 099'
+    type: 'vless'
+    server: 'sparkling-gadabout.quick-cdn.net'
+    port: 443
+    udp: true
+    uuid: '484d6ef7-e018-4ca3-bb9d-ce05f47f4c7a'
+    encryption: 'none'
+    tls: true
+    servername: 'sparkling-gadabout.quick-cdn.net'
+    client-fingerprint: 'chrome'
+    network: 'ws'
+    ws-opts:
+      path: '/ws'
+      headers:
+        Host: 'sparkling-gadabout.quick-cdn.net'
+  - name: 'ProxyRift 100'
+    type: 'ss'
+    server: '49.254.204.134'
+    port: 1774
+    cipher: 'aes-256-cfb'
+    password: '1234!@#$'
+    udp: true
+  - name: 'ProxyRift 101'
+    type: 'vless'
+    server: '8a2e72t.nl20.h1clayd.shop'
+    port: 443
+    udp: true
+    uuid: '4201786b-d99b-4147-a5f0-20d47acddb81'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: '8a2e72t.nl20.h1clayd.shop'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'VZS639V1i-35g7VXb9EoTYL-Srm7858sxcvFAunncmA'
+      short-id: '8d0d0679f42ffd98'
+  - name: 'ProxyRift 102'
+    type: 'vless'
+    server: '116.213.43.43'
+    port: 11103
+    udp: true
+    uuid: 'bb836d81-d0c5-4f01-a584-806cdf65e36a'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'www.apple.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: '5NNdXPMTBLP-xeDKFwcG-j6u-c4DhXIfnlHMqMJZ4n4'
+      short-id: '9564e1a7a1cf8b3a'
+  - name: 'ProxyRift 103'
+    type: 'vless'
+    server: '87.120.252.67'
+    port: 443
+    udp: true
+    uuid: '8df59ae7-bf0b-42a4-90f1-824eb747a794'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'melious.ai'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: '6dc3iKXilOQpA_JFrKlk5-CsFjSmOm_5p0kSQcO9qi4'
+  - name: 'ProxyRift 104'
+    type: 'vless'
+    server: '48.103.231.76'
+    port: 443
+    udp: true
+    uuid: '4201786b-d99b-4147-a5f0-20d47acddb81'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: '8a2e72t.nl11.h1clayd.click'
+    client-fingerprint: 'firefox'
+    reality-opts:
+      public-key: 'VZS639V1i-35g7VXb9EoTYL-Srm7858sxcvFAunncmA'
+      short-id: '8d0d0679f42ffd98'
+  - name: 'ProxyRift 105'
+    type: 'vless'
+    server: '136.148.208.221'
+    port: 443
+    udp: true
+    uuid: '4201786b-d99b-4147-a5f0-20d47acddb81'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: '8a2e72t.nl20.h1clayd.shop'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'VZS639V1i-35g7VXb9EoTYL-Srm7858sxcvFAunncmA'
+      short-id: '8d0d0679f42ffd98'
+  - name: 'ProxyRift 106'
+    type: 'vless'
+    server: '169.40.42.90'
+    port: 443
+    udp: true
+    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'yahoo.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
+      short-id: 'c39cc7310a'
+  - name: 'ProxyRift 107'
+    type: 'ss'
+    server: '185.215.132.9'
+    port: 19999
+    cipher: 'aes-256-gcm'
+    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
+    udp: true
+  - name: 'ProxyRift 108'
+    type: 'ss'
+    server: '82.38.31.210'
+    port: 8080
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'k1dBOmOB4oqi7Ump37a1bQ'
+    udp: true
+  - name: 'ProxyRift 109'
+    type: 'ss'
+    server: '185.215.132.18'
+    port: 19999
+    cipher: 'aes-256-gcm'
+    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
+    udp: true
+  - name: 'ProxyRift 110'
+    type: 'ss'
+    server: '156.146.38.169'
+    port: 443
+    cipher: 'aes-128-gcm'
+    password: 'shadowsocks'
+    udp: true
+  - name: 'ProxyRift 111'
+    type: 'ss'
+    server: '37.19.198.160'
+    port: 443
+    cipher: 'aes-128-gcm'
+    password: 'shadowsocks'
+    udp: true
+  - name: 'ProxyRift 112'
+    type: 'vmess'
+    server: '38.128.66.249'
+    port: 1270
+    udp: true
+    uuid: '5c040f1d-45db-43bd-8d46-e4950e433735'
+    alterId: 0
+    cipher: 'auto'
+    tls: true
+    servername: 'xmfhlpy.com'
+  - name: 'ProxyRift 113'
+    type: 'vless'
+    server: '159.89.87.21'
+    port: 28190
+    udp: true
+    uuid: '14c80e0e-f7ce-4991-94fc-99a1db4a9b1e'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'aws.amazon.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'ZJRnFU-1s1JOnO8E9uZ7b00l1fPEh63fGRbdBANFRno'
+  - name: 'ProxyRift 114'
     type: 'vmess'
     server: '84.17.41.2'
     port: 18000
@@ -769,584 +1266,18 @@ proxies:
     uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
     alterId: 0
     cipher: 'auto'
-    servername: '84.17.41.2'
-  - name: 'ProxyRift 066'
-    type: 'ss'
-    server: '195.238.126.20'
-    port: 9012
-    cipher: 'aes-256-cfb'
-    password: 'xaupMUvhptwxdDUg'
-    udp: true
-  - name: 'ProxyRift 067'
-    type: 'ss'
-    server: '213.183.63.60'
-    port: 9061
-    cipher: 'aes-256-cfb'
-    password: '4R3hUfZ2FHhDmNcP'
-    udp: true
-  - name: 'ProxyRift 069'
-    type: 'ss'
-    server: '217.30.10.44'
-    port: 9063
-    cipher: 'aes-256-cfb'
-    password: 'aQqJbtwFGcCCaeL3'
-    udp: true
-  - name: 'ProxyRift 070'
-    type: 'vmess'
-    server: '134.195.196.211'
-    port: 18000
-    udp: true
-    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
-    alterId: 0
-    cipher: 'auto'
-    servername: '134.195.196.211'
-  - name: 'ProxyRift 071'
+    servername: 'bj1aa2zyjxyamyuk.v.3dns.vip'
+  - name: 'ProxyRift 115'
     type: 'vless'
     server: '169.40.42.74'
     port: 443
     udp: true
     uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
     flow: 'xtls-rprx-vision'
+    encryption: 'none'
     tls: true
     servername: 'yahoo.com'
     client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
-      short-id: 'c39cc7310a'
-  - name: 'ProxyRift 072'
-    type: 'vless'
-    server: '98.98.132.110'
-    port: 443
-    udp: true
-    uuid: 'e2f43a75-e683-4d09-96e8-3ad1f2e57100'
-    encryption: 'none'
-    tls: true
-    servername: 'a1116.afl7t8f.com'
-    client-fingerprint: 'chrome'
-    network: 'grpc'
-    grpc-opts:
-      grpc-service-name: '2e7d5cf6a7e50c564bfddf62c87e02e1'
-  - name: 'ProxyRift 073'
-    type: 'vless'
-    server: '194.180.191.249'
-    port: 443
-    udp: true
-    uuid: '817b61c8-9bf0-4365-8a52-e43dfad274a6'
-    tls: true
-    servername: 'shin-ra.ccwu.cc'
-    network: 'ws'
-    ws-opts:
-      path: '/fp=unsafe'
-      headers:
-        Host: 'shin-ra.ccwu.cc'
-  - name: 'ProxyRift 074'
-    type: 'vless'
-    server: '159.89.87.21'
-    port: 28190
-    udp: true
-    uuid: '14c80e0e-f7ce-4991-94fc-99a1db4a9b1e'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'aws.amazon.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'ZJRnFU-1s1JOnO8E9uZ7b00l1fPEh63fGRbdBANFRno'
-    alpn:
-      - 'networld_vpn-channel@.networld_vpn-channel@.networld_vpn-channel@.networld_vpn-channel@.networld_vpn-channel@.networld_vpn-channel@.networld_vpn-'
-  - name: 'ProxyRift 075'
-    type: 'vless'
-    server: '147.45.175.81'
-    port: 443
-    udp: true
-    uuid: 'c90395e6-2140-47ad-a54d-9b166729d3ef'
-    encryption: 'none'
-    tls: true
-    servername: 'xsru2.freeddns.org'
-    client-fingerprint: 'ios'
-    network: 'ws'
-    ws-opts:
-      path: '/wsru'
-      headers:
-        Host: 'xsru2.freeddns.org'
-  - name: 'ProxyRift 076'
-    type: 'vless'
-    server: '45.90.59.15'
-    port: 443
-    udp: true
-    uuid: '3950b45e-740d-4dca-ac95-505ec8534592'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'www.cloudflare.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'P7S4UPFlQbmiBr4txyy8NZIMTrmO3UdxyH16WBU-YzY'
-      short-id: '19253fae84102271'
-  - name: 'ProxyRift 077'
-    type: 'vless'
-    server: 'uspanel.unixzone.us'
-    port: 30016
-    udp: true
-    uuid: '03dc60cb-a8d4-4226-93fe-0e6cbf77fe5a'
-    servername: 'uspanel.unixzone.us'
-    network: 'ws'
-    ws-opts:
-      path: '/usserver'
-      headers:
-        Host: 'uspanel.unixzone.us'
-  - name: 'ProxyRift 078'
-    type: 'ss'
-    server: '103.115.17.65'
-    port: 8388
-    cipher: 'aes-256-gcm'
-    password: 'lnBTw6qYYXi6TXfp'
-    udp: true
-  - name: 'ProxyRift 079'
-    type: 'vless'
-    server: 'www.gov.se'
-    port: 8080
-    udp: true
-    uuid: '989d58b8-d2ea-4d28-b5ff-0f3cd078f2cf'
-    servername: 'www.gov.se'
-    network: 'ws'
-    ws-opts:
-      path: '/'
-      headers:
-        Host: 'sdf23g-billowing-moon-348e.mzm468gc.workers.dev'
-  - name: 'ProxyRift 080'
-    type: 'vless'
-    server: '47.84.226.221'
-    port: 443
-    udp: true
-    uuid: '49b91402-f8e3-4390-9d7b-b7eddc2684a4'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'www.samsung.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'gVQsvRtzd77zlvKW4Gk0dAOJNPRa7cfN1-jVe_AJ8Bo'
-      short-id: 'e1c483f9d4437d42'
-  - name: 'ProxyRift 081'
-    type: 'vless'
-    server: '178.105.133.160'
-    port: 4443
-    udp: true
-    uuid: 'c051d7bc-8a5c-415c-9f78-ddab3f337ba4'
-    tls: true
-    servername: '3tmj2egtm-fno.49bnithzk8vphybv36d1z1xkzfvogt2m6.workers.dev'
-    client-fingerprint: 'chrome'
-    network: 'ws'
-    ws-opts:
-      path: '/@Marisa_kristi'
-      headers:
-        Host: '3tmj2egtm-fno.49bnithzk8vphybv36d1z1xkzfvogt2m6.workers.dev'
-  - name: 'ProxyRift 082'
-    type: 'vless'
-    server: 'www.shopify.com'
-    port: 2083
-    udp: true
-    uuid: 'bf14dc50-e9f2-49fd-8642-620446edeafb'
-    tls: true
-    servername: 'v2-eh2.pages.dev'
-    client-fingerprint: 'chrome'
-    network: 'ws'
-    ws-opts:
-      path: '/'
-      headers:
-        Host: 'v2-eh2.pages.dev'
-  - name: 'ProxyRift 083'
-    type: 'vless'
-    server: '104.27.204.44'
-    port: 443
-    udp: true
-    uuid: '386d67dc-bf88-49fd-a570-301cbb013a33'
-    tls: true
-    servername: '9t94roac1ew8n93sdrq.pages.dev'
-    client-fingerprint: 'chrome'
-    network: 'ws'
-    ws-opts:
-      path: '/vl/x1qQUZWxHs5IRVeRUjz7AteYS?ed=2560'
-      headers:
-        Host: '9t94roac1ew8n93sdrq.pages.dev'
-  - name: 'ProxyRift 084'
-    type: 'vless'
-    server: '161.35.221.240'
-    port: 443
-    udp: true
-    uuid: '9be9e1e4-d1fc-4423-b22d-cd07a4381acb'
-    tls: true
-    servername: 'cj1-e06.pages.dev'
-    network: 'ws'
-    ws-opts:
-      path: '/fp=random'
-      headers:
-        Host: 'cj1-e06.pages.dev'
-  - name: 'ProxyRift 085'
-    type: 'vless'
-    server: '170.114.45.6'
-    port: 8080
-    udp: true
-    uuid: '990bf436-f1b9-4e7f-857d-14378acc4ae5'
-    servername: '170.114.45.6'
-    network: 'ws'
-    ws-opts:
-      path: '/'
-      headers:
-        Host: 'free.nadun.store'
-  - name: 'ProxyRift 086'
-    type: 'hysteria2'
-    server: '91.196.32.60'
-    port: 443
-    udp: true
-    password: 'b1490307-d693-4392-8f32-a3f7cc139202'
-    tls: true
-    servername: 'goldenlogin.newbuzideas.org'
-  - name: 'ProxyRift 087'
-    type: 'vless'
-    server: '8.35.211.188'
-    port: 8443
-    udp: true
-    uuid: '2b181a3a-c001-4145-845a-5d43a43837d5'
-    tls: true
-    servername: 'vpn-1fj.pages.dev'
-    client-fingerprint: 'chrome'
-    network: 'ws'
-    ws-opts:
-      path: '/'
-      headers:
-        Host: 'vpn-1fj.pages.dev'
-  - name: 'ProxyRift 088'
-    type: 'vless'
-    server: '13.140.56.100'
-    port: 14430
-    udp: true
-    uuid: '68512eac-cd53-4de3-8d1e-08f6e04af1a9'
-    servername: '13.140.56.100'
-    network: 'ws'
-    ws-opts:
-      path: '/vless'
-      headers:
-        Host: '13.140.56.100'
-  - name: 'ProxyRift 089'
-    type: 'vless'
-    server: '141.193.213.20'
-    port: 8443
-    udp: true
-    uuid: '4d8d9640-7cc7-4c55-ba54-6ce0d1709541'
-    encryption: 'none'
-    tls: true
-    servername: 'matrix.learnpodedu.com'
-    client-fingerprint: 'chrome'
-    network: 'ws'
-    ws-opts:
-      headers:
-        Host: 'matrix.learnpodedu.com'
-  - name: 'ProxyRift 090'
-    type: 'vless'
-    server: '169.40.42.202'
-    port: 443
-    udp: true
-    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'yahoo.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
-      short-id: 'c39cc7310a'
-  - name: 'ProxyRift 091'
-    type: 'vless'
-    server: '172.66.44.78'
-    port: 443
-    udp: true
-    uuid: '0d5a2112-789f-4755-88e6-61a1a8f8067b'
-    tls: true
-    servername: '14f7f5F0.MRBL69bLaCk.PagEs.dev'
-    client-fingerprint: 'chrome'
-    network: 'ws'
-    ws-opts:
-      path: '/I0IHonn0TGa2xaOO?ed'
-      headers:
-        Host: '14f7f5F0.MRBL69bLaCk.PagEs.dev'
-  - name: 'ProxyRift 092'
-    type: 'ss'
-    server: '129.150.59.74'
-    port: 14384
-    cipher: '2022-blake3-aes-256-gcm'
-    password: 'sUR6Ny8Y6PSvHhl/DUxconwxg6VZyFdsdfaVCvEatJo=:7bTEhHgpErKiRjE1ega+H6pcpJsNLFB0CjQseujAHrA='
-    udp: true
-  - name: 'ProxyRift 093'
-    type: 'vless'
-    server: '130.12.242.106'
-    port: 443
-    udp: true
-    uuid: 'bc058e69-0444-4c7b-98da-bd67f0b143da'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'deepl.com'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: 'vnjp7zIK2H3CGdjSis_79KXqS6IG-opmpbETPUD-EC8'
-      short-id: '15affa0af66dfc79'
-  - name: 'ProxyRift 094'
-    type: 'vmess'
-    server: '161.33.20.255'
-    port: 8880
-    udp: true
-    uuid: 'e0856508-d693-450a-a099-455091dc4f25'
-    alterId: 0
-    cipher: 'auto'
-    network: 'ws'
-    ws-opts:
-      path: '/e0856508-d693-450a-a099-455091dc4f25-vm'
-  - name: 'ProxyRift 095'
-    type: 'vless'
-    server: '150.251.113.34'
-    port: 443
-    udp: true
-    uuid: 'd7d724b5-17ce-4f3c-877d-dfbf0f07afa1'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'www.cloudflare.com'
-    reality-opts:
-      public-key: '8yMLSTbkpJFfbgTjNzotzz7U8OT6AERrclgKdKrXXW8'
-      short-id: '150a627d15154cf2'
-  - name: 'ProxyRift 096'
-    type: 'vless'
-    server: '152.69.226.63'
-    port: 25555
-    udp: true
-    uuid: '27c5483f-17f4-48ae-9a04-def53d88440d'
-    servername: '152.69.226.63'
-    network: 'ws'
-    ws-opts:
-      path: '/'
-  - name: 'ProxyRift 097'
-    type: 'ss'
-    server: '49.51.39.148'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'LCvps-199-168-136-193-bak8443'
-    udp: true
-  - name: 'ProxyRift 098'
-    type: 'vmess'
-    server: '38.91.107.49'
-    port: 18000
-    udp: true
-    uuid: 'f8c8dc3d-0d37-46b0-8b34-a7232882fcfe'
-    alterId: 0
-    cipher: 'auto'
-  - name: 'ProxyRift 099'
-    type: 'vless'
-    server: '162.159.130.234'
-    port: 2096
-    udp: true
-    uuid: '5d7b401c-78fa-4254-872e-6d42bf7e75ec'
-    encryption: 'none'
-    tls: true
-    servername: 'vp8.1145678.xyz'
-    network: 'ws'
-    ws-opts:
-      path: '/p'
-      headers:
-        Host: 'vp8.1145678.xyz'
-  - name: 'ProxyRift 100'
-    type: 'hysteria2'
-    server: 'pointsharbor.videostockmarket.org'
-    port: 443
-    udp: true
-    password: 'b1490307-d693-4392-8f32-a3f7cc139202'
-    tls: true
-    servername: 'pointsharbor.videostockmarket.org'
-  - name: 'ProxyRift 101'
-    type: 'vless'
-    server: '172.67.134.139'
-    port: 8443
-    udp: true
-    uuid: '53035563-df32-463c-b23a-5e14535793b2'
-    tls: true
-    servername: 'dimu-vz7e.ezaccess1717bbf.workers.dev'
-    client-fingerprint: 'ios'
-    network: 'ws'
-    ws-opts:
-      path: '/stream/DEVCOP/5e14535793b2?ed=2048'
-      headers:
-        Host: 'dimu-vz7e.ezaccess1717bbf.workers.dev'
-  - name: 'ProxyRift 102'
-    type: 'vmess'
-    server: '104.27.0.1'
-    port: 443
-    udp: true
-    uuid: '0cf6d970-3f1d-4aae-a989-92a8f76ae3db'
-    alterId: 0
-    cipher: 'auto'
-    tls: true
-    servername: 'vmess.lbw666.dpdns.org'
-    network: 'ws'
-    ws-opts:
-      path: '/ws'
-      headers:
-        Host: 'vmess.lbw666.dpdns.org'
-  - name: 'ProxyRift 103'
-    type: 'vless'
-    server: 'saas.sin.fan'
-    port: 2083
-    udp: true
-    uuid: '5d7b401c-78fa-4254-872e-6d42bf7e75ec'
-    encryption: 'none'
-    tls: true
-    servername: 'vp14.1145678.xyz'
-    client-fingerprint: 'chrome'
-    network: 'ws'
-    ws-opts:
-      path: '/community/redirect.html'
-      headers:
-        Host: 'vp14.1145678.xyz'
-  - name: 'ProxyRift 104'
-    type: 'vless'
-    server: '104.19.173.68'
-    port: 8080
-    udp: true
-    uuid: '2500e602-671c-4654-a602-c518b7282167'
-    encryption: 'none'
-    servername: '104.19.173.68'
-    network: 'ws'
-    ws-opts:
-      headers:
-        Host: '2639w-throbbing-band-3840.xphnn6jp.workers.dev'
-  - name: 'ProxyRift 105'
-    type: 'vless'
-    server: '15.204.97.195'
-    port: 23576
-    udp: true
-    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'fuck.rkn'
-    client-fingerprint: 'firefox'
-    reality-opts:
-      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
-      short-id: '01'
-  - name: 'ProxyRift 106'
-    type: 'vless'
-    server: '104.17.70.206'
-    port: 8443
-    udp: true
-    uuid: '1acec266-04ee-4769-b96b-402358531dcb'
-    encryption: 'none'
-    tls: true
-    servername: 'highspeed.sahanwickramasinghe.com'
-    client-fingerprint: 'firefox'
-    network: 'ws'
-    ws-opts:
-      path: '/'
-      headers:
-        Host: 'highspeed.sahanwickramasinghe.com'
-  - name: 'ProxyRift 107'
-    type: 'vless'
-    server: '38.207.172.59'
-    port: 28418
-    udp: true
-    uuid: 'e6552569-97ce-430c-a324-53ad1c546e05'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'op.gg'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'mfxE6lW_fuPZKWtrySdTx9HOh0vtX3-7aMiYDCh2YCA'
-      short-id: 'ddd21e20'
-  - name: 'ProxyRift 108'
-    type: 'vless'
-    server: '154.40.61.186'
-    port: 8443
-    udp: true
-    uuid: 'b69cf773-da16-486e-afce-a45b94f998b3'
-    encryption: 'none'
-    tls: true
-    servername: 'senflarelink-node-wj1gsa.pages.dev'
-    network: 'ws'
-    ws-opts:
-      path: '/flow=fp=chrome'
-      headers:
-        Host: 'senflarelink-node-wj1gsa.pages.dev'
-  - name: 'ProxyRift 109'
-    type: 'vless'
-    server: '104.27.97.42'
-    port: 8443
-    udp: true
-    uuid: '3692de53-42e6-4aed-a522-40ec355dcd2f'
-    tls: true
-    servername: 'free.sahanwickramasinghe.com'
-    client-fingerprint: 'chrome'
-    network: 'ws'
-    ws-opts:
-      path: '/'
-      headers:
-        Host: 'free.sahanwickramasinghe.com'
-  - name: 'ProxyRift 110'
-    type: 'ss'
-    server: '67.220.73.247'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'DGjtV63aPW3E'
-    udp: true
-  - name: 'ProxyRift 111'
-    type: 'ss'
-    server: '94.156.250.148'
-    port: 7001
-    cipher: 'aes-256-gcm'
-    password: 'RexnBgU7EV5ADxG'
-    udp: true
-  - name: 'ProxyRift 112'
-    type: 'vless'
-    server: '172.67.217.240'
-    port: 443
-    udp: true
-    uuid: '4e4f1f70-5e56-4a76-bb9d-db087f4690c4'
-    tls: true
-    servername: 'jp3.yohototo.top'
-    client-fingerprint: 'firefox'
-    network: 'ws'
-    ws-opts:
-      path: '/tyxyws'
-      headers:
-        Host: 'jp3.yohototo.top'
-  - name: 'ProxyRift 113'
-    type: 'vless'
-    server: '169.40.42.163'
-    port: 443
-    udp: true
-    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'yahoo.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
-      short-id: 'c39cc7310a'
-    alpn:
-      - 'h2'
-      - 'http/1.1'
-  - name: 'ProxyRift 114'
-    type: 'ss'
-    server: '185.215.132.9'
-    port: 19999
-    cipher: 'aes-256-gcm'
-    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
-    udp: true
-  - name: 'ProxyRift 115'
-    type: 'vless'
-    server: '169.40.42.231'
-    port: 443
-    udp: true
-    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'yahoo.com'
-    client-fingerprint: 'ios'
     reality-opts:
       public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
       short-id: 'c39cc7310a'
@@ -1359,217 +1290,32 @@ proxies:
     udp: true
   - name: 'ProxyRift 118'
     type: 'ss'
-    server: '67.217.56.100'
-    port: 14230
-    cipher: 'aes-128-gcm'
-    password: 'ahhpWAB4exD49AGpYyfwXs9cQSjX8CCL'
-    udp: true
-  - name: 'ProxyRift 119'
-    type: 'ss'
     server: '156.146.38.168'
     port: 443
     cipher: 'aes-128-gcm'
     password: 'shadowsocks'
     udp: true
-  - name: 'ProxyRift 120'
-    type: 'ss'
-    server: '38.22.17.139'
-    port: 19999
-    cipher: 'aes-256-gcm'
-    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
-    udp: true
-  - name: 'ProxyRift 121'
-    type: 'ss'
-    server: '138.197.89.234'
-    port: 28960
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'DZRy4Q3QH0jUGfKFl2jDCZ'
-    udp: true
-  - name: 'ProxyRift 122'
-    type: 'vmess'
-    server: '38.107.226.5'
-    port: 1270
-    udp: true
-    uuid: '5c040f1d-45db-43bd-8d46-e4950e433735'
-    alterId: 0
-    cipher: 'auto'
-    tls: true
-    servername: 'xmfhlpy.com'
-  - name: 'ProxyRift 123'
-    type: 'vmess'
-    server: '172.111.36.123'
-    port: 1270
-    udp: true
-    uuid: '5c040f1d-45db-43bd-8d46-e4950e433735'
-    alterId: 0
-    cipher: 'auto'
-    tls: true
-    servername: 'xmfhlpy.com'
-  - name: 'ProxyRift 124'
-    type: 'vmess'
-    server: '172.111.36.244'
-    port: 1270
-    udp: true
-    uuid: '5c040f1d-45db-43bd-8d46-e4950e433735'
-    alterId: 0
-    cipher: 'auto'
-    tls: true
-    servername: 'xmfhlpy.com'
-  - name: 'ProxyRift 125'
-    type: 'ss'
-    server: '107.151.182.197'
-    port: 8080
-    cipher: 'rc4-md5'
-    password: '14fFPrbezE3HDZzsMOr6'
-    udp: true
-  - name: 'ProxyRift 126'
-    type: 'ss'
-    server: '69.10.38.13'
-    port: 15104
-    cipher: 'aes-128-gcm'
-    password: 'Desw9iilCyeRRgmw5Do1OpF/gbEcN66L'
-    udp: true
-  - name: 'ProxyRift 127'
-    type: 'ss'
-    server: '149.40.57.135'
-    port: 19999
-    cipher: 'aes-256-gcm'
-    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
-    udp: true
-  - name: 'ProxyRift 128'
-    type: 'ss'
-    server: '193.151.163.18'
-    port: 19999
-    cipher: 'aes-256-gcm'
-    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
-    udp: true
-  - name: 'ProxyRift 129'
-    type: 'hysteria2'
-    server: '42fab11a-tm96o0-tnggms-6gn6.los.hyhuawei.com'
-    port: 443
-    udp: true
-    password: 'c12f73f6-e8c7-11ed-9246-f23c9164ca5d'
-    tls: true
-    servername: '42fab11a-tm96o0-tnggms-6gn6.los.hyhuawei.com'
-  - name: 'ProxyRift 130'
-    type: 'ss'
-    server: '98.98.79.198'
-    port: 8080
-    cipher: 'rc4-md5'
-    password: '14fFPrbezE3HDZzsMOr6'
-    udp: true
-  - name: 'ProxyRift 131'
-    type: 'vless'
-    server: '45.144.112.55'
-    port: 443
-    udp: true
-    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
-    flow: 'xtls-rprx-vision'
-    encryption: 'none'
-    tls: true
-    servername: 'yahoo.com'
-    reality-opts:
-      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
-      short-id: 'c39cc7310a'
-  - name: 'ProxyRift 132'
-    type: 'ss'
-    server: '216.105.168.18'
-    port: 443
-    cipher: 'chacha20-ietf-poly1305'
-    password: 'bQZl7HDxSabr1FurTYQHFU'
-    udp: true
-  - name: 'ProxyRift 133'
-    type: 'ss'
-    server: '69.164.240.86'
-    port: 10880
-    cipher: 'aes-128-gcm'
-    password: 'f6Oh/aMf3QHAjTjqMBpcaDbmH8wL4nxz'
-    udp: true
-  - name: 'ProxyRift 134'
-    type: 'vless'
-    server: '169.40.42.168'
-    port: 443
-    udp: true
-    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
-    flow: 'xtls-rprx-vision'
-    tls: true
-    servername: 'yahoo.com'
-    client-fingerprint: 'chrome'
-    reality-opts:
-      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
-      short-id: 'c39cc7310a'
-  - name: 'ProxyRift 135'
-    type: 'hysteria2'
-    server: 'trendslate.nem-osh-rkp.net'
-    port: 443
-    udp: true
-    password: 'b1490307-d693-4392-8f32-a3f7cc139202'
-    tls: true
-    servername: 'trendslate.nem-osh-rkp.net'
-  - name: 'ProxyRift 136'
-    type: 'hysteria2'
-    server: '152.89.244.205'
-    port: 443
-    udp: true
-    password: 'b1490307-d693-4392-8f32-a3f7cc139202'
-    tls: true
-    servername: 'userroute.dost-self.co.uk'
-  - name: 'ProxyRift 137'
+  - name: 'ProxyRift 119'
     type: 'ss'
     server: '108.181.88.2'
     port: 443
     cipher: 'chacha20-ietf-poly1305'
     password: '6yzcGxLalx0T'
     udp: true
-  - name: 'ProxyRift 138'
-    type: 'vmess'
-    server: '172.111.38.246'
-    port: 1270
-    udp: true
-    uuid: '5c040f1d-45db-43bd-8d46-e4950e433735'
-    alterId: 0
-    cipher: 'auto'
-    tls: true
-    servername: 'xmfhlpy.com'
-    client-fingerprint: 'chrome'
-  - name: 'ProxyRift 139'
-    type: 'vmess'
-    server: '167.88.63.99'
-    port: 1270
-    udp: true
-    uuid: '5c040f1d-45db-43bd-8d46-e4950e433735'
-    alterId: 0
-    cipher: 'auto'
-    tls: true
-    servername: 'xmfhlpy.com'
-  - name: 'ProxyRift 140'
-    type: 'ss'
-    server: '95.215.201.18'
-    port: 19999
-    cipher: 'aes-256-gcm'
-    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
-    udp: true
-  - name: 'ProxyRift 141'
-    type: 'ss'
-    server: '173.244.56.6'
-    port: 443
-    cipher: 'aes-128-gcm'
-    password: 'shadowsocks'
-    udp: true
-  - name: 'ProxyRift 142'
+  - name: 'ProxyRift 120'
     type: 'vless'
-    server: 'edge-relay-c9db.edge-edge-relay-be8e.workers.dev'
-    port: 443
+    server: '69.48.201.136'
+    port: 30016
     udp: true
-    uuid: '8a540f3b-04c7-4e22-924a-51a0b6fad164'
-    tls: true
-    servername: 'edge-relay-c9db.edge-edge-relay-be8e.workers.dev'
-    client-fingerprint: 'chrome'
+    uuid: '03dc60cb-a8d4-4226-93fe-0e6cbf77fe5a'
+    encryption: 'none'
+    servername: '69.48.201.136'
     network: 'ws'
     ws-opts:
+      path: '/usserver'
       headers:
-        Host: 'edge-relay-c9db.edge-edge-relay-be8e.workers.dev'
-  - name: 'ProxyRift 143'
+        Host: 'zoom.us'
+  - name: 'ProxyRift 121'
     type: 'vless'
     server: 'xray1-direct-mci1-fs-ce.freesocks.work'
     port: 443
@@ -1582,7 +1328,146 @@ proxies:
     client-fingerprint: 'chrome'
     reality-opts:
       public-key: '7j3hmlHrEDk3Kjx-dFG3E3jf0c6PZF45trIPFsuKWmI'
-  - name: 'ProxyRift 144'
+  - name: 'ProxyRift 122'
+    type: 'ss'
+    server: '138.197.89.234'
+    port: 28960
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'DZRy4Q3QH0jUGfKFl2jDCZ'
+    udp: true
+  - name: 'ProxyRift 123'
+    type: 'ss'
+    server: '69.164.240.86'
+    port: 10880
+    cipher: 'aes-128-gcm'
+    password: 'f6Oh/aMf3QHAjTjqMBpcaDbmH8wL4nxz'
+    udp: true
+  - name: 'ProxyRift 124'
+    type: 'ss'
+    server: '38.22.17.139'
+    port: 19999
+    cipher: 'aes-256-gcm'
+    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
+    udp: true
+  - name: 'ProxyRift 125'
+    type: 'vmess'
+    server: '38.107.226.5'
+    port: 1270
+    udp: true
+    uuid: '5c040f1d-45db-43bd-8d46-e4950e433735'
+    alterId: 0
+    cipher: 'auto'
+    tls: true
+    servername: 'xmfhlpy.com'
+  - name: 'ProxyRift 126'
+    type: 'vmess'
+    server: '172.111.36.123'
+    port: 1270
+    udp: true
+    uuid: '5c040f1d-45db-43bd-8d46-e4950e433735'
+    alterId: 0
+    cipher: 'auto'
+    tls: true
+    servername: 'xmfhlpy.com'
+  - name: 'ProxyRift 127'
+    type: 'ss'
+    server: '98.98.79.198'
+    port: 8080
+    cipher: 'rc4-md5'
+    password: '14fFPrbezE3HDZzsMOr6'
+    udp: true
+  - name: 'ProxyRift 128'
+    type: 'vmess'
+    server: '167.88.63.99'
+    port: 1270
+    udp: true
+    uuid: '5c040f1d-45db-43bd-8d46-e4950e433735'
+    alterId: 0
+    cipher: 'auto'
+    tls: true
+    servername: 'xmfhlpy.com'
+  - name: 'ProxyRift 129'
+    type: 'hysteria2'
+    server: '42fab11a-tm96o0-tnggms-6gn6.los.hyhuawei.com'
+    port: 443
+    udp: true
+    password: 'c12f73f6-e8c7-11ed-9246-f23c9164ca5d'
+    tls: true
+    servername: '42fab11a-tm96o0-tnggms-6gn6.los.hyhuawei.com'
+  - name: 'ProxyRift 130'
+    type: 'ss'
+    server: '193.151.163.18'
+    port: 19999
+    cipher: 'aes-256-gcm'
+    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
+    udp: true
+  - name: 'ProxyRift 131'
+    type: 'vmess'
+    server: '172.111.38.246'
+    port: 1270
+    udp: true
+    uuid: '5c040f1d-45db-43bd-8d46-e4950e433735'
+    alterId: 0
+    cipher: 'auto'
+    tls: true
+    servername: 'xmfhlpy.com'
+    client-fingerprint: 'chrome'
+  - name: 'ProxyRift 132'
+    type: 'ss'
+    server: '149.40.57.135'
+    port: 19999
+    cipher: 'aes-256-gcm'
+    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
+    udp: true
+  - name: 'ProxyRift 133'
+    type: 'ss'
+    server: '95.215.201.18'
+    port: 19999
+    cipher: 'aes-256-gcm'
+    password: 'ZRpgaBeGxtENIXgvhpkZBKz9GnWRS2dYcx9O+a2iwN4='
+    udp: true
+  - name: 'ProxyRift 134'
+    type: 'ss'
+    server: '38.99.82.34'
+    port: 443
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'TyWIy6paiFUX'
+    udp: true
+  - name: 'ProxyRift 135'
+    type: 'ss'
+    server: '107.151.182.197'
+    port: 8080
+    cipher: 'rc4-md5'
+    password: '14fFPrbezE3HDZzsMOr6'
+    udp: true
+  - name: 'ProxyRift 136'
+    type: 'ss'
+    server: '173.244.56.6'
+    port: 443
+    cipher: 'aes-128-gcm'
+    password: 'shadowsocks'
+    udp: true
+  - name: 'ProxyRift 137'
+    type: 'vless'
+    server: '169.40.42.168'
+    port: 443
+    udp: true
+    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
+    flow: 'xtls-rprx-vision'
+    tls: true
+    servername: 'yahoo.com'
+    client-fingerprint: 'chrome'
+    reality-opts:
+      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
+      short-id: 'c39cc7310a'
+  - name: 'ProxyRift 138'
+    type: 'vless'
+    server: '45.138.100.248'
+    port: 10443
+    udp: true
+    uuid: 'ae908ff5-f749-402c-af25-e6e9aef4d6bb'
+    servername: '45.138.100.248'
+  - name: 'ProxyRift 139'
     type: 'vless'
     server: '45.138.100.248'
     port: 14430
@@ -1595,3 +1480,61 @@ proxies:
       path: '/vless'
       headers:
         Host: '45.138.100.248'
+  - name: 'ProxyRift 140'
+    type: 'vless'
+    server: '45.144.112.55'
+    port: 443
+    udp: true
+    uuid: 'd65cc14c-f53f-4fe2-b262-97856601319c'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'yahoo.com'
+    reality-opts:
+      public-key: 'e2RLf57Li_-MDZGE9ss1BWPgP54mqRb5PfXhW2jcVVg'
+      short-id: 'c39cc7310a'
+  - name: 'ProxyRift 141'
+    type: 'vless'
+    server: '51.158.206.34'
+    port: 23576
+    udp: true
+    uuid: '48ff2b70-e180-582f-8866-d9a2edeed5f5'
+    flow: 'xtls-rprx-vision'
+    encryption: 'none'
+    tls: true
+    servername: 'fuck.rkn'
+    reality-opts:
+      public-key: '1y5h2FGWKXTJ9xLPCqPo6Mw7RxoZzh6fGkEQKNxpZ3s'
+      short-id: '01'
+  - name: 'ProxyRift 142'
+    type: 'ss'
+    server: '109.201.152.181'
+    port: 443
+    cipher: 'aes-128-cfb'
+    password: 'shadowsocks'
+    udp: true
+  - name: 'ProxyRift 143'
+    type: 'ss'
+    server: '193.29.139.168'
+    port: 8080
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'QCXDxuDlTTMD7jtgHUjIoj'
+    udp: true
+  - name: 'ProxyRift 144'
+    type: 'ss'
+    server: '23.162.152.245'
+    port: 443
+    cipher: 'chacha20-ietf-poly1305'
+    password: 'ySGkGhr2sKHV'
+    udp: true
+  - name: 'ProxyRift 145'
+    type: 'vless'
+    server: '94.130.237.57'
+    port: 27154
+    udp: true
+    uuid: 'd9d02f3e-c877-4a1f-990e-f2418777f745'
+    encryption: 'none'
+    servername: '94.130.237.57'
+    network: 'grpc'
+    grpc-opts:
+      grpc-service-name: 'Telegram=@AmyraxVPN'
